@@ -20,7 +20,7 @@ class Kagami(commands.Bot):
             if file.endswith(".py"):
                 name = file[:-3]
                 await self.load_extension(f"cogs.{name}")
-        # await bot.tree.sync()
+        # await self.tree.sync()
 
     async def on_ready(self):
         print(f"Logged in as {self.user} (ID: {self.user.id})")
