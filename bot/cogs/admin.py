@@ -17,11 +17,25 @@ class Admin(commands.Cog):
         self.bot = bot
         self.config = bot.config
 
-    @commands.hybrid_command(name="sync", description="syncs the command tree")
-    @is_developer()
+    @commands.command(name="sync", description="syncs the command tree")
+    @commands.is_owner()
     async def sync_command_tree(self, ctx):
         await self.bot.tree.sync()
         await ctx.send("Command Tree Synced", ephemeral=True)
+
+    @commands.command(name="reload_all", description="reloads all cogs")
+    @commands.is_owner()
+    async def reload_all_cogs(self, ctx):
+        for file in os.listdir("bot/cogs"):
+            if file.endswith(".py"):
+                name = file[:-3]
+                await self.bot.reload_extension(f"cogs.{name}")
+        await ctx.send("Reloaded all cogs")
+
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        if isinstance(error, commands.NotOwner):
+            await ctx.send("Only developers can use that command")
 
 
 async def setup(bot):

@@ -4,13 +4,18 @@ import discord
 import discord.utils
 import asyncio
 from discord.ext import commands
+import subprocess
+import threading
+import multiprocessing
 
 
 class Kagami(commands.Bot):
     def __init__(self):
         with open("bot/data/config.json") as f:
             self.config = json.load(f)
-        super(Kagami, self).__init__(command_prefix=self.config["prefix"], intents=discord.Intents().all())
+        super(Kagami, self).__init__(command_prefix=self.config["prefix"],
+                                     intents=discord.Intents().all(),
+                                     owner_id=self.config["owner"])
 
     def start_bot(self):
         self.run(self.config["token"])

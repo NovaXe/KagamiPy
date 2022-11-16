@@ -17,6 +17,12 @@ music functionality
 -queue, active sessions
 -play/pause
 -youtube,spotify,files
+-dj host
+-looping
+-volume control
+-skipping
+-
+
 
 auto reactions
 reaction event handling

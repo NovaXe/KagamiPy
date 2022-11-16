@@ -1,19 +1,15 @@
-import json
-import os
 from typing import List
 
 from PIL import Image
 from PIL import ImageDraw
 from PIL import ImageFont
-import aiohttp
 from io import BytesIO
 
 import discord
 import discord.utils
 from discord.ext import commands
 from discord import app_commands
-from utils import modals
-import random
+from bot.utils import modals
 
 
 class Fun(commands.Cog):
