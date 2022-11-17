@@ -81,6 +81,7 @@ class Music(commands.Cog):
         self.bot = bot
         self.config = bot.config
         self.player = None
+        self.players = {}
         bot.loop.create_task(self.connect_nodes())
 
     async def connect_nodes(self):
@@ -101,10 +102,11 @@ class Music(commands.Cog):
             return None
         channel = user_voice.channel
         voice_client = interaction.guild.voice_client
-        if self.player is None:
-            self.player = Player(dj_user=interaction.user, dj_channel=interaction.channel)
+
+        if self.players[interaction.guild_id] is None:
+            self.players[interaction.guild_id] = Player(dj_user=interaction.user, dj_channel=interaction.channel)
             if voice_client is None:
-                voice_client: Player = await channel.connect(cls=self.player)
+                voice_client: Player = await channel.connect(cls=self.players[interaction.guild_id])
             return voice_client
         return voice_client
 
@@ -117,10 +119,10 @@ class Music(commands.Cog):
 
     @app_commands.command(name="leave", description="leaves the channel")
     async def leave_channel(self, interaction: discord.Interaction):
-        if self.player is None:
+        if self.players[interaction.guild_id] is None:
             await interaction.response.send_message("I am not in a voice channel")
-        await self.player.disconnect()
-        self.player = None
+        await self.players[interaction.guild_id].disconnect()
+        self.players.pop(interaction.guild_id)
         await interaction.response.send_message("I have left the voice channel")
 
     @app_commands.command(name="play", description="plays/adds the given song")
@@ -128,7 +130,7 @@ class Music(commands.Cog):
         message = ""
         if interaction.guild.voice_client:
             if search is None:
-                await self.player.resume()
+                await self.players[interaction.guild_id].resume()
                 await interaction.response.send_message(content="Resumed the player")
                 return
         voice_client: Player = await self.attempt_to_join_channel(interaction)
@@ -139,31 +141,31 @@ class Music(commands.Cog):
         is_yt_url = bool(YT_URL_REG.search(search))
         if is_yt_url:
             track = await voice_client.node.get_tracks(query=search, cls=wavelink.YouTubeTrack)
-            self.player.add_to_queue(single=False, track=track)
+            self.players[interaction.guild_id].add_to_queue(single=False, track=track)
         else:
             track = await wavelink.YouTubeTrack.search(query=search, return_first=True)
-            self.player.add_to_queue(single=True, track=track)
+            self.players[interaction.guild_id].add_to_queue(single=True, track=track)
 
         await interaction.response.send_message(f"**{track.title}** was added to the queue", ephemeral=False)
 
-        if self.player.current_track is None:
-            await self.player.play_next_track()
-            # await self.player.cycle_track()
-            # await self.player.start_current_track()
+        if self.players[interaction.guild_id].current_track is None:
+            await self.players[interaction.guild_id].play_next_track()
+            # await self.players[interaction.guild_id].cycle_track()
+            # await self.players[interaction.guild_id].start_current_track()
 
     @app_commands.command(name="queue", description="shows the track queue")
     async def show_queue(self, interaction: discord.Interaction):
-        if self.player is None:
+        if self.players[interaction.guild_id] is None:
             await interaction.response.send_message("There is currently no voice session")
-        currently_playing = self.player.current_track
-        queue_as_list = list(reversed([track for track in self.player.queue.copy()]))
+        currently_playing = self.players[interaction.guild_id].current_track
+        queue_as_list = list(reversed([track for track in self.players[interaction.guild_id].queue.copy()]))
         queue_message = "\n".join([f"**{len(queue_as_list) - index})**   *{track.title}*"
                                    f"   {int((track.length/60))}:{int(track.length%60):02}"
                                    for index, track in enumerate(queue_as_list)])
 
         if currently_playing is not None:
             queue_message += f"\nNow Playing\n{currently_playing.title}" \
-                             f"   {int(self.player.position/60)}:{int(self.player.position % 60):02}" \
+                             f"   {int(self.players[interaction.guild_id].position / 60)}:{int(self.players[interaction.guild_id].position % 60):02}" \
                              f" / {int(currently_playing.length/60)}:{int(currently_playing.length%60):02}"
         else:
             queue_message += ">> Nothing is currently Playing"
@@ -171,11 +173,11 @@ class Music(commands.Cog):
 
     async def toggle_pause(self, interaction: discord.Interaction = None):
         message: str = None
-        if self.player.is_paused():
-            await self.player.resume()
+        if self.players[interaction.guild_id].is_paused():
+            await self.players[interaction.guild_id].resume()
             message = "Resumed the player"
         else:
-            await self.player.pause()
+            await self.players[interaction.guild_id].pause()
             message = "Paused the player"
         if interaction is None:
             return
@@ -187,48 +189,48 @@ class Music(commands.Cog):
 
     @app_commands.command(name="resume", description="resumes the player")
     async def resume_song(self, interaction: discord.Interaction):
-        await self.player.resume()
+        await self.players[interaction.guild_id].resume()
         await interaction.response.send_message(content="Resumed the player", ephemeral=True)
 
     @app_commands.command(name="skip", description="skips the currently playing song")
     async def skip_song(self, interaction: discord.Interaction, skip_count: int=1):
         for i in range(skip_count):
-            await self.player.cycle_track()
-        await self.player.stop()
-        await self.player.start_current_track()
+            await self.players[interaction.guild_id].cycle_track()
+        await self.players[interaction.guild_id].stop()
+        await self.players[interaction.guild_id].start_current_track()
         await interaction.response.send_message("skipped song")
 
     @app_commands.command(name="jumpto", description="jumps to the given spot in the queue")
     async def jump_to(self, interaction: discord.Interaction, index: int):
         for i in range(index+1):
-            await self.player.cycle_track()
-        await self.player.stop()
-        await self.player.start_current_track()
+            await self.players[interaction.guild_id].cycle_track()
+        await self.players[interaction.guild_id].stop()
+        await self.players[interaction.guild_id].start_current_track()
         await interaction.response.send_message(f"Jumped to position {index} in the queue")
 
     @app_commands.command(name="clear", description="clears the entire queue")
     async def clear_queue(self, interaction: discord.Interaction):
-        queue_size = self.player.queue.count
-        await self.player.queue.clear()
-        await self.player.history.clear()
+        queue_size = self.players[interaction.guild_id].queue.count
+        await self.players[interaction.guild_id].queue.clear()
+        await self.players[interaction.guild_id].history.clear()
         await interaction.response.send_message(f"Cleared {queue_size} tracks from the queue")
 
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, player: Player, track: wavelink.Track, reason):
 
-        await self.player.play_next_track()
+        await player.play_next_track()
 
     @commands.Cog.listener()
     async def on_wavelink_track_exception(self, player: Player, track: wavelink.Track, error):
-        await self.player.play_next_track()
+        await player.play_next_track()
 
     @commands.Cog.listener()
     async def on_wavelink_track_stuck(self, player: Player, track: wavelink.Track, threshold):
-        await self.player.play_next_track()
+        await player.play_next_track()
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, player: Player, track: wavelink.Track):
-        await self.player.dj_channel.send(content=f"Now Playing **{track.title}**")
+        await player.dj_channel.send(content=f"Now Playing **{track.title}**")
 
 
 
