@@ -16,6 +16,7 @@ from enum import Enum
 
 URL_REG = re.compile(r'https?://(?:www\.)?.+')
 YT_URL_REG = re.compile(r"(?:https://)(?:www\.)?(?:youtube|youtu\.be)(?:\.com)?\/(?:watch\?v=)?(.{11})")
+YT_PLAYLIST_REG = re.compile(r"[\?|&](list=)(.*)\&")
 
 
 class LoopMode(Enum):
@@ -46,6 +47,7 @@ class Player(wavelink.Player):
     async def play_next_track(self):
         await self.cycle_track()
         await self.start_current_track()
+        # print("next track played\n")
         # if self.queue.is_empty:
         #     self.current_track = None
         #     return
@@ -54,12 +56,16 @@ class Player(wavelink.Player):
         # self.current_track = self.queue.get()
         # await self.play(source=self.current_track, replace=True)
 
+    async def play_previous_track(self):
+        await self.cycle_track(reverse=True)
+        await self.start_current_track()
+
     async def start_current_track(self):
         if self.current_track is None:
             return
         await self.play(source=self.current_track, replace=True)
 
-    async def cycle_track(self, reverse:bool = False):
+    async def cycle_track(self, reverse: bool = False):
         if reverse:
             if self.current_track is not None:
                 self.queue.put_at_front(self.current_track)
@@ -74,6 +80,7 @@ class Player(wavelink.Player):
                 self.current_track = self.queue.get()
             else:
                 self.current_track = None
+        # print("cycled track\n")
 
 
 class Music(commands.Cog):
@@ -88,7 +95,7 @@ class Music(commands.Cog):
         await self.bot.wait_until_ready()
         await wavelink.NodePool.create_node(bot=self.bot,
                                             host='127.0.0.1',
-                                            port=3333,
+                                            port=4762,
                                             password='KagamiLavalink1337')
 
     @commands.Cog.listener()
@@ -103,7 +110,7 @@ class Music(commands.Cog):
         channel = user_voice.channel
         voice_client = interaction.guild.voice_client
 
-        if self.players[interaction.guild_id] is None:
+        if interaction.guild_id not in self.players:
             self.players[interaction.guild_id] = Player(dj_user=interaction.user, dj_channel=interaction.channel)
             if voice_client is None:
                 voice_client: Player = await channel.connect(cls=self.players[interaction.guild_id])
@@ -119,7 +126,7 @@ class Music(commands.Cog):
 
     @app_commands.command(name="leave", description="leaves the channel")
     async def leave_channel(self, interaction: discord.Interaction):
-        if self.players[interaction.guild_id] is None:
+        if interaction.guild_id not in self.players:
             await interaction.response.send_message("I am not in a voice channel")
         await self.players[interaction.guild_id].disconnect()
         self.players.pop(interaction.guild_id)
@@ -139,14 +146,35 @@ class Music(commands.Cog):
             return
 
         is_yt_url = bool(YT_URL_REG.search(search))
+        titles = ""
         if is_yt_url:
-            track = await voice_client.node.get_tracks(query=search, cls=wavelink.YouTubeTrack)
-            self.players[interaction.guild_id].add_to_queue(single=False, track=track)
+            if "list=" in search:
+                playlist = await voice_client.node.get_playlist(identifier=search, cls=wavelink.YouTubePlaylist)
+                if "playlist" in search:
+                    tracks = playlist.tracks
+                else:
+                    tracks = [playlist.tracks[playlist.selected_track]]
+            else:
+                tracks = await voice_client.node.get_tracks(query=search, cls=wavelink.YouTubeTrack)
+            self.players[interaction.guild_id].add_to_queue(single=False, track=tracks)
+            titles = ""
+            for i, track in enumerate(tracks):
+                title = track.title
+                if len(titles + title) < 1800:
+                    titles += title + "\n"
+                else:
+                    titles += f"and {i} more songs\n"
+                    break
+
+            # titles = '\n'.join([t.title for t in tracks])
         else:
             track = await wavelink.YouTubeTrack.search(query=search, return_first=True)
             self.players[interaction.guild_id].add_to_queue(single=True, track=track)
+            titles = track.title
 
-        await interaction.response.send_message(f"**{track.title}** was added to the queue", ephemeral=False)
+
+
+        await interaction.response.send_message(f"**{titles}**was added to the queue", ephemeral=False)
 
         if self.players[interaction.guild_id].current_track is None:
             await self.players[interaction.guild_id].play_next_track()
@@ -155,21 +183,119 @@ class Music(commands.Cog):
 
     @app_commands.command(name="queue", description="shows the track queue")
     async def show_queue(self, interaction: discord.Interaction):
-        if self.players[interaction.guild_id] is None:
+        if interaction.guild_id not in self.players:
             await interaction.response.send_message("There is currently no voice session")
-        currently_playing = self.players[interaction.guild_id].current_track
-        queue_as_list = list(reversed([track for track in self.players[interaction.guild_id].queue.copy()]))
-        queue_message = "\n".join([f"**{len(queue_as_list) - index})**   *{track.title}*"
-                                   f"   {int((track.length/60))}:{int(track.length%60):02}"
-                                   for index, track in enumerate(queue_as_list)])
+            return
 
-        if currently_playing is not None:
-            queue_message += f"\nNow Playing\n{currently_playing.title}" \
-                             f"   {int(self.players[interaction.guild_id].position / 60)}:{int(self.players[interaction.guild_id].position % 60):02}" \
-                             f" / {int(currently_playing.length/60)}:{int(currently_playing.length%60):02}"
+        now_playing = self.players[interaction.guild_id].current_track
+        history_list = list(reversed(list(self.players[interaction.guild_id].history)[:10]))
+        queue_list = list(self.players[interaction.guild_id].queue)[:10]
+        message = "```swift\n"
+
+        for index, track in enumerate(history_list):
+            title = ""
+            title_length = len(track.title)
+            if title_length > 36:
+                if title_length <= 40:
+                    title = track.title.ljust(40)
+                else:
+                    title = (track.title[:36] + " ...").ljust(40)
+            else:
+                title = track.title.ljust(40)
+
+            position = (str(len(history_list) - index) + ")").ljust(5)
+            message += f"{position} {title}" \
+                       f"  -  {int((track.length / 60))}:{int(track.length % 60):02}\n"
+        if len(history_list):
+            message += f"      🡅Previous🡅\n"
+            message += "──────────────────────────\n"
+        if now_playing:
+
+            message += f"NOW PLAYING ➤ {now_playing.title}" \
+                       f"  -  {int(self.players[interaction.guild_id].position / 60)}" \
+                       f":{int(self.players[interaction.guild_id].position % 60):02}" \
+                       f" / {int(now_playing.length / 60)}:{int(now_playing.length % 60):02}\n"
         else:
-            queue_message += ">> Nothing is currently Playing"
-        await interaction.response.send_message(content=queue_message)
+            if not history_list and not queue_list:
+                message += "The queue is empty"
+            else:
+                message += f"__**NOW PLAYING**__ ➤ Nothing"
+        if len(queue_list):
+            message += "──────────────────────────\n"
+            message += "      🡇Up Next🡇\n"
+
+        for index, track in enumerate(queue_list):
+            title = ""
+            title_length = len(track.title)
+            if title_length > 36:
+                if title_length <= 40:
+                    title = track.title.ljust(40)
+                else:
+                    title = (track.title[:36] + " ...").ljust(40)
+            else:
+                title = track.title.ljust(40)
+            position = (str(index + 1) + ")").ljust(5)
+            message += f"{position} {title}  -  {int((track.length / 60))}:{int(track.length % 60):02}\n"
+        message += "\n```"
+        await interaction.response.send_message(content=message)
+
+    # @app_commands.command(name="queue", description="shows the track queue")
+    # async def show_queue(self, interaction: discord.Interaction):
+    #     if interaction.guild_id not in self.players:
+    #         await interaction.response.send_message("There is currently no voice session")
+    #         return
+    #
+    #     now_playing = self.players[interaction.guild_id].current_track
+    #     history_list = list(reversed(list(self.players[interaction.guild_id].history)[:10]))
+    #     queue_list = list(self.players[interaction.guild_id].queue)[:10]
+    #     message = ""
+    #
+    #     for index, track in enumerate(history_list):
+    #         title = ""
+    #         title_length = len(track.title)
+    #         if title_length > 38:
+    #             if title_length <= 40:
+    #                 title = track.title
+    #             else:
+    #                 title = (track.title[:38] + "...").ljust(40, ' ')
+    #         else:
+    #             title = track.title.ljust(40)
+    #
+    #         title_remove = track.title[38:]
+    #         position = (str(len(history_list) - index) + ")").ljust(5)
+    #         message += f"**{position}** {int((track.length/60))}:{int(track.length%60):02}" \
+    #                    f"  -  {title}\n"
+    #     if len(history_list):
+    #         message += f"**__🡅Previous🡅__**\n"
+    #         message += "──────────────────────────\n"
+    #     if now_playing:
+    #
+    #         message += f"__**NOW PLAYING**__ ➤ {now_playing.title}" \
+    #                    f"  -  {int(self.players[interaction.guild_id].position / 60)}" \
+    #                    f":{int(self.players[interaction.guild_id].position % 60):02}" \
+    #                    f" / {int(now_playing.length/60)}:{int(now_playing.length%60):02}\n"
+    #     else:
+    #         if not history_list and not queue_list:
+    #             message += "**__The queue is empty__**"
+    #         else:
+    #             message += f"__**NOW PLAYING**__ ➤ Nothing"
+    #     if len(queue_list):
+    #         message += "──────────────────────────\n"
+    #         message += "**__🡇Up Next🡇__**\n"
+    #
+    #     for index, track in enumerate(queue_list):
+    #         title = ""
+    #         title_length = len(track.title)
+    #         if title_length > 38:
+    #             if title_length <= 40:
+    #                 title = track.title
+    #             else:
+    #                 title = (track.title[:38] + "...").ljust(40)
+    #         else:
+    #             title = track.title.ljust(40)
+    #         position = (str(index + 1) + ")").ljust(5)
+    #         message += f"**{position}** {int((track.length / 60))}:{int(track.length % 60):02}  -  {title}\n"
+    #     await interaction.response.send_message(content=message)
 
     async def toggle_pause(self, interaction: discord.Interaction = None):
         message: str = None
@@ -192,41 +318,63 @@ class Music(commands.Cog):
         await self.players[interaction.guild_id].resume()
         await interaction.response.send_message(content="Resumed the player", ephemeral=True)
 
-    @app_commands.command(name="skip", description="skips the currently playing song")
-    async def skip_song(self, interaction: discord.Interaction, skip_count: int=1):
+    async def skip_unskip_track(self, interaction: discord.Interaction, skip_back: bool, skip_count: int):
         for i in range(skip_count):
-            await self.players[interaction.guild_id].cycle_track()
+            if skip_back:
+                await self.players[interaction.guild_id].cycle_track(reverse=True)
+            else:
+                await self.players[interaction.guild_id].cycle_track()
+            # print("skipped track\n")
         await self.players[interaction.guild_id].stop()
         await self.players[interaction.guild_id].start_current_track()
-        await interaction.response.send_message("skipped song")
 
-    @app_commands.command(name="jumpto", description="jumps to the given spot in the queue")
-    async def jump_to(self, interaction: discord.Interaction, index: int):
-        for i in range(index+1):
-            await self.players[interaction.guild_id].cycle_track()
-        await self.players[interaction.guild_id].stop()
-        await self.players[interaction.guild_id].start_current_track()
-        await interaction.response.send_message(f"Jumped to position {index} in the queue")
+    @app_commands.command(name="replay", description="replays the currently playing song")
+    async def restart_song(self, interaction: discord.Interaction):
+        self.player.start_current_track()
+        await interaction.response.send_message(content="Replaying the current song")
+
+    @app_commands.command(name="skip", description="skips to the next song")
+    async def skip_forward(self, interaction: discord.Interaction, count: int = 1):
+        await self.skip_unskip_track(interaction, False, count)
+        await interaction.response.send_message("Skipped to next song")
+
+    @app_commands.command(name="unskip", description="skips back to the previous song")
+    async def skip_back(self, interaction: discord.Interaction, count: int = 1):
+        await self.skip_unskip_track(interaction, True, count)
+        await interaction.response.send_message("Skipped to previous song")
+
+    # @app_commands.command(name="jumpto", description="jumps to the given spot in the queue")
+    # async def jump_to(self, interaction: discord.Interaction, index: int):
+    #     await self.skip_unskip_track(interaction, False, index-1)
+    #     await interaction.response.send_message(f"Jumped to position {index} in the queue")
+    #
+    # @app_commands.command(name="jumpback", description="jumps to the given spot in the history")
+    # async def jump_back(self, interaction: discord.Interaction, index: int):
+    #     await self.skip_unskip_track(interaction, True, index-1)
+    #     await interaction.response.send_message(f"Jumped to position {index} in the history")
 
     @app_commands.command(name="clear", description="clears the entire queue")
     async def clear_queue(self, interaction: discord.Interaction):
         queue_size = self.players[interaction.guild_id].queue.count
-        await self.players[interaction.guild_id].queue.clear()
-        await self.players[interaction.guild_id].history.clear()
+        self.players[interaction.guild_id].queue.clear()
+        self.players[interaction.guild_id].history.clear()
         await interaction.response.send_message(f"Cleared {queue_size} tracks from the queue")
 
     @commands.Cog.listener()
-    async def on_wavelink_track_end(self, player: Player, track: wavelink.Track, reason):
-
-        await player.play_next_track()
+    async def on_wavelink_track_end(self, player: Player, track: wavelink.Track, **payload: dict):
+        if payload["reason"] == "FINISHED":
+            await player.play_next_track()
+        # print("track end\n")
 
     @commands.Cog.listener()
     async def on_wavelink_track_exception(self, player: Player, track: wavelink.Track, error):
         await player.play_next_track()
+        # print("track exception\n")
 
     @commands.Cog.listener()
     async def on_wavelink_track_stuck(self, player: Player, track: wavelink.Track, threshold):
         await player.play_next_track()
+        # print("track stuck\n")
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, player: Player, track: wavelink.Track):
