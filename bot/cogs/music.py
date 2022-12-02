@@ -96,7 +96,11 @@ class Music(commands.Cog):
         await wavelink.NodePool.create_node(bot=self.bot,
                                             host='127.0.0.1',
                                             port=4762,
-                                            password='KagamiLavalink1337')
+                                            password='KagamiLavalink1337',
+                                            spotify_client=spotify.SpotifyClient(client_id=self.config["spotify"]["client_id"],
+                                                                                 client_secret=self.config["spotify"]["client_secret"])
+                                            )
+
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, node: wavelink.Node):
@@ -145,8 +149,16 @@ class Music(commands.Cog):
             await interaction.response.send_message("I have joined the channel", ephemeral=False)
             return
 
+
+
         is_yt_url = bool(YT_URL_REG.search(search))
+        is_url = bool(URL_REG.search(search))
+        decoded_spotify_url = spotify.decode_url(search)
+        is_spotify_url = bool(decoded_spotify_url is not None)
         titles = ""
+
+        await interaction.response.defer()
+
         if is_yt_url:
             if "list=" in search:
                 playlist = await voice_client.node.get_playlist(identifier=search, cls=wavelink.YouTubePlaylist)
@@ -157,7 +169,7 @@ class Music(commands.Cog):
             else:
                 tracks = await voice_client.node.get_tracks(query=search, cls=wavelink.YouTubeTrack)
             self.players[interaction.guild_id].add_to_queue(single=False, track=tracks)
-            titles = ""
+            # titles = ""
             for i, track in enumerate(tracks):
                 title = track.title
                 if len(titles + title) < 1800:
@@ -165,16 +177,38 @@ class Music(commands.Cog):
                 else:
                     titles += f"and {i} more songs\n"
                     break
-
             # titles = '\n'.join([t.title for t in tracks])
+        elif is_spotify_url:
+            tracks = []
+            # print("spotify link\n")
+            if decoded_spotify_url["type"] is spotify.SpotifySearchType.track:
+                tracks = [await spotify.SpotifyTrack.search(query=decoded_spotify_url["id"],
+                                                            type=decoded_spotify_url["type"],
+                                                            return_first=True)]
+            elif decoded_spotify_url["type"] in (spotify.SpotifySearchType.playlist, spotify.SpotifySearchType.album):
+                # interaction.response.defer(ephemeral=)
+                tracks = await spotify.SpotifyTrack.search(query=decoded_spotify_url["id"],
+                                                           type=decoded_spotify_url["type"])
+
+            # is spotify.SpotifySearchType.playlist or decoded_spotify_url["type"] is spotify.SpotifySearchType.album
+            if tracks:
+                self.players[interaction.guild_id].add_to_queue(single=False, track=tracks)
+                # titles = ""
+                for i, track in enumerate(tracks):
+                    title = track.title
+                    if len(titles + title) < 1800:
+                        titles += title + "\n"
+                    else:
+                        titles += f"and {i} more songs\n"
+                        break
         else:
             track = await wavelink.YouTubeTrack.search(query=search, return_first=True)
             self.players[interaction.guild_id].add_to_queue(single=True, track=track)
             titles = track.title
 
 
-
-        await interaction.response.send_message(f"**{titles}**was added to the queue", ephemeral=False)
+        # print(titles)
+        await interaction.edit_original_response(content=f"**{titles}**was added to the queue")
 
         if self.players[interaction.guild_id].current_track is None:
             await self.players[interaction.guild_id].play_next_track()
@@ -357,7 +391,7 @@ class Music(commands.Cog):
     async def clear_queue(self, interaction: discord.Interaction):
         queue_size = self.players[interaction.guild_id].queue.count
         self.players[interaction.guild_id].queue.clear()
-        self.players[interaction.guild_id].history.clear()
+        # self.players[interaction.guild_id].history.clear()
         await interaction.response.send_message(f"Cleared {queue_size} tracks from the queue")
 
     @commands.Cog.listener()

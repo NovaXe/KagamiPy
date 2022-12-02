@@ -21,7 +21,10 @@ music functionality
 -looping
 -volume control
 --skipping
--
+-playlist creation and saving
+-queue to playlist
+-seeking
+
 
 
 auto reactions
