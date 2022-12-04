@@ -16,6 +16,15 @@ class MessageReply(discord.ui.Modal, title="Message Reply"):
         await self.message.reply(f"{self.name}")
         await interaction.response.defer(ephemeral=True, thinking=False)
 
+
+# class ScrollableMessage(discord.ui.Modal, title="Scrollable Message")
+#     def __init__(self, message: discord.Message):
+#         super().__init__()
+#         self.message = message
+
+
+
+
 # class ColorSelector(discord.ui.Modal, title="Color Selector"):
 #     def __init__(self, guild: discord.Guild):
 #         super().__init__()

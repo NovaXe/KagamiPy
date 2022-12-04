@@ -1,5 +1,8 @@
 import json
 import os
+import sys
+import traceback
+
 import discord
 import discord.utils
 from discord.ext import commands
@@ -32,10 +35,20 @@ class Admin(commands.Cog):
                 await self.bot.reload_extension(f"cogs.{name}")
         await ctx.send("Reloaded all cogs")
 
+    @commands.command(name="close", description="closes the bot")
+    @commands.is_owner()
+    async def close_bot(self, ctx):
+        await ctx.send("Shutting Down")
+        await self.bot.close()
+
+
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.NotOwner):
             await ctx.send("Only developers can use that command")
+        else:
+            await ctx.send(error)
+            traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
 
 
 async def setup(bot):

@@ -1,6 +1,7 @@
 import asyncio
 import re
 from typing import List
+from typing import Literal
 from typing import Optional
 import discord
 import discord.utils
@@ -9,6 +10,7 @@ from discord.ext import commands
 from discord import app_commands, VoiceChannel, StageChannel
 from wavelink import YouTubeTrack
 from collections import deque
+import atexit
 
 from bot.utils import modals
 from wavelink.ext import spotify
@@ -25,6 +27,42 @@ class LoopMode(Enum):
     LOOP_QUEUE = 2
 
 
+
+class Server:
+    def __init__(self, guild_id: int):
+        self.id = str(guild_id)
+        self.playlists: dict[str, Playlist] = {}     # name : Playlist
+        self.player = None
+
+    def create_playlist(self, name: str):
+        self.playlists[name] = Playlist(name)
+        return self.playlists[name]
+
+
+class Playlist:
+    def __init__(self, name: str, track_list: list[str] = None):
+        self.tracks: list[str] = [] if track_list is None else track_list
+        self.name = name
+
+    def add_track(self, track: wavelink.Track) -> None:
+        self.tracks.append(track.id)
+
+    def remove_track(self, track: wavelink.Track) -> None:
+        self.tracks.remove(track.id)
+
+    def remove_track_at(self, position: int) -> None:
+        self.tracks.pop(position)
+
+    def update_list(self, new_tracks: list[wavelink.Track]):
+        track_list = []
+        for track in new_tracks:
+            track_list.append(track.id)
+        else:
+            self.tracks = list(set(self.tracks + track_list))
+        # self.tracks = list(set(self.tracks + new_tracks))
+
+
+
 class Player(wavelink.Player):
     def __init__(self, dj_user: discord.Member, dj_channel: discord.TextChannel):
         super().__init__()
@@ -35,7 +73,7 @@ class Player(wavelink.Player):
         self.dj_user: discord.Member = dj_user
         self.dj_channel: discord.TextChannel = dj_channel
 
-    def add_to_queue(self, single: bool, track: wavelink.Track) -> None:
+    async def add_to_queue(self, single: bool, track: wavelink.Track) -> None:
         if single:
             self.queue.put(track)
         else:
@@ -83,13 +121,233 @@ class Player(wavelink.Player):
         # print("cycled track\n")
 
 
+    async def restart_track(self):
+        await self.play(source=self.current_track, replace=True)
+
+    async def seek_track(self, seconds: int):
+        await self.seek(seconds)
+
+
 class Music(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.config = bot.config
         self.player = None
+        self.servers: dict[str, Server] = {}
         self.players = {}
         bot.loop.create_task(self.connect_nodes())
+
+
+    playlist_group = app_commands.Group(name="playlist", description="commands relating to music playlists")
+    
+    def fetch_server(self, server_id: int):
+        if str(server_id) not in self.servers:
+            self.servers[str(server_id)] = Server(server_id)
+        return self.servers[str(server_id)]
+    
+    @playlist_group.command(name="create", description="creates a new playlist")
+    @app_commands.describe(source="how to source the playlist")
+    async def playlist_create(self, interaction: discord.Interaction, source: Literal["new", "queue"], name: str):
+        server: Server = self.fetch_server(interaction.guild_id)
+        if name in server.playlists.keys():
+            await interaction.response.send_message(f"A playlist named '{name}' already exists")
+            return
+
+        if source == "new":
+            server.create_playlist(name)
+            await interaction.response.send_message("Created a new Playlist")
+        elif source == "queue":
+            queue_list = list(set(server.player.history + server.player.current_track + server.player.queue))
+            server.create_playlist(name).update_list(queue_list)
+            await interaction.response.send_message("Created a playlist from the queue")
+
+
+
+
+    async def playlist_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+        server: Server = self.fetch_server(interaction.guild_id)
+        return [
+            app_commands.Choice(name=playlist_name, value=playlist_name)
+            for playlist_name, playlist in server.playlists.items() if current.lower() in playlist_name.lower()
+        ][:25]
+
+    @playlist_group.command(name="delete", description="deletes the playlist")
+    @app_commands.autocomplete(playlist=playlist_autocomplete)
+    async def playlist_delete(self, interaction: discord.Interaction, playlist: str):
+        server: Server = self.fetch_server(interaction.guild_id)
+        await interaction.response.defer()
+        if playlist not in server.playlists.keys():
+            await interaction.response.send_message("Playlist does not exist", ephemeral=True)
+            return
+        server.playlists.pop(playlist)
+        # del server.playlists[playlist]
+        await interaction.edit_original_response(content=f"Playlist: '{playlist}' was deleted")
+
+    @playlist_group.command(name="rename", description="renames the playlist")
+    @app_commands.autocomplete(playlist=playlist_autocomplete)
+    async def playlist_rename(self, interaction: discord.Interaction, playlist: str, new_name: str):
+        server: Server = self.fetch_server(interaction.guild_id)
+        await interaction.response.defer()
+        if playlist not in server.playlists.keys():
+            await interaction.response.send_message("Playlist does not exist", ephemeral=True)
+            return
+
+        if new_name in server.playlists.keys():
+            await interaction.response.send_message(f"A playlist named '{new_name}' already exists")
+            return
+
+        server.playlists[new_name] = server.playlists.pop(playlist)
+        await interaction.edit_original_response(content=f"Playlist: '{playlist}' renamed to '{new_name}'")
+
+
+    @playlist_group.command(name="update", description="merges the current queue into the playlist")
+    @app_commands.autocomplete(playlist=playlist_autocomplete)
+    async def playlist_update(self, interaction: discord.Interaction, playlist: str):
+        server: Server = self.fetch_server(interaction.guild_id)
+        if playlist not in server.playlists.keys():
+            await interaction.response.send_message("Playlist does not exist", ephemeral=True)
+            return
+        queue_list = list(set(server.player.history + server.player.current_track + server.player.queue))
+        server.playlists[playlist].update_list(queue_list)
+        await interaction.response.send_message(f"Updated playlist: '{playlist}' with the queue")
+
+    @playlist_group.command(name="add_tracks", description="searches and adds the track(s) to the queue")
+    @app_commands.autocomplete(playlist=playlist_autocomplete)
+    async def playlist_add_tracks(self, interaction: discord.Interaction, playlist: str, song: str):
+        server: Server = self.fetch_server(interaction.guild_id)
+        if playlist not in server.playlists.keys():
+            await interaction.response.send_message("Playlist does not exist", ephemeral=True)
+            return
+        tracks = await self.search_song(interaction, song)
+        server.playlists[playlist].update_list(tracks)
+        length = len(tracks)
+        if length == 1:
+            await interaction.response.send_message(f"Added {tracks[0].title} to playlist: '{playlist}'")
+        else:
+            await interaction.response.send_message(f"Added {length} tracks to playlist: '{playlist}")
+
+
+    @playlist_group.command(name="play", description="clears the queue and plays the playlist")
+    @app_commands.autocomplete(playlist=playlist_autocomplete)
+    async def playlist_play(self, interaction: discord.Interaction, playlist: str):
+        server: Server = self.fetch_server(interaction.guild_id)
+        if playlist not in server.playlists.keys():
+            await interaction.response.send_message("Playlist does not exist", ephemeral=True)
+            return
+        player: Player = await self.attempt_to_join_channel(interaction)
+        player.queue.clear()
+        player.current_track = None
+        player.history.clear()
+        tracks = [await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=track_id)
+                  for track_id in server.playlists[playlist].tracks
+                  ]
+        await player.add_to_queue(single=False, track=tracks)
+        await player.cycle_track()
+        await player.play_next_track()
+        await interaction.response.send_message(f"Now playing playlist: '{playlist}'")
+
+
+    @playlist_group.command(name="queue", description="adds the playlist to the end of the queue")
+    @app_commands.autocomplete(playlist=playlist_autocomplete)
+    async def playlist_queue(self, interaction: discord.Interaction, playlist: str):
+        await interaction.response.defer()
+        server: Server = self.fetch_server(interaction.guild_id)
+        if playlist not in server.playlists.keys():
+            await interaction.edit_original_response(content="Playlist does not exist")
+            return
+        player: Player = await self.attempt_to_join_channel(interaction)
+        tracks = []
+
+        tracks = [await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=track_id)
+                  for track_id in server.playlists[playlist].tracks
+                  ]
+        await player.add_to_queue(single=False, track=tracks)
+        await interaction.edit_original_response(content=f"Added playlist: '{playlist}' to the queue")
+
+    @playlist_group.command(name="list_all", description="lists all the server's playlists")
+    async def playlist_list(self, interaction: discord.Interaction):
+        server: Server = self.fetch_server(interaction.guild_id)
+        await interaction.response.defer()
+
+        def shorten_name(name: str) -> str:
+            length = len(name)
+            if length > 36:
+                if length <= 40:
+                    new_name = name.ljust(40)
+                else:
+                    new_name = (name[:36] + " ...").ljust(40)
+            else:
+                new_name = name.ljust(40)
+            return new_name
+
+        message = f"```swift\n{interaction.guild.name} Playlists:\n"
+        message += "\n".join([
+            f"\t{shorten_name(playlist_name)}   :   tracks: {len(playlist.tracks)}" for playlist_name, playlist in server.playlists.items()
+        ])
+        message += "```"
+        await interaction.edit_original_response(content=message)
+
+    @playlist_group.command(name="show_tracks", description="shows what songs are in a playlist")
+    @app_commands.autocomplete(playlist=playlist_autocomplete)
+    async def playlist_show_tracks(self, interaction: discord.Interaction, playlist: str):
+        await interaction.response.defer()
+        server: Server = self.fetch_server(interaction.guild_id)
+        if playlist not in server.playlists.keys():
+            await interaction.edit_original_response(content="Playlist does not exist")
+            return
+
+        message = "```swift\n"
+        track_names_info = ""
+        runtime: int = 0
+        playlist_length = len(server.playlists[playlist].tracks)
+        songs_in_message: int = 0
+        for track_pos, track_id in enumerate(server.playlists[playlist].tracks):
+            full_track: wavelink.Track = await wavelink.NodePool.get_node().build_track(cls=wavelink.Track,
+                                                                                        identifier=track_id)
+            runtime += int(full_track.duration)
+            title = ""
+            title_length = len(full_track.title)
+            if title_length > 36:
+                if title_length <= 40:
+                    title = full_track.title.ljust(40)
+                else:
+                    title = (full_track.title[:36] + " ...").ljust(40)
+            else:
+                title = full_track.title.ljust(40)
+            if len(track_names_info) < 1600:
+                track_names_info += f"{track_pos} {title}" \
+                                    f"  -  {int(full_track.duration) // 60 :02}:{int(full_track.duration) % 60:02}\n"
+            else:
+                track_names_info += f"and {playlist_length-songs_in_message} more songs\n"
+                break
+
+            songs_in_message += 1
+
+
+        message += f"{playlist} has {playlist_length} tracks and a " \
+                   f"runtime of {runtime // 3600}:{runtime // 60 :02}:{runtime % 60 % 60 :02}\n"
+        message += track_names_info
+        message += "```"
+        await interaction.edit_original_response(content=message)
+
+    def save_server_data(self):
+        data: dict[int, dict[str, dict[str, str]]] = {}
+        for server_id, server in self.servers.items():
+            data[server_id] = {"playlists": {}}
+            for playlist_name, playlist in server.playlists.items():
+                data[server_id]["playlists"].update({playlist_name: playlist.tracks})
+
+
+        self.bot.server_data = data
+
+    def load_server_data(self):
+        for server_id, server in self.bot.server_data.items():
+            self.servers[server_id] = Server(server_id)
+            for playlist_name, playlist_tracks in self.bot.server_data[server_id]["playlists"].items():
+                self.servers[server_id].playlists[playlist_name] = Playlist(playlist_name, playlist_tracks)
+
+    async def cog_unload(self) -> None:
+        self.save_server_data()
 
     async def connect_nodes(self):
         await self.bot.wait_until_ready()
@@ -101,6 +359,10 @@ class Music(commands.Cog):
                                                                                  client_secret=self.config["spotify"]["client_secret"])
                                             )
 
+    @staticmethod
+    async def close_nodes() -> None:
+        for node in wavelink.NodePool.nodes:
+            await node.disconnect()
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, node: wavelink.Node):
@@ -136,6 +398,41 @@ class Music(commands.Cog):
         self.players.pop(interaction.guild_id)
         await interaction.response.send_message("I have left the voice channel")
 
+    @staticmethod
+    async def search_song(interaction: discord.Interaction, search: str) -> list[wavelink.Track]:
+        is_yt_url = bool(YT_URL_REG.search(search))
+        is_url = bool(URL_REG.search(search))
+        decoded_spotify_url = spotify.decode_url(search)
+        is_spotify_url = bool(decoded_spotify_url is not None)
+
+        tracks = []
+
+        node = wavelink.NodePool.get_node()
+
+        if is_yt_url:
+            if "list=" in search:
+
+                playlist = await node.get_playlist(identifier=search, cls=wavelink.YouTubePlaylist)
+                if "playlist" in search:
+                    tracks = playlist.tracks
+                else:
+                    tracks = [playlist.tracks[playlist.selected_track]]
+            else:
+                tracks = await node.get_tracks(query=search, cls=wavelink.YouTubeTrack)
+        elif is_spotify_url:
+            if decoded_spotify_url["type"] is spotify.SpotifySearchType.track:
+                tracks = [await spotify.SpotifyTrack.search(query=decoded_spotify_url["id"],
+                                                            type=decoded_spotify_url["type"],
+                                                            return_first=True)]
+            elif decoded_spotify_url["type"] in (spotify.SpotifySearchType.playlist, spotify.SpotifySearchType.album):
+                tracks = await spotify.SpotifyTrack.search(query=decoded_spotify_url["id"],
+                                                           type=decoded_spotify_url["type"])
+        else:
+            tracks = [await wavelink.YouTubeTrack.search(query=search, return_first=True)]
+
+        return tracks
+
+
     @app_commands.command(name="play", description="plays/adds the given song")
     async def play_song(self, interaction: discord.Interaction, search: str = None) -> None:
         message = ""
@@ -144,67 +441,23 @@ class Music(commands.Cog):
                 await self.players[interaction.guild_id].resume()
                 await interaction.response.send_message(content="Resumed the player")
                 return
-        voice_client: Player = await self.attempt_to_join_channel(interaction)
+        player: Player = await self.attempt_to_join_channel(interaction)
         if search is None:
             await interaction.response.send_message("I have joined the channel", ephemeral=False)
             return
 
-
-
-        is_yt_url = bool(YT_URL_REG.search(search))
-        is_url = bool(URL_REG.search(search))
-        decoded_spotify_url = spotify.decode_url(search)
-        is_spotify_url = bool(decoded_spotify_url is not None)
-        titles = ""
-
         await interaction.response.defer()
+        tracks = await self.search_song(interaction, search)
 
-        if is_yt_url:
-            if "list=" in search:
-                playlist = await voice_client.node.get_playlist(identifier=search, cls=wavelink.YouTubePlaylist)
-                if "playlist" in search:
-                    tracks = playlist.tracks
-                else:
-                    tracks = [playlist.tracks[playlist.selected_track]]
+        titles = ""
+        for i, track in enumerate(tracks):
+            title = track.title
+            if len(titles + title) < 1800:
+                titles += title + "\n"
             else:
-                tracks = await voice_client.node.get_tracks(query=search, cls=wavelink.YouTubeTrack)
-            self.players[interaction.guild_id].add_to_queue(single=False, track=tracks)
-            # titles = ""
-            for i, track in enumerate(tracks):
-                title = track.title
-                if len(titles + title) < 1800:
-                    titles += title + "\n"
-                else:
-                    titles += f"and {i} more songs\n"
-                    break
-            # titles = '\n'.join([t.title for t in tracks])
-        elif is_spotify_url:
-            tracks = []
-            # print("spotify link\n")
-            if decoded_spotify_url["type"] is spotify.SpotifySearchType.track:
-                tracks = [await spotify.SpotifyTrack.search(query=decoded_spotify_url["id"],
-                                                            type=decoded_spotify_url["type"],
-                                                            return_first=True)]
-            elif decoded_spotify_url["type"] in (spotify.SpotifySearchType.playlist, spotify.SpotifySearchType.album):
-                # interaction.response.defer(ephemeral=)
-                tracks = await spotify.SpotifyTrack.search(query=decoded_spotify_url["id"],
-                                                           type=decoded_spotify_url["type"])
-
-            # is spotify.SpotifySearchType.playlist or decoded_spotify_url["type"] is spotify.SpotifySearchType.album
-            if tracks:
-                self.players[interaction.guild_id].add_to_queue(single=False, track=tracks)
-                # titles = ""
-                for i, track in enumerate(tracks):
-                    title = track.title
-                    if len(titles + title) < 1800:
-                        titles += title + "\n"
-                    else:
-                        titles += f"and {i} more songs\n"
-                        break
-        else:
-            track = await wavelink.YouTubeTrack.search(query=search, return_first=True)
-            self.players[interaction.guild_id].add_to_queue(single=True, track=track)
-            titles = track.title
+                titles += f"and {i} more songs\n"
+                break
+        await player.add_to_queue(single=False, track=tracks)
 
 
         # print(titles)
@@ -416,5 +669,10 @@ class Music(commands.Cog):
 
 
 
+
+
 async def setup(bot):
-    await bot.add_cog(Music(bot))
+    music_cog = Music(bot)
+    music_cog.load_server_data()
+    # atexit.register(music_cog.save_server_data)
+    await bot.add_cog(music_cog)

@@ -13,17 +13,19 @@ user info
 server info
 
 music functionality
---joining/leaving
+-joining/leaving
 -queue, active sessions
---play/pause
+-play/pause
 -youtube,spotify,files
 -dj host
 -looping
 -volume control
---skipping
+-skipping
 -playlist creation and saving
 -queue to playlist
 -seeking
+
+SCROLLABLE TEXT / MESSAGES
 
 
 
@@ -36,3 +38,9 @@ word tallying
 nice embeds
 
 command group/cog reloading
+
+write a decorator for checking if a parameter is actually valid
+possible list of parameters with their associate auto completes
+and or list of possible solutions
+
+fetch server from the id, ie create a new server object or get an existing one

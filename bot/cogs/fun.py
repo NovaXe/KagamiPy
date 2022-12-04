@@ -45,11 +45,7 @@ class Fun(commands.Cog):
         await interaction.response.send_message(content="added role", ephemeral=True, delete_after=1)
 
     @color_role.autocomplete("color")
-    async def color_role_autocomplete(
-        self,
-        interaction: discord.Interaction,
-        current: str,
-    ) -> List[app_commands.Choice[str]]:
+    async def color_role_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
         colors = [role for role in interaction.guild.roles if "C:" in role.name]
 
         return [
