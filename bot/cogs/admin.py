@@ -35,6 +35,20 @@ class Admin(commands.Cog):
                 await self.bot.reload_extension(f"cogs.{name}")
         await ctx.send("Reloaded all cogs")
 
+    @commands.command(name="reload", description="reloads a cog")
+    @commands.is_owner()
+    async def reload_all_cogs(self, ctx, cog_name):
+        for file in os.listdir("bot/cogs"):
+            if file.endswith(".py"):
+                name = file[:-3]
+                if name.lower() == cog_name.lower():
+                    await self.bot.reload_extension(f"cogs.{name}")
+                    break
+        else:
+            await ctx.send(f"No cog with that name could be found")
+            return
+        await ctx.send(f"Reloaded cog: '{cog_name}'")
+
     @commands.command(name="close", description="closes the bot")
     @commands.is_owner()
     async def close_bot(self, ctx):

@@ -12,17 +12,20 @@ ping
 user info
 server info
 
+cross server tags
+
 music functionality
--joining/leaving
--queue, active sessions
--play/pause
--youtube,spotify,files
+--joining/leaving
+--queue, active sessions
+--play/pause
+--youtube,spotify
+-files
 -dj host
 -looping
 -volume control
--skipping
--playlist creation and saving
--queue to playlist
+--skipping
+--playlist creation and saving
+--queue to playlist
 -seeking
 
 SCROLLABLE TEXT / MESSAGES

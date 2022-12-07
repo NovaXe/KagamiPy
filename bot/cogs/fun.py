@@ -1,9 +1,11 @@
 from typing import List
+import asyncio
 
 from PIL import Image
 from PIL import ImageDraw
 from PIL import ImageFont
 from io import BytesIO
+
 
 import discord
 import discord.utils
@@ -16,14 +18,27 @@ class Fun(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.config = bot.config
-        self.ctx_menu = app_commands.ContextMenu(
-            name="Reply",
-            callback=self.msg_reply,
-        )
-        self.bot.tree.add_command(self.ctx_menu)
+        self.ctx_menus = [
+            app_commands.ContextMenu(
+                name="Reply",
+                callback=self.msg_reply
+            ),
+            app_commands.ContextMenu(
+                name="Fish",
+                callback=self.fish_react
+            ),
+            app_commands.ContextMenu(
+                name="Copy Reactions",
+                callback=self.msg_copy_reactions
+            )
+        ]
+        for ctx_menu in self.ctx_menus:
+            self.bot.tree.add_command(ctx_menu)
+        self.reaction_messages = {}
 
     async def cog_unload(self) -> None:
-        self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
+        for ctx_menu in self.ctx_menus:
+            self.bot.tree.remove_command(ctx_menu.name, type=ctx_menu.type)
 
     @app_commands.command(name="echo", description="repeats the sender's message")
     async def msg_echo(self, interaction: discord.Interaction, string: str) -> None:
@@ -90,8 +105,73 @@ class Fun(commands.Cog):
         await interaction.response.send_message(file=discord.File(fp=output_buffer, filename="color_image.png"))
 
     # context menu commands
-    async def msg_reply(self, interaction: discord.Interaction, message: discord.Message) -> None:
+    async def msg_reply(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.send_modal(modals.MessageReply(message))
+
+    async def msg_copy_reactions(self, interaction: discord.Interaction, message: discord.Message):
+        await interaction.response.defer(ephemeral=True)
+        for reaction in message.reactions:
+            async for user in reaction.users():
+                if user.id == interaction.user.id:
+                    await message.add_reaction(reaction)
+                    await message.remove_reaction(reaction, interaction.user)
+
+        await interaction.edit_original_response(content="I have copied and removed your reactions")
+
+
+    async def fish_react(self, interaction: discord.Interaction, message: discord.Message):
+        await message.add_reaction("🐟")
+        await interaction.response.send_message("Fish Reacted", ephemeral=True, delete_after=3)
+
+    # async def msg_react(self, interaction: discord.Interaction, message: discord.Message):
+    #     await interaction.response.defer(ephemeral=True)
+    #     user = interaction.user
+    #
+    #     if message.id in self.reaction_messages.keys():
+    #         # print("true")
+    #         if user.id == self.reaction_messages[message.id]:
+    #             # print("stop")
+    #             del self.reaction_messages[message.id]
+    #             for reaction in message.reactions:
+    #                 await message.remove_reaction(reaction, user)
+    #             await interaction.edit_original_response(
+    #                 content="Stopped reacting")
+    #         else:
+    #             # print("not available")
+    #             await interaction.edit_original_response(
+    #                 content="Another user is currently controlling reactions on this message")
+    #     else:
+    #         # print("new")
+    #         self.reaction_messages[message.id] = user.id
+    #
+    #         await interaction.edit_original_response(
+    #             content="React to the original message to add reactions, use the command again to stop")
+    #         await asyncio.sleep(30)
+    #         updated_message = await interaction.channel.get_partial_message(message.id).fetch()
+    #         del self.reaction_messages[message.id]
+    #         await interaction.edit_original_response(content="The time to react has expired")
+    #         for reaction in updated_message.reactions:
+    #             await updated_message.remove_reaction(reaction, user)
+
+    # @commands.Cog.listener()
+    # async def on_reaction_add(self, reaction, user):
+    #     # print("reaction add")
+    #     if reaction.message.id in self.reaction_messages.keys():
+    #         valid_user = self.reaction_messages[reaction.message.id]
+    #         if valid_user == user.id or valid_user == self.bot.user.id:
+    #             await reaction.message.add_reaction(reaction)
+    #
+    # @commands.Cog.listener()
+    # async def on_reaction_remove(self, reaction, user):
+    #     # print("reaction remove")
+    #     if reaction.message.id in self.reaction_messages.keys():
+    #         valid_user = self.reaction_messages[reaction.message.id]
+    #         if valid_user == user.id or valid_user == self.bot.user.id:
+    #             await reaction.message.remove_reaction(reaction, self.bot.user)
+
+
+
+
 
 
 async def setup(bot):
