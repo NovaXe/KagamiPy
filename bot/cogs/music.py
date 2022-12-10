@@ -35,6 +35,7 @@ class Server:
         self.playlists: dict[str, Playlist] = {}     # name : Playlist
         self.player = player
 
+
     def create_playlist(self, name: str):
         self.playlists[name] = Playlist(name)
         return self.playlists[name]
@@ -505,7 +506,7 @@ class Music(commands.Cog):
 
 
         now_playing = server.player.current_track
-        history_list = list(reversed(list(server.player.history)[:10]))
+        history_list = list(server.player.history)[:10]
         queue_list = list(server.player.queue)[:10]
         message = "```swift\n"
 
@@ -644,6 +645,31 @@ class Music(commands.Cog):
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, player: Player, track: wavelink.Track):
         await player.dj_channel.send(content=f"Now Playing **{track.title}**")
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        server: Server = self.fetch_server(member.guild.id)
+        voice_client = member.guild.voice_client
+        if voice_client is None:
+            server.player = None
+            print("no voice client")
+            return
+        print("state change")
+        if before.channel is None:
+            print("not in channel")
+            return
+        if before.channel != after.channel:
+            print("user left channel")
+            if len(before.channel.members)-1 == 0:
+                print("leaving")
+                await server.player.dj_channel.send(f"Everyone left '{before.channel.name}' so I left too")
+                await server.player.disconnect()
+                server.player = None
+            else:
+                print("members remain")
+        else:
+            print("user didn't leave")
+
 
 
 
