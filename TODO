@@ -27,9 +27,12 @@ music functionality
 --playlist creation and saving
 --queue to playlist
 -seeking
+-stop command
+
 
 SCROLLABLE TEXT / MESSAGES
 
+- custom soundboards per server
 
 
 auto reactions

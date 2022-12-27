@@ -2,6 +2,7 @@ import asyncio
 import re
 from typing import List
 from typing import Literal
+from typing import Union
 from typing import Optional
 import discord
 import discord.utils
@@ -20,7 +21,7 @@ from enum import Enum
 URL_REG = re.compile(r'https?://(?:www\.)?.+')
 YT_URL_REG = re.compile(r"(?:https://)(?:www\.)?(?:youtube|youtu\.be)(?:\.com)?\/(?:watch\?v=)?(.{11})")
 YT_PLAYLIST_REG = re.compile(r"[\?|&](list=)(.*)\&")
-
+DISCORD_ATTACHMENT_REG = re.compile(r"(https://|http://)?(cdn\.|media\.)discord(app)?\.(com|net)/attachments/[0-9]{17,19}/[0-9]{17,19}/(?P<filename>.{1,256})\.(?P<mime>[0-9a-zA-Z]{2,4})(\?size=[0-9]{1,4})?")
 
 class LoopMode(Enum):
     NO_LOOP = 0
@@ -431,7 +432,8 @@ class Music(commands.Cog):
         is_url = bool(URL_REG.search(search))
         decoded_spotify_url = spotify.decode_url(search)
         is_spotify_url = bool(decoded_spotify_url is not None)
-
+        attachment_regex_result = DISCORD_ATTACHMENT_REG.search(search)
+        is_discord_attachment = bool(attachment_regex_result)
         tracks = []
 
         node = wavelink.NodePool.get_node()
@@ -454,8 +456,13 @@ class Music(commands.Cog):
             elif decoded_spotify_url["type"] in (spotify.SpotifySearchType.playlist, spotify.SpotifySearchType.album):
                 tracks = await spotify.SpotifyTrack.search(query=decoded_spotify_url["id"],
                                                            type=decoded_spotify_url["type"])
+        elif is_discord_attachment:
+            modified_track = (await node.get_tracks(query=search, cls=wavelink.LocalTrack))[0]
+            modified_track.title = attachment_regex_result.group("filename")+"."+attachment_regex_result.group("mime")
+            tracks = [modified_track]
         else:
             tracks = [await wavelink.YouTubeTrack.search(query=search, return_first=True)]
+
 
         return tracks
 
@@ -619,8 +626,8 @@ class Music(commands.Cog):
 
     @app_commands.command(name="clear", description="clears the entire queue")
     async def clear_queue(self, interaction: discord.Interaction):
-        queue_size = self.players[interaction.guild_id].queue.count
         server: Server = self.fetch_server(interaction.guild_id)
+        queue_size = server.player.queue.count
 
         server.player.queue.clear()
         # self.players[interaction.guild_id].history.clear()
@@ -652,23 +659,23 @@ class Music(commands.Cog):
         voice_client = member.guild.voice_client
         if voice_client is None:
             server.player = None
-            print("no voice client")
+            # print("no voice client")
             return
-        print("state change")
+        # print("state change")
         if before.channel is None:
-            print("not in channel")
+            # print("not in channel")
             return
         if before.channel != after.channel:
-            print("user left channel")
+            # print("user left channel")
             if len(before.channel.members)-1 == 0:
-                print("leaving")
+                # print("leaving")
                 await server.player.dj_channel.send(f"Everyone left '{before.channel.name}' so I left too")
                 await server.player.disconnect()
                 server.player = None
-            else:
-                print("members remain")
-        else:
-            print("user didn't leave")
+            # else:
+            #     print("members remain")
+        # else:
+        #     print("user didn't leave")
 
 
 
