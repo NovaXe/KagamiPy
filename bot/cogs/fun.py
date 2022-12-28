@@ -11,7 +11,7 @@ import discord
 import discord.utils
 from discord.ext import commands
 from discord import app_commands
-from bot.utils import modals
+from bot.utils import ui
 
 
 class Fun(commands.Cog):

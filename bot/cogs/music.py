@@ -9,12 +9,15 @@ import discord.utils
 import wavelink
 from discord.ext import commands
 from discord import app_commands, VoiceChannel, StageChannel
+from discord.ext import tasks
 from wavelink import YouTubeTrack
 from collections import deque
 import atexit
 import numpy as np
+import math
+from bot.utils.ui import MessageScroller
 
-from bot.utils import modals
+from bot.utils import ui
 from wavelink.ext import spotify
 from enum import Enum
 
@@ -268,7 +271,7 @@ class Music(commands.Cog):
                   for track_id in server.playlists[playlist].tracks
                   ]
         await player.add_to_queue(single=False, track=tracks)
-        await player.cycle_track()
+        # await player.cycle_track()
         await player.play_next_track()
         await interaction.response.send_message(f"Now playing playlist: '{playlist}'")
 
@@ -504,8 +507,161 @@ class Music(commands.Cog):
             # await self.players[interaction.guild_id].cycle_track()
             # await self.players[interaction.guild_id].start_current_track()
 
+    @staticmethod
+    def track_to_string(track: wavelink.Track):
+        title = ""
+        title_length = len(track.title)
+        if title_length > 36:
+            if title_length <= 40:
+                title = track.title.ljust(40)
+            else:
+                title = (track.title[:36] + " ...").ljust(40)
+        else:
+            title = track.title.ljust(40)
+        message = f"{title}  -  {int((track.length / 60))}:{int(track.length % 60):02}\n"
+        return message
+
+    async def create_queue_pages(self, guild_id):
+        server: Server = self.fetch_server(guild_id)
+
+        now_playing = server.player.current_track
+        history_list = list(server.player.history)
+        history_length = len(history_list)
+        queue_list = list(server.player.queue)
+        queue_length = len(queue_list)
+
+        history_peek = history_list[-5:]
+        queue_peek = queue_list[:5]
+
+        hidden_history = history_list[:-5]
+        hidden_queue = queue_list[5:]
+
+        total_page_count = math.ceil(len(hidden_history) / 10) + 1 + math.ceil(len(hidden_queue) / 10)
+
+        home_page = 0
+
+        pages = []
+        current_page = 0
+
+        now_playing_text = ""
+        if now_playing:
+
+            now_playing_text = f"NOW PLAYING ➤ {now_playing.title}" \
+                               f"  -  {int(server.player.position / 60)}" \
+                               f":{int(server.player.position % 60):02}" \
+                               f" / {int(now_playing.length / 60)}:{int(now_playing.length % 60):02}\n"
+        else:
+            if not history_peek and not queue_peek:
+                now_playing_text = "The queue is empty\n"
+            else:
+                now_playing_text = f"__**NOW PLAYING**__ ➤ Nothing\n"
+
+
+        track_index = 0
+        hidden_history.reverse()
+        for page_number, page_list in [(int(i/10), hidden_history[i:i+10]) for i in range(0, len(hidden_history), 10)]:
+            current_page = page_number
+            content = "```swift\n"
+            content_list = []
+            for index, track in enumerate(page_list):
+                track_index += 1
+                track_string = self.track_to_string(track)
+                position = (str(track_index+5) + ")").ljust(5)
+                content_list.append(f"{position} {track_string}")
+
+            content_list.reverse()
+            content += ''.join(content_list)
+
+            content += "      🡅Previous🡅\n" \
+                       "──────────────────────────\n"
+            content += now_playing_text
+            content += f"Page #: {math.ceil(len(hidden_history) / 10) - current_page} / {total_page_count}\n"
+            content += "```"
+            pages.insert(current_page, content)
+            # pages[current_page] = content
+
+        pages.reverse()
+        if len(hidden_history):
+            current_page += 1
+        # current_page += 1
+        content = "```swift\n"
+        for index, track in enumerate(history_peek):
+            track_string = self.track_to_string(track)
+            position = (str(5 - index) + ")").ljust(5)
+            content += f"{position} {track_string}"
+        if len(history_peek):
+            content += f"      🡅Previous🡅\n" \
+                       f"──────────────────────────\n"
+
+        content += now_playing_text
+        home_page = current_page
+        if len(queue_peek):
+            content += "──────────────────────────\n" \
+                       "      🡇Up Next🡇\n"
+
+        for index, track in enumerate(queue_peek):
+            track_string = self.track_to_string(track)
+            position = (str(index + 1) + ")").ljust(5)
+            content += f"{position} {track_string}"
+
+        content += f"Page #: {current_page+1} / {total_page_count}\n"
+        content += "```"
+        # pages[current_page] = content
+
+        pages.insert(current_page, content)
+        current_page += 1
+
+
+        track_index = 0
+        for page_number, page_list in [(int(i/10), hidden_queue[i:i+10]) for i in range(0, len(hidden_queue), 10)]:
+
+            content = "```swift\n"
+            content += now_playing_text
+            content += "──────────────────────────\n" \
+                       "      🡇Up Next🡇\n"
+            for index, track in enumerate(page_list):
+                track_index += 1
+                track_string = self.track_to_string(track)
+                position = (str(track_index+5) + ")").ljust(5)
+                content += f"{position} {track_string}"
+
+            # pages[current_page] = content
+            content += f"Page #: {current_page + page_number+1} / {total_page_count}\n"
+            content += "```"
+            pages.insert(current_page + page_number, content)
+
+
+        return pages, home_page
+
+
     @app_commands.command(name="queue", description="shows the track queue")
     async def show_queue(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
+        server: Server = self.fetch_server(interaction.guild_id)
+        if server.player is None:
+            await interaction.edit_original_response(content="There is currently no voice session")
+            return
+        pages, home_page = await self.create_queue_pages(interaction.guild_id)
+        message = await interaction.edit_original_response(content=pages[home_page])
+
+        scrolling_view = MessageScroller(message=message, pages=pages, home_page=home_page)
+        await interaction.edit_original_response(view=scrolling_view)
+
+        self.queue_update_loop.start(interaction.guild_id, scrolling_view)
+        await scrolling_view.wait()
+        self.queue_update_loop.stop()
+
+
+    @tasks.loop(seconds=5)
+    async def queue_update_loop(self, guild_id, view: discord.ui.view):
+        pages, home_page = await self.create_queue_pages(guild_id)
+        view.update_pages(pages)
+        await view.update_message()
+
+
+
+    @app_commands.command(name="old_queue", description="shows the track queue")
+    async def old_show_queue(self, interaction: discord.Interaction):
         server: Server = self.fetch_server(interaction.guild_id)
         if server.player is None:
             await interaction.response.send_message("There is currently no voice session")
@@ -513,8 +669,9 @@ class Music(commands.Cog):
 
 
         now_playing = server.player.current_track
-        history_list = list(server.player.history)[:10]
-        queue_list = list(server.player.queue)[:10]
+        history_list = list(server.player.history)
+        history_list = history_list[len(history_list)-5:]
+        queue_list = list(server.player.queue)[:5]
         message = "```swift\n"
 
         for index, track in enumerate(history_list):
@@ -651,7 +808,10 @@ class Music(commands.Cog):
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, player: Player, track: wavelink.Track):
-        await player.dj_channel.send(content=f"Now Playing **{track.title}**")
+        track_title = player.source
+        if not track_title:
+            track_title = track.title
+        await player.dj_channel.send(content=f"Now Playing **{track_title}**")
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
