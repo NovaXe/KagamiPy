@@ -31,6 +31,11 @@ music functionality
 
 
 SCROLLABLE TEXT / MESSAGES
+keep track of view instances per server as a variable and track the current index
+only delete the view if it falls out of index
+maybe keep a list of limited size and pop + append new views
+set del to clear the view from the message or just do it manually
+figure out what the hell is wrong with the player and currently playing
 
 - custom soundboards per server
 

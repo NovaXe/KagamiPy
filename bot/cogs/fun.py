@@ -11,7 +11,7 @@ import discord
 import discord.utils
 from discord.ext import commands
 from discord import app_commands
-from bot.utils import ui
+from bot.utils.ui import MessageReply
 
 
 class Fun(commands.Cog):
@@ -106,7 +106,7 @@ class Fun(commands.Cog):
 
     # context menu commands
     async def msg_reply(self, interaction: discord.Interaction, message: discord.Message):
-        await interaction.response.send_modal(modals.MessageReply(message))
+        await interaction.response.send_modal(MessageReply(message))
 
     async def msg_copy_reactions(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.defer(ephemeral=True)

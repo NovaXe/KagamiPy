@@ -61,6 +61,7 @@ class Kagami(commands.Bot):
     async def on_ready(self):
         print(f"Logged in as {self.user} (ID: {self.user.id})")
 
+
 def main():
     kagami = Kagami()
     kagami.run(kagami.config["token"], log_handler=log_handler, log_level=logging.DEBUG)

@@ -1,9 +1,12 @@
 import asyncio
 import re
-from typing import List
-from typing import Literal
-from typing import Union
-from typing import Optional
+from typing import (
+    Literal,
+    Dict,
+    Union,
+    Optional,
+    List,
+)
 import discord
 import discord.utils
 import wavelink
@@ -16,121 +19,17 @@ import atexit
 import numpy as np
 import math
 from bot.utils.ui import MessageScroller
+from bot.utils.ui import QueueController
+from bot.utils.musichelpers import *
 
 from bot.utils import ui
 from wavelink.ext import spotify
-from enum import Enum
 
 URL_REG = re.compile(r'https?://(?:www\.)?.+')
 YT_URL_REG = re.compile(r"(?:https://)(?:www\.)?(?:youtube|youtu\.be)(?:\.com)?\/(?:watch\?v=)?(.{11})")
 YT_PLAYLIST_REG = re.compile(r"[\?|&](list=)(.*)\&")
 DISCORD_ATTACHMENT_REG = re.compile(r"(https://|http://)?(cdn\.|media\.)discord(app)?\.(com|net)/attachments/[0-9]{17,19}/[0-9]{17,19}/(?P<filename>.{1,256})\.(?P<mime>[0-9a-zA-Z]{2,4})(\?size=[0-9]{1,4})?")
-
-class LoopMode(Enum):
-    NO_LOOP = 0
-    LOOP_SONG = 1
-    LOOP_QUEUE = 2
-
-
-
-class Server:
-    def __init__(self, guild_id: int, player=None):
-        self.id = str(guild_id)
-        self.playlists: dict[str, Playlist] = {}     # name : Playlist
-        self.player = player
-
-
-    def create_playlist(self, name: str):
-        self.playlists[name] = Playlist(name)
-        return self.playlists[name]
-
-
-class Playlist:
-    def __init__(self, name: str, track_list: list[str] = None):
-        self.tracks: list[str] = [] if track_list is None else track_list
-        self.name = name
-
-    def add_track(self, track: wavelink.Track) -> None:
-        self.tracks.append(track.id)
-
-    def remove_track(self, track: wavelink.Track) -> None:
-        self.tracks.remove(track.id)
-
-    def remove_track_at(self, position: int) -> None:
-        self.tracks.pop(position)
-
-    def update_list(self, new_tracks: list[wavelink.Track]):
-        track_list = []
-        for track in new_tracks:
-            track_list.append(track.id)
-        self.tracks = list(dict.fromkeys(self.tracks + track_list).keys())
-        # self.tracks = list(set(self.tracks + new_tracks))
-
-
-
-class Player(wavelink.Player):
-    def __init__(self, dj_user: discord.Member, dj_channel: discord.TextChannel):
-        super().__init__()
-        self.history = wavelink.Queue()
-        self.queue = wavelink.Queue()
-        self.current_track: wavelink.Track = None
-        self.loop_mode: LoopMode = LoopMode.NO_LOOP
-        self.dj_user: discord.Member = dj_user
-        self.dj_channel: discord.TextChannel = dj_channel
-
-    async def add_to_queue(self, single: bool, track: wavelink.Track) -> None:
-        if single:
-            self.queue.put(track)
-        else:
-            self.queue.extend(track)
-
-    def get_next_song(self) -> wavelink.Track:
-        return self.queue.get()
-
-    async def play_next_track(self):
-        await self.cycle_track()
-        await self.start_current_track()
-        # print("next track played\n")
-        # if self.queue.is_empty:
-        #     self.current_track = None
-        #     return
-        # if self.current_track is not None:
-        #     self.history.put(self.current_track)
-        # self.current_track = self.queue.get()
-        # await self.play(source=self.current_track, replace=True)
-
-    async def play_previous_track(self):
-        await self.cycle_track(reverse=True)
-        await self.start_current_track()
-
-    async def start_current_track(self):
-        if self.current_track is None:
-            return
-        await self.play(source=self.current_track, replace=True)
-
-    async def cycle_track(self, reverse: bool = False):
-        if reverse:
-            if self.current_track is not None:
-                self.queue.put_at_front(self.current_track)
-            if not self.history.is_empty:
-                self.current_track = self.history.pop()
-            else:
-                self.current_track = None
-        else:
-            if self.current_track is not None:
-                self.history.put(self.current_track)
-            if not self.queue.is_empty:
-                self.current_track = self.queue.get()
-            else:
-                self.current_track = None
-        # print("cycled track\n")
-
-
-    async def restart_track(self):
-        await self.play(source=self.current_track, replace=True)
-
-    async def seek_track(self, seconds: int):
-        await self.seek(seconds)
+SOUNDCLOUD_REG = re.compile("^https?:\/\/(www\.|m\.)?soundcloud\.com\/[a-z0-9](?!.*?(-|_){2})[\w-]{1,23}[a-z0-9](?:\/.+)?$")
 
 
 class Music(commands.Cog):
@@ -140,10 +39,12 @@ class Music(commands.Cog):
         self.player = None
         self.servers: dict[str, Server] = {}
         self.players = {}
-        bot.loop.create_task(self.connect_nodes())
+
+
 
 
     playlist_group = app_commands.Group(name="playlist", description="commands relating to music playlists")
+    music_group = app_commands.Group(name="music", description="commands relating to music playback")
     
     def fetch_server(self, server_id: int):
         if str(server_id) not in self.servers:
@@ -153,19 +54,24 @@ class Music(commands.Cog):
     @playlist_group.command(name="create", description="creates a new playlist")
     @app_commands.describe(source="how to source the playlist")
     async def playlist_create(self, interaction: discord.Interaction, source: Literal["new", "queue"], name: str):
-        await interaction.response.defer()
+        await interaction.response.defer(thinking=True)
         server: Server = self.fetch_server(interaction.guild_id)
+        current_player: Player = self.fetch_player_instance(interaction.guild)
+
         if name in server.playlists.keys():
-            await interaction.response.send_message(f"A playlist named '{name}' already exists")
+            await interaction.edit_original_response(content=f"A playlist named '{name}' already exists")
             return
 
         if source == "new":
             server.create_playlist(name)
-            await interaction.response.send_message("Created a new Playlist")
+            await interaction.edit_original_response(content="Created a new Playlist")
         elif source == "queue":
-            history_list = list(server.player.history)
-            queue_list = list(server.player.queue)
-            current_track = [server.player.current_track]
+            if current_player is None:
+                await interaction.edit_original_response(content="There is currently no voice session")
+                return
+            history_list = list(current_player.history)
+            queue_list = list(current_player.queue)
+            current_track = [current_player.current_track]
 
 
             playlist_list = list(dict.fromkeys((history_list + current_track + queue_list)).keys())
@@ -213,13 +119,18 @@ class Music(commands.Cog):
     @app_commands.autocomplete(playlist=playlist_autocomplete)
     async def playlist_update(self, interaction: discord.Interaction, playlist: str):
         server: Server = self.fetch_server(interaction.guild_id)
+        current_player: Player = self.fetch_player_instance(interaction.guild)
         if playlist not in server.playlists.keys():
             await interaction.response.send_message("Playlist does not exist", ephemeral=True)
             return
 
-        history_list = list(server.player.history)
-        queue_list = list(server.player.queue)
-        current_track = [server.player.current_track]
+        if current_player is None:
+            await interaction.response.send_message(content="There is currently no voice session")
+            return
+
+        history_list = list(current_player.history)
+        queue_list = list(current_player.queue)
+        current_track = [current_player.current_track]
 
         playlist_list = list(dict.fromkeys((history_list + current_track + queue_list)).keys())
 
@@ -254,27 +165,25 @@ class Music(commands.Cog):
         await interaction.edit_original_response(
             content=f"Removed track {track_position}: '{full_track.title}' from playlist: '{playlist}'")
 
-
-
     @playlist_group.command(name="play", description="clears the queue and plays the playlist")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
     async def playlist_play(self, interaction: discord.Interaction, playlist: str):
         server: Server = self.fetch_server(interaction.guild_id)
+        await interaction.response.defer(thinking=True)
         if playlist not in server.playlists.keys():
-            await interaction.response.send_message("Playlist does not exist", ephemeral=True)
+            await interaction.edit_original_response(content="Playlist does not exist", ephemeral=True)
             return
-        player: Player = await self.attempt_to_join_channel(interaction)
-        player.queue.clear()
-        player.current_track = None
-        player.history.clear()
+        current_player: Player = await self.attempt_to_join_vc(interaction)
+        current_player.queue.clear()
+        current_player.current_track = None
+        current_player.history.clear()
         tracks = [await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=track_id)
                   for track_id in server.playlists[playlist].tracks
                   ]
-        await player.add_to_queue(single=False, track=tracks)
+        await current_player.add_to_queue(single=False, track=tracks)
         # await player.cycle_track()
-        await player.play_next_track()
-        await interaction.response.send_message(f"Now playing playlist: '{playlist}'")
-
+        await current_player.play_next_track()
+        await interaction.edit_original_response(content=f"Now playing playlist: '{playlist}'")
 
     @playlist_group.command(name="queue", description="adds the playlist to the end of the queue")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
@@ -284,13 +193,13 @@ class Music(commands.Cog):
         if playlist not in server.playlists.keys():
             await interaction.edit_original_response(content="Playlist does not exist")
             return
-        player: Player = await self.attempt_to_join_channel(interaction)
+        current_player: Player = await self.attempt_to_join_vc(interaction)
         tracks = []
 
         tracks = [await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=track_id)
                   for track_id in server.playlists[playlist].tracks
                   ]
-        await player.add_to_queue(single=False, track=tracks)
+        await current_player.add_to_queue(single=False, track=tracks)
         await interaction.edit_original_response(content=f"Added playlist: '{playlist}' to the queue")
 
     @playlist_group.command(name="list_all", description="lists all the server's playlists")
@@ -378,6 +287,10 @@ class Music(commands.Cog):
     async def cog_unload(self) -> None:
         self.save_server_data()
 
+    async def cog_load(self):
+        self.bot.loop.create_task(self.connect_nodes())
+
+    @tasks.loop(seconds=10)
     async def connect_nodes(self):
         await self.bot.wait_until_ready()
         await wavelink.NodePool.create_node(bot=self.bot,
@@ -397,36 +310,90 @@ class Music(commands.Cog):
     async def on_wavelink_node_ready(self, node: wavelink.Node):
         print(f"Node: <{node.identifier}> is ready")
 
-    async def attempt_to_join_channel(self, interaction: discord.Interaction) -> discord.VoiceClient:
-        user_voice = interaction.user.voice
-        if user_voice is None:
-            await interaction.response.send_message("Please join a voice channel", ephemeral=False)
-            return None
-        channel = user_voice.channel
-        voice_client = interaction.guild.voice_client
-        server: Server = self.fetch_server(interaction.guild_id)
 
-        if server.player is None:
-            server.player = Player(dj_user=interaction.user, dj_channel=interaction.channel)
-            if voice_client is None:
-                voice_client: Player = await channel.connect(cls=server.player)
-            return voice_client
+    # async def attempt_to_join_channel_old(self, interaction: discord.Interaction) -> discord.VoiceClient:
+    #     user_voice = interaction.user.voice
+    #     if user_voice is None:
+    #         await interaction.response.send_message("Please join a voice channel", ephemeral=False)
+    #         return None
+    #     channel = user_voice.channel
+    #     voice_client = interaction.guild.voice_client
+    #     server: Server = self.fetch_server(interaction.guild_id)
+    #
+    #     if server.player is None:
+    #         server.player = Player(dj_user=interaction.user, dj_channel=interaction.channel)
+    #         if voice_client is None:
+    #             voice_client: Player = await channel.connect(cls=server.player)
+    #         return voice_client
+    #     return voice_client
+
+
+    async def join_voice_channel(self, interaction: discord.Interaction, guild: discord.Guild=None, voice_channel: discord.VoiceChannel=None, keep_existing_player=False):
+        server: Server = self.fetch_server(interaction.guild_id)
+        voice_client: Player = self.fetch_player_instance(interaction.guild)
+        if guild:
+            voice_client: Player = guild.voice_client
+
+        channel_to_join: discord.VoiceChannel = interaction.user.voice.channel
+        if voice_channel:
+            channel_to_join = voice_channel
+
+        player = None
+        if voice_client is not None:
+            if keep_existing_player:
+                player = voice_client
+            else:
+                player = Player(dj_user=interaction.user, dj_channel=interaction.channel)
+        else:
+            player = Player(dj_user=interaction.user, dj_channel=interaction.channel)
+
+        voice_client = await channel_to_join.connect(cls=player)
+        server.has_player = True
+        # server.player = voice_client
         return voice_client
 
+
+    def fetch_player_instance(self, guild: discord.Guild):
+        server: Server = self.fetch_server(guild.id)
+        # node = wavelink.NodePool.get_node()
+        # player: Player = node.get_player(guild)
+        player: Player = guild.voice_client
+
+        # server.player = player
+        return player
+
+
+
+    async def attempt_to_join_vc(self, interaction: discord.Interaction, voice_channel=None, should_switch_channel=False):
+        voice_client = self.fetch_player_instance(interaction.guild)
+
+        if voice_client:
+            if should_switch_channel:
+                voice_client = await self.join_voice_channel(interaction, voice_channel=voice_channel, keep_existing_player=False)
+        else:
+            voice_client = await self.join_voice_channel(interaction, voice_channel=voice_channel, keep_existing_player=False)
+
+        return voice_client
+
+
+
     @app_commands.command(name="join", description="joins your current voice channel")
-    async def join_channel(self, interaction: discord.Interaction) -> None:
-        voice_client = await self.attempt_to_join_channel(interaction)
+    async def join_channel(self, interaction: discord.Interaction, voice_channel: discord.VoiceChannel=None) -> None:
+        voice_client = await self.attempt_to_join_vc(interaction=interaction, voice_channel=voice_channel, should_switch_channel=False)
         if voice_client is None:
+            await interaction.response.send_message(f"An issue occurred when attempting to join the channel")
             return
+
         await interaction.response.send_message(f"I have joined {interaction.user.voice.channel.name}")
 
     @app_commands.command(name="leave", description="leaves the channel")
     async def leave_channel(self, interaction: discord.Interaction):
-        server: Server = self.fetch_server(interaction.guild_id)
-        if server.player is None:
+        voice_client: Player = self.fetch_player_instance(interaction.guild)
+        if voice_client is None:
             await interaction.response.send_message("I am not in a voice channel")
-        await server.player.disconnect()
-        server.player = None
+            return
+
+        await voice_client.disconnect()
         await interaction.response.send_message("I have left the voice channel")
 
     @staticmethod
@@ -435,6 +402,7 @@ class Music(commands.Cog):
         is_url = bool(URL_REG.search(search))
         decoded_spotify_url = spotify.decode_url(search)
         is_spotify_url = bool(decoded_spotify_url is not None)
+        is_soundcloud_url = bool(SOUNDCLOUD_REG.search(search))
         attachment_regex_result = DISCORD_ATTACHMENT_REG.search(search)
         is_discord_attachment = bool(attachment_regex_result)
         tracks = []
@@ -459,6 +427,9 @@ class Music(commands.Cog):
             elif decoded_spotify_url["type"] in (spotify.SpotifySearchType.playlist, spotify.SpotifySearchType.album):
                 tracks = await spotify.SpotifyTrack.search(query=decoded_spotify_url["id"],
                                                            type=decoded_spotify_url["type"])
+        elif is_soundcloud_url:
+            tracks = await node.get_tracks(query=search, cls=wavelink.SoundCloudTrack)
+
         elif is_discord_attachment:
             modified_track = (await node.get_tracks(query=search, cls=wavelink.LocalTrack))[0]
             modified_track.title = attachment_regex_result.group("filename")+"."+attachment_regex_result.group("mime")
@@ -472,18 +443,19 @@ class Music(commands.Cog):
 
     @app_commands.command(name="play", description="plays/adds the given song")
     async def play_song(self, interaction: discord.Interaction, search: str = None) -> None:
-        message = ""
-        server: Server = self.fetch_server(interaction.guild_id)
+        current_player: Player = self.fetch_player_instance(interaction.guild)
 
-        if interaction.guild.voice_client:
+        if current_player:
             if search is None:
-                await server.player.resume()
+                await current_player.resume()
                 await interaction.response.send_message(content="Resumed the player")
                 return
-        player: Player = await self.attempt_to_join_channel(interaction)
+
+        current_player = await self.attempt_to_join_vc(interaction=interaction, should_switch_channel=False)
         if search is None:
             await interaction.response.send_message("I have joined the channel", ephemeral=False)
             return
+
 
         await interaction.response.defer()
         tracks = await self.search_song(interaction, search)
@@ -491,244 +463,69 @@ class Music(commands.Cog):
         titles = ""
         for i, track in enumerate(tracks):
             title = track.title
-            if len(titles + title) < 1800:
+            if len(titles) + len(title) < 1800:
                 titles += title + "\n"
             else:
-                titles += f"and {i} more songs\n"
+                titles += f"and {i} more songs\n```"
                 break
-        await player.add_to_queue(single=False, track=tracks)
 
+        await current_player.add_to_queue(single=False, track=tracks)
 
-        # print(titles)
         await interaction.edit_original_response(content=f"**{titles}**was added to the queue")
 
-        if server.player.current_track is None:
-            await server.player.play_next_track()
-            # await self.players[interaction.guild_id].cycle_track()
-            # await self.players[interaction.guild_id].start_current_track()
-
-    @staticmethod
-    def track_to_string(track: wavelink.Track):
-        title = ""
-        title_length = len(track.title)
-        if title_length > 36:
-            if title_length <= 40:
-                title = track.title.ljust(40)
-            else:
-                title = (track.title[:36] + " ...").ljust(40)
-        else:
-            title = track.title.ljust(40)
-        message = f"{title}  -  {int((track.length / 60))}:{int(track.length % 60):02}\n"
-        return message
-
-    async def create_queue_pages(self, guild_id):
-        server: Server = self.fetch_server(guild_id)
-
-        now_playing = server.player.current_track
-        history_list = list(server.player.history)
-        history_length = len(history_list)
-        queue_list = list(server.player.queue)
-        queue_length = len(queue_list)
-
-        history_peek = history_list[-5:]
-        queue_peek = queue_list[:5]
-
-        hidden_history = history_list[:-5]
-        hidden_queue = queue_list[5:]
-
-        total_page_count = math.ceil(len(hidden_history) / 10) + 1 + math.ceil(len(hidden_queue) / 10)
-
-        home_page = 0
-
-        pages = []
-        current_page = 0
-
-        now_playing_text = ""
-        if now_playing:
-
-            now_playing_text = f"NOW PLAYING ➤ {now_playing.title}" \
-                               f"  -  {int(server.player.position / 60)}" \
-                               f":{int(server.player.position % 60):02}" \
-                               f" / {int(now_playing.length / 60)}:{int(now_playing.length % 60):02}\n"
-        else:
-            if not history_peek and not queue_peek:
-                now_playing_text = "The queue is empty\n"
-            else:
-                now_playing_text = f"__**NOW PLAYING**__ ➤ Nothing\n"
-
-
-        track_index = 0
-        hidden_history.reverse()
-        for page_number, page_list in [(int(i/10), hidden_history[i:i+10]) for i in range(0, len(hidden_history), 10)]:
-            current_page = page_number
-            content = "```swift\n"
-            content_list = []
-            for index, track in enumerate(page_list):
-                track_index += 1
-                track_string = self.track_to_string(track)
-                position = (str(track_index+5) + ")").ljust(5)
-                content_list.append(f"{position} {track_string}")
-
-            content_list.reverse()
-            content += ''.join(content_list)
-
-            content += "      🡅Previous🡅\n" \
-                       "──────────────────────────\n"
-            content += now_playing_text
-            content += f"Page #: {math.ceil(len(hidden_history) / 10) - current_page} / {total_page_count}\n"
-            content += "```"
-            pages.insert(current_page, content)
-            # pages[current_page] = content
-
-        pages.reverse()
-        if len(hidden_history):
-            current_page += 1
-        # current_page += 1
-        content = "```swift\n"
-        for index, track in enumerate(history_peek):
-            track_string = self.track_to_string(track)
-            position = (str(5 - index) + ")").ljust(5)
-            content += f"{position} {track_string}"
-        if len(history_peek):
-            content += f"      🡅Previous🡅\n" \
-                       f"──────────────────────────\n"
-
-        content += now_playing_text
-        home_page = current_page
-        if len(queue_peek):
-            content += "──────────────────────────\n" \
-                       "      🡇Up Next🡇\n"
-
-        for index, track in enumerate(queue_peek):
-            track_string = self.track_to_string(track)
-            position = (str(index + 1) + ")").ljust(5)
-            content += f"{position} {track_string}"
-
-        content += f"Page #: {current_page+1} / {total_page_count}\n"
-        content += "```"
-        # pages[current_page] = content
-
-        pages.insert(current_page, content)
-        current_page += 1
-
-
-        track_index = 0
-        for page_number, page_list in [(int(i/10), hidden_queue[i:i+10]) for i in range(0, len(hidden_queue), 10)]:
-
-            content = "```swift\n"
-            content += now_playing_text
-            content += "──────────────────────────\n" \
-                       "      🡇Up Next🡇\n"
-            for index, track in enumerate(page_list):
-                track_index += 1
-                track_string = self.track_to_string(track)
-                position = (str(track_index+5) + ")").ljust(5)
-                content += f"{position} {track_string}"
-
-            # pages[current_page] = content
-            content += f"Page #: {current_page + page_number+1} / {total_page_count}\n"
-            content += "```"
-            pages.insert(current_page + page_number, content)
-
-
-        return pages, home_page
+        if current_player.current_track is None:
+            await current_player.play_next_track()
 
 
     @app_commands.command(name="queue", description="shows the track queue")
     async def show_queue(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
-        server: Server = self.fetch_server(interaction.guild_id)
-        if server.player is None:
+        # server: Server = self.fetch_server(interaction.guild_id)
+        current_player: Player = self.fetch_player_instance(interaction.guild)
+        if current_player is None:
             await interaction.edit_original_response(content="There is currently no voice session")
             return
-        pages, home_page = await self.create_queue_pages(interaction.guild_id)
+        pages, home_page = await create_queue_pages(current_player)
         message = await interaction.edit_original_response(content=pages[home_page])
 
-        scrolling_view = MessageScroller(message=message, pages=pages, home_page=home_page)
-        await interaction.edit_original_response(view=scrolling_view)
-
-        self.queue_update_loop.start(interaction.guild_id, scrolling_view)
-        await scrolling_view.wait()
-        self.queue_update_loop.stop()
-
-
-    @tasks.loop(seconds=5)
-    async def queue_update_loop(self, guild_id, view: discord.ui.view):
-        pages, home_page = await self.create_queue_pages(guild_id)
-        view.update_pages(pages)
-        await view.update_message()
+        # scrolling_view = MessageScroller(message=message, pages=pages, home_page=home_page)
+        controller_view = QueueController(player=current_player, message=message, pages=pages, home_page=home_page)
+        await interaction.edit_original_response(view=controller_view)
 
 
 
-    @app_commands.command(name="old_queue", description="shows the track queue")
-    async def old_show_queue(self, interaction: discord.Interaction):
+
+    @app_commands.command(name="nowplaying", description="shows the currently playing track")
+    async def now_playing(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
         server: Server = self.fetch_server(interaction.guild_id)
-        if server.player is None:
-            await interaction.response.send_message("There is currently no voice session")
+        current_player: Player = self.fetch_player_instance(interaction.guild)
+        if current_player is None:
+            await interaction.edit_original_response(content="There is currently no voice session")
             return
 
+        now_playing = current_player.current_track
 
-        now_playing = server.player.current_track
-        history_list = list(server.player.history)
-        history_list = history_list[len(history_list)-5:]
-        queue_list = list(server.player.queue)[:5]
-        message = "```swift\n"
-
-        for index, track in enumerate(history_list):
-            title = ""
-            title_length = len(track.title)
-            if title_length > 36:
-                if title_length <= 40:
-                    title = track.title.ljust(40)
-                else:
-                    title = (track.title[:36] + " ...").ljust(40)
-            else:
-                title = track.title.ljust(40)
-
-            position = (str(len(history_list) - index) + ")").ljust(5)
-            message += f"{position} {title}" \
-                       f"  -  {int((track.length / 60))}:{int(track.length % 60):02}\n"
-        if len(history_list):
-            message += f"      🡅Previous🡅\n"
-            message += "──────────────────────────\n"
-        if now_playing:
-
-            message += f"NOW PLAYING ➤ {now_playing.title}" \
-                       f"  -  {int(server.player.position / 60)}" \
-                       f":{int(server.player.position % 60):02}" \
-                       f" / {int(now_playing.length / 60)}:{int(now_playing.length % 60):02}\n"
+        if current_player.current_track:
+            now_playing_text = f"NOW PLAYING ➤ {now_playing.title}" \
+                               f"  -  {int(current_player.position / 60)}" \
+                               f":{int(current_player.position % 60):02}" \
+                               f" / {int(now_playing.length / 60)}:{int(now_playing.length % 60):02}\n"
         else:
-            if not history_list and not queue_list:
-                message += "The queue is empty"
-            else:
-                message += f"__**NOW PLAYING**__ ➤ Nothing"
-        if len(queue_list):
-            message += "──────────────────────────\n"
-            message += "      🡇Up Next🡇\n"
+            now_playing_text = f"__**NOW PLAYING**__ ➤ Nothing\n"
 
-        for index, track in enumerate(queue_list):
-            title = ""
-            title_length = len(track.title)
-            if title_length > 36:
-                if title_length <= 40:
-                    title = track.title.ljust(40)
-                else:
-                    title = (track.title[:36] + " ...").ljust(40)
-            else:
-                title = track.title.ljust(40)
-            position = (str(index + 1) + ")").ljust(5)
-            message += f"{position} {title}  -  {int((track.length / 60))}:{int(track.length % 60):02}\n"
-        message += "\n```"
-        await interaction.response.send_message(content=message)
+        await interaction.edit_original_response(content=now_playing_text)
+
 
     async def toggle_pause(self, interaction: discord.Interaction = None):
         message: str = None
-        server: Server = self.fetch_server(interaction.guild_id)
-        if server.player.is_paused():
-            await server.player.resume()
+        # server: Server = self.fetch_server(interaction.guild_id)
+        current_player: Player = self.fetch_player_instance(interaction.guild)
+        if current_player.is_paused():
+            await current_player.resume()
             message = "Resumed the player"
         else:
-            await server.player.pause()
+            await current_player.pause()
             message = "Paused the player"
         if interaction is None:
             return
@@ -740,36 +537,83 @@ class Music(commands.Cog):
 
     @app_commands.command(name="resume", description="resumes the player")
     async def resume_song(self, interaction: discord.Interaction):
-        server: Server = self.fetch_server(interaction.guild_id)
-        await server.player.resume()
+        # server: Server = self.fetch_server(interaction.guild_id)
+        current_player: Player = self.fetch_player_instance(interaction.guild)
+
+        await current_player.resume()
         await interaction.response.send_message(content="Resumed the player", ephemeral=True)
 
     async def skip_unskip_track(self, interaction: discord.Interaction, skip_back: bool, skip_count: int):
-        server: Server = self.fetch_server(interaction.guild_id)
-        for i in range(skip_count):
-            if skip_back:
-                await server.player.cycle_track(reverse=True)
-            else:
-                await server.player.cycle_track()
-            # print("skipped track\n")
-        await server.player.stop()
-        await server.player.start_current_track()
+        # server: Server = self.fetch_server(interaction.guild_id)
+        current_player: Player = self.fetch_player_instance(interaction.guild)
+        if current_player is None:
+            return None
+
+        if current_player.current_track is None:
+            for i in range(skip_count):
+                await current_player.cycle_track(reverse=skip_back)
+                print("skipped track\n")
+            await current_player.start_current_track()
+            return
+
+
+        current_player.skip_to_prev = skip_back
+        current_player.skip_count = skip_count
+
+
+
+        # for i in range(skip_count):
+        #     if skip_back:
+        #         await current_player.cycle_track(reverse=True)
+        #     else:
+        #         await current_player.cycle_track()
+        #     # print("skipped track\n")
+
+        await current_player.stop()
+        # await current_player.start_current_track()
 
     @app_commands.command(name="replay", description="replays the currently playing song")
     async def restart_song(self, interaction: discord.Interaction):
-        server: Server = self.fetch_server(interaction.guild_id)
-        server.player.start_current_track()
+        # server: Server = self.fetch_server(interaction.guild_id)
+        current_player: Player = self.fetch_player_instance(interaction.guild)
+
+        await current_player.start_current_track()
         await interaction.response.send_message(content="Replaying the current song")
 
     @app_commands.command(name="skip", description="skips to the next song")
     async def skip_forward(self, interaction: discord.Interaction, count: int = 1):
-        await self.skip_unskip_track(interaction, False, count)
+        if await self.skip_unskip_track(interaction, False, count) is None:
+            await interaction.response.send_message("There is currently no voice session")
+            return
         await interaction.response.send_message("Skipped to next song")
 
     @app_commands.command(name="unskip", description="skips back to the previous song")
     async def skip_back(self, interaction: discord.Interaction, count: int = 1):
-        await self.skip_unskip_track(interaction, True, count)
+        if await self.skip_unskip_track(interaction, True, count) is None:
+            await interaction.response.send_message("There is currently no voice session")
+            return
         await interaction.response.send_message("Skipped to previous song")
+
+    @app_commands.command(name="loop", description="cycles through loop modes")
+    async def loop(self, interaction: discord.Interaction):
+        current_player: Player = self.fetch_player_instance(interaction.guild)
+        if current_player is None:
+            await interaction.response.send_message("There is currently no voice session")
+            return
+        current_player.loop_mode.next()
+
+        message = ""
+        match current_player.loop_mode:
+            case LoopMode.NO_LOOP:
+                message = "Loop Off"
+            case LoopMode.LOOP_QUEUE:
+                message = "Loop Queue"
+            case LoopMode.LOOP_SONG:
+                message = "Loop Song"
+
+
+        await interaction.response.send_message(content=f"Loop Mode: {message}")
+
 
     # @app_commands.command(name="jumpto", description="jumps to the given spot in the queue")
     # async def jump_to(self, interaction: discord.Interaction, index: int):
@@ -783,18 +627,49 @@ class Music(commands.Cog):
 
     @app_commands.command(name="clear", description="clears the entire queue")
     async def clear_queue(self, interaction: discord.Interaction):
-        server: Server = self.fetch_server(interaction.guild_id)
-        queue_size = server.player.queue.count
+        # server: Server = self.fetch_server(interaction.guild_id)
+        current_player: Player = self.fetch_player_instance(interaction.guild)
 
-        server.player.queue.clear()
+        queue_size = current_player.queue.count
+
+        current_player.queue.clear()
         # self.players[interaction.guild_id].history.clear()
         await interaction.response.send_message(f"Cleared {queue_size} tracks from the queue")
 
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, player: Player, track: wavelink.Track, **payload: dict):
-        if payload["reason"] == "FINISHED":
-            await player.play_next_track()
-        # print("track end\n")
+        # print("loop mode ", player.loop_mode)
+        if player.loop_mode is LoopMode.NO_LOOP:
+            pass
+        elif player.loop_mode is LoopMode.LOOP_QUEUE:
+            if player.queue.is_empty:
+                # print("empty queue")
+                if not player.history.is_empty:
+                    # print("not empty history")
+                    await player.cycle_track()
+                    player.queue = player.history.copy()
+                    player.history.clear()
+                else:
+                    # print("empty history")
+                    await player.restart_current_track()
+                    return
+            else:
+                pass
+        elif player.loop_mode is LoopMode.LOOP_SONG:
+            await player.restart_current_track()
+            return
+
+        for i in range(player.skip_count):
+            await player.cycle_track(reverse=player.skip_to_prev)
+        player.skip_to_prev = False
+        player.skip_count = 1
+
+        print("track ended")
+
+
+
+
+        await player.start_current_track()
 
     @commands.Cog.listener()
     async def on_wavelink_track_exception(self, player: Player, track: wavelink.Track, error):
@@ -808,16 +683,18 @@ class Music(commands.Cog):
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, player: Player, track: wavelink.Track):
-        track_title = player.source
-        if not track_title:
+        track_title: str = str(player.source)
+
+        if not player.source:
             track_title = track.title
         await player.dj_channel.send(content=f"Now Playing **{track_title}**")
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         server: Server = self.fetch_server(member.guild.id)
-        voice_client = member.guild.voice_client
-        if voice_client is None:
+        current_player: Player = member.guild.voice_client
+
+        if current_player is None:
             server.player = None
             # print("no voice client")
             return
@@ -829,8 +706,8 @@ class Music(commands.Cog):
             # print("user left channel")
             if len(before.channel.members)-1 == 0:
                 # print("leaving")
-                await server.player.dj_channel.send(f"Everyone left '{before.channel.name}' so I left too")
-                await server.player.disconnect()
+                await current_player.dj_channel.send(f"Everyone left '{before.channel.name}' so I left too")
+                await current_player.disconnect()
                 server.player = None
             # else:
             #     print("members remain")

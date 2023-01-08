@@ -6,8 +6,26 @@ from bot.utils.utils import ClampedValue
 from bot.utils.utils import clamp
 from discord.ext import commands
 from discord import app_commands
+from typing import Optional
 
-from bot.cogs.music import Server, Player
+from bot.utils.musichelpers import *
+from discord.ext import tasks
+
+
+class CustomUIView(discord.ui.View):
+    def __init__(self, *, timeout: Optional[float] = 180.0, **kwargs):
+        super().__init__(timeout=timeout)
+        self.message = kwargs.get("message", None)
+        # self.deletes_message = kwargs.get("deletes_message")
+
+    async def on_timeout(self) -> None:
+        if self.message:
+            await self.message.edit(view=None)
+        self.stop()
+
+    async def delete_message(self):
+        await self.message.delete()
+
 
 
 
@@ -23,126 +41,206 @@ class MessageReply(discord.ui.Modal, title="Message Reply"):
         await interaction.response.defer(ephemeral=True)
 
 
-class PlayerControls(discord.ui.view):
-    def __init__(self, server: Server):
-        self.server = server
+class PlayerControls(CustomUIView):
+    def __init__(self, *args, player, message, **kwargs):
+        kwargs.update({
+            "player": player,
+            "message": message,
+        })
+        super().__init__(**kwargs)
+        self.player: Player = player
+        self.message = message
+
+    async def update_player_buttons(self):
+        for item in self.children:
+            assert isinstance(item, discord.ui.Button)
+
+            if item.custom_id == "PlayerControls:pauseplay":
+                if self.player.is_paused():
+                    item.emoji = "▶"
+                else:
+                    item.emoji = "⏸"
+
+        await self.message.edit(view=self)
 
 
-class MessageScroller(discord.ui.View):
-    def __init__(self, message: discord.Message, pages: list[str], home_page: int = 0):
-        super().__init__(timeout=300)
+
+
+
+
+
+
+
+    @discord.ui.button(emoji="⏮", style=discord.ButtonStyle.green, custom_id="PlayerControls:skipback")
+    async def skip_back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message()
+        if self.player.current_track is None:
+            for i in range(self.player.skip_count):
+                await self.player.cycle_track(reverse=True)
+                print("skipped track\n")
+            await self.player.start_current_track()
+            return
+
+        self.player.skip_to_prev = True
+        await self.player.stop()
+
+    @discord.ui.button(emoji="⏹", style=discord.ButtonStyle.green, custom_id="PlayerControls:stop")
+    async def stop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message()
+
+        self.player.is_stopped = True
+        if not self.player.is_paused():
+            await self.player.pause()
+
+        await self.player.seek(0)
+
+        await self.update_player_buttons()
+
+    @discord.ui.button(emoji="⏯", style=discord.ButtonStyle.green, custom_id="PlayerControls:pauseplay")
+    async def pause_play(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message()
+        if self.player.current_track is None:
+            await self.player.play_next_track()
+
+        if self.player.is_paused():
+            await self.player.resume()
+        else:
+            await self.player.pause()
+
+        await self.update_player_buttons()
+
+    @discord.ui.button(emoji="⏭", style=discord.ButtonStyle.green, custom_id="PlayerControls:skip")
+    async def skip(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message()
+        if self.player.current_track is None:
+            for i in range(self.player.skip_count):
+                await self.player.cycle_track(reverse=False)
+                print("skipped track\n")
+            await self.player.start_current_track()
+            return
+        await self.player.stop()
+
+
+    @discord.ui.button(emoji="🔁", style=discord.ButtonStyle.gray, custom_id="PlayerControls:loop")
+    async def loop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message()
+        self.player.loop_mode = self.player.loop_mode.next()
+        match self.player.loop_mode:
+            case LoopMode.NO_LOOP:
+                button.emoji = "🔁"
+                button.style = discord.ButtonStyle.gray
+            case LoopMode.LOOP_QUEUE:
+                button.emoji = "🔁"
+                button.style = discord.ButtonStyle.blurple
+            case LoopMode.LOOP_SONG:
+                button.emoji = "🔂"
+                button.style = discord.ButtonStyle.blurple
+        await self.message.edit(view=self)
+
+
+
+class DeleteMessageButton(discord.ui.Button):
+    def __init__(self, deletes_message=False):
+        super().__init__(style=discord.ButtonStyle.red, emoji="🗑", row=4)
+        self.deletes_message = deletes_message
+
+    async def callback(self, interaction: discord.Interaction):
+        assert self.view is not None
+        assert isinstance(self.view, CustomUIView)
+        if self.deletes_message:
+            await self.view.delete_message()
+        self.view.stop()
+
+
+# class ViewDeleteButton(CustomUIView):
+#     def __init__(self, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#
+#     @discord.ui.button(emoji="🗑", style=discord.ButtonStyle.red, custom_id="Button:deleteview")
+#     async def delete_view(self, interaction: discord.Interaction, button: discord.ui.Button):
+#         if button.view:
+#             await button.view.on_timeout()
+#
+#         await self.on_timeout()
+
+class MessageScroller(CustomUIView):
+    def __init__(self, *args, message: discord.Message, pages: list[str], home_page: int = 0, timeout=300, **kwargs):
+        kwargs.update({
+            "message": message,
+            "pages": pages,
+            "home_page": home_page,
+            "timeout": timeout
+        })
+        super().__init__(*args, **kwargs)
         self.message = message
         self.pages = pages
         self.home_page = home_page
         self.page_count = len(pages)
         self.current_page_number = home_page
 
-    def update_pages(self, pages: list[str]):
+
+
+    def update_page_data(self, pages, home_page):
         self.pages = pages
         self.page_count = len(pages)
-        self.current_page_number = clamp(self.current_page_number, 0, self.page_count)
+        self.home_page = home_page
+
 
     async def update_message(self):
+        self.current_page_number = clamp(self.current_page_number, 0, self.page_count)
         await self.message.edit(content=self.pages[self.current_page_number])
 
 
-    @discord.ui.button(emoji="⬆", style=discord.ButtonStyle.gray)
+
+    @discord.ui.button(emoji="⬆", style=discord.ButtonStyle.gray, custom_id="MessageScroller:first", row=0)
     async def page_first(self, interaction: discord.Interaction, button: discord.ui.button):
         self.current_page_number = 0
         await interaction.response.edit_message()
         await self.update_message()
 
-    @discord.ui.button(emoji="🔼", style=discord.ButtonStyle.gray)
+    @discord.ui.button(emoji="🔼", style=discord.ButtonStyle.gray, custom_id="MessageScroller:prev", row=0)
     async def page_prev(self, interaction: discord.Interaction, button: discord.ui.button):
         self.current_page_number = clamp(self.current_page_number-1, 0, self.page_count-1)
         await interaction.response.edit_message()
         await self.update_message()
 
-    @discord.ui.button(emoji="*️⃣", style=discord.ButtonStyle.gray)
+    @discord.ui.button(emoji="*️⃣", style=discord.ButtonStyle.gray, custom_id="MessageScroller:home", row=0)
     async def page_home(self, interaction: discord.Interaction, button: discord.ui.button):
         self.current_page_number = self.home_page
         await interaction.response.edit_message()
         await self.update_message()
 
-    @discord.ui.button(emoji="🔽", style=discord.ButtonStyle.gray)
+    @discord.ui.button(emoji="🔽", style=discord.ButtonStyle.gray, custom_id="MessageScroller:next", row=0)
     async def page_next(self, interaction: discord.Interaction, button: discord.ui.button):
         self.current_page_number = clamp(self.current_page_number + 1, 0, self.page_count - 1)
         await interaction.response.edit_message()
         await self.update_message()
 
-    @discord.ui.button(emoji="⬇", style=discord.ButtonStyle.gray)
+    @discord.ui.button(emoji="⬇", style=discord.ButtonStyle.gray, custom_id="MessageScroller:last", row=0)
     async def page_last(self, interaction: discord.Interaction, button: discord.ui.button):
         self.current_page_number = len(self.pages) - 1
         await interaction.response.edit_message()
         await self.update_message()
 
 
-    @discord.ui.button(emoji="🗑", style=discord.ButtonStyle.red)
-    async def delete_scroller(self, interaction: discord.Interaction, button: discord.ui.button):
-        await self.message.edit(view=None)
-        self.stop()
-        del self
+
+class QueueController(PlayerControls, MessageScroller):
+    def __init__(self, player: Player, message, pages, home_page):
+        super().__init__(player=player, message=message, pages=pages, home_page=home_page, timeout=600)
+        self.add_item(DeleteMessageButton(deletes_message=True))
+        self.update_pages_loop.start()
+
+    @tasks.loop(seconds=5)
+    async def update_pages_loop(self):
+        pages, home_page = await create_queue_pages(self.player)
+        self.update_page_data(pages, home_page)
+        await self.update_message()
 
     async def on_timeout(self) -> None:
-        await self.message.edit(view=None)
-        del self
-
-
-class ScrollableMessageButtons(discord.ui.View):
-    def __init__(self, message: discord.Message, full_content: str, pages: list[str] = None, home_page=1):
-        super().__init__()
-        self.message = message
-        self.full_content = full_content
-        self.home_page = home_page
-        self.current_page = home_page
-        self.page_count = 0
-        self.pages = pages
-        if not pages:
-            self.initialize_pages()
-
-    def update_content(self, new_content: str, pages: list[str] = None):
-        self.full_content = new_content
-        self.pages = pages
-        if not pages:
-            self.initialize_pages()
-
-    def initialize_pages(self):
-        # Not going to be robust, it is expected you handle splitting pages for multi-page messages
-        line_split_content = self.full_content.split("\n")
-        self.pages = [line_split_content[i:i+10] for i in range(0, len(line_split_content), 10)]
-        self.page_count = len(self.pages)
-
-    async def update_message(self):
-        await self.message.edit(content=self.pages[self.current_page])
-
-
-    @discord.ui.button(label="▲")
-    async def page_up(self, interaction: discord.Interaction, button: discord.ui.button):
-        self.current_page = self.current_page+1 if self.current_page < self.page_count else self.page_count
-        await self.update_message()
-        await interaction.response.defer()
-
-    @discord.ui.button(label="▼")
-    async def page_down(self, interaction: discord.Interaction, button: discord.ui.button):
-        self.current_page = self.current_page - 1 if self.current_page > 1 else 1
-        await self.update_message()
-
-    @discord.ui.button(label="🏠")
-    async def page_home(self, interaction: discord.Interaction, button: discord.ui.button):
-        self.current_page = self.home_page
-        await self.update_message()
-
-    @discord.ui.button(label="🡄")
-    async def page_first(self, interaction: discord.Interaction, button: discord.ui.button):
-        self.current_page = 1
-        await self.update_message()
-        return
-
-    @discord.ui.button(label="🡆")
-    async def page_last(self, interaction: discord.Interaction, button: discord.ui.button):
-        self.current_page = self.page_count
-        await self.update_message()
-        return
+        try:
+            await self.message.delete()
+        except discord.HTTPException as e:
+            return
 
 
 
