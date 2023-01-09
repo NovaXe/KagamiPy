@@ -177,6 +177,7 @@ class MessageScroller(CustomUIView):
         self.home_page = home_page
         self.page_count = len(pages)
         self.current_page_number = home_page
+        self.add_item(DeleteMessageButton(deletes_message=True))
 
 
 
@@ -227,8 +228,15 @@ class MessageScroller(CustomUIView):
 class QueueController(PlayerControls, MessageScroller):
     def __init__(self, player: Player, message, pages, home_page):
         super().__init__(player=player, message=message, pages=pages, home_page=home_page, timeout=600)
-        self.add_item(DeleteMessageButton(deletes_message=True))
+        # self.add_item(DeleteMessageButton(deletes_message=True))
         self.update_pages_loop.start()
+
+    async def interaction_check(self, interaction: discord.Interaction, /) -> bool:
+        if interaction.data["custom_id"].startswith("PlayerControls"):
+            await self.update_pages_loop()
+        return True
+
+
 
     @tasks.loop(seconds=5)
     async def update_pages_loop(self):

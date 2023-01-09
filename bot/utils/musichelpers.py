@@ -84,6 +84,7 @@ class Player(wavelink.Player):
         self.skip_mode: SkipMode = SkipMode.NEXT
         self.queue_views = []
         self.is_stopped = False
+        self.now_playing_message: discord.Message = None
 
 
     async def add_to_queue(self, single: bool, track: wavelink.Track) -> None:
@@ -147,7 +148,19 @@ class Player(wavelink.Player):
     # async def seek_track(self, seconds: int):
     #     await self.seek(seconds)
      
-        
+
+# async def update_now_playing_message(player: Player, channel: discord.TextChannel=None):
+#     if channel is None:
+#         channel = player.dj_channel
+#     track = player.current_track
+#     track_hours = int(track.duration // 3600)
+#     track_minutes = int((track.duration % 60) // 60)
+#     track_seconds = int(track.duration % 60)
+#     message = f"**`NOW PLAYING {track.title}  -  {f'{track_hours}:02' + ':' if track_hours > 0 else ''}{track_minutes:02}:{track_seconds:02} `**"
+#     await player.now_playing_message.delete()
+#     player.now_playing_message = await channel.send(content=message)
+
+
 def track_to_string(track: wavelink.Track):
     title = ""
     title_length = len(track.title)
@@ -158,7 +171,7 @@ def track_to_string(track: wavelink.Track):
             title = (track.title[:36] + " ...").ljust(40)
     else:
         title = track.title.ljust(40)
-    message = f"{title}  -  {int((track.length / 60))}:{int(track.length % 60):02}\n"
+    message = f"{title}  -  {int(track.length // 60)}:{int(track.length % 60):02}\n"
     return message
 
 

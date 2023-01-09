@@ -24,6 +24,7 @@ class Kagami(commands.Bot):
                                      intents=discord.Intents().all(),
                                      owner_id=self.config["owner"])
 
+
     async def start(self, token, reconnect=True):
         await super().start(token, reconnect=reconnect)
 
@@ -54,6 +55,8 @@ class Kagami(commands.Bot):
                 name = file[:-3]
                 await self.load_extension(f"cogs.{name}")
         # await self.tree.sync()
+
+
 
 
 

@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import re
 from typing import (
     Literal,
@@ -16,7 +17,6 @@ from discord.ext import tasks
 from wavelink import YouTubeTrack
 from collections import deque
 import atexit
-import numpy as np
 import math
 from bot.utils.ui import MessageScroller
 from bot.utils.ui import QueueController
@@ -228,45 +228,56 @@ class Music(commands.Cog):
     @playlist_group.command(name="show_tracks", description="shows what songs are in a playlist")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
     async def playlist_show_tracks(self, interaction: discord.Interaction, playlist: str):
-        await interaction.response.defer()
+        await interaction.response.defer(thinking=True)
         server: Server = self.fetch_server(interaction.guild_id)
         if playlist not in server.playlists.keys():
             await interaction.edit_original_response(content="Playlist does not exist")
             return
 
-        message = "```swift\n"
+
         track_names_info = ""
         runtime: int = 0
-        playlist_length = len(server.playlists[playlist].tracks)
-        songs_in_message: int = 0
-        for track_pos, track_id in enumerate(server.playlists[playlist].tracks):
-            full_track: wavelink.Track = await wavelink.NodePool.get_node().build_track(cls=wavelink.Track,
-                                                                                        identifier=track_id)
-            runtime += int(full_track.duration)
-            title = ""
-            title_length = len(full_track.title)
-            if title_length > 36:
-                if title_length <= 40:
-                    title = full_track.title.ljust(40)
-                else:
-                    title = (full_track.title[:36] + " ...").ljust(40)
-            else:
-                title = full_track.title.ljust(40)
-            if len(track_names_info) < 1600:
-                track_names_info += f"{track_pos+1} {title}" \
-                                    f"  -  {int(full_track.duration) // 60 :02}:{int(full_track.duration) % 60:02}\n"
-            else:
-                track_names_info += f"and {playlist_length-songs_in_message} more songs\n"
-                break
-
-            songs_in_message += 1
+        track_ids = server.playlists[playlist].tracks
+        playlist_length = len(track_ids)
+        total_page_count = math.ceil(playlist_length / 10)
 
 
-        message += f"{playlist} has {playlist_length} tracks and a " \
-                   f"runtime of {runtime // 3600}:{runtime // 60 :02}:{runtime % 60 % 60 :02}\n"
-        message += track_names_info
-        message += "```"
-        await interaction.edit_original_response(content=message)
+
+        page_data = [(int(i / 10), track_ids[i:i + 10]) for i in range(0, playlist_length, 10)]
+
+        pages: List[str] = []
+        track_index = 0
+        for page_index, page_list in page_data:
+
+            content = ""
+            content += "──────────────────────────\n"
+            for index, track_id in enumerate(page_list):
+                full_track: wavelink.Track = await wavelink.NodePool.get_node().build_track(cls=wavelink.Track,
+                                                                                            identifier=track_id)
+                track_string = track_to_string(full_track)
+                position = (str(track_index+1) + ")").ljust(5)
+                content += f"{position} {track_string}"
+                runtime += full_track.duration
+                track_index += 1
+
+            # pages[current_page] = content
+            content += f"Page #: {page_index + 1} / {total_page_count}\n"
+            content += "```"
+            pages.insert(page_index, content)
+
+        playlist_hours = int(runtime // 3600)
+        playlist_minutes = int((runtime % 60) // 60)
+        playlist_seconds = int(runtime % 60)
+        playlist_info_text = f"```swift\n{playlist} has {playlist_length} tracks and a runtime of " \
+                             f"{playlist_hours:02}:{playlist_minutes:02}:{playlist_seconds:02}\n"
+
+        pages = [playlist_info_text + page for page in pages]
+
+
+        message = await interaction.edit_original_response(content=pages[0])
+
+        view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
+        await interaction.edit_original_response(view=view)
 
     def save_server_data(self):
         data: dict[int, dict[str, dict[str, str]]] = {}
@@ -459,20 +470,52 @@ class Music(commands.Cog):
 
         await interaction.response.defer()
         tracks = await self.search_song(interaction, search)
+        track_count = len(tracks)
+        total_page_count = math.ceil(track_count / 10)
 
-        titles = ""
-        for i, track in enumerate(tracks):
-            title = track.title
-            if len(titles) + len(title) < 1800:
-                titles += title + "\n"
-            else:
-                titles += f"and {i} more songs\n```"
-                break
+
+        if track_count > 1:
+
+            page_data = [(int(i / 10), tracks[i:i + 10]) for i in range(0, len(tracks), 10)]
+
+            pages: List[str] = []
+            track_index = 0
+            runtime = 0
+            for page_index, page_list in page_data:
+
+                content = ""
+                content += "──────────────────────────\n"
+                for index, track in enumerate(page_list):
+
+                    track_string = track_to_string(track)
+                    position = (str(track_index + 1) + ")").ljust(5)
+                    content += f"{position} {track_string}"
+                    runtime += track.duration
+                    track_index += 1
+
+                # pages[current_page] = content
+                content += f"Page #: {page_index + 1} / {total_page_count}\n"
+                content += "```"
+                pages.insert(page_index, content)
+
+            playlist_hours = int(runtime // 3600)
+            playlist_minutes = int((runtime % 60) // 60)
+            playlist_seconds = int(runtime % 60)
+            playlist_info_text = f"```swift\n{track_count} tracks were added to the queue, adding " \
+                                 f"{playlist_hours:02}:{playlist_minutes:02}:{playlist_seconds:02} to the runtime\n"
+
+            pages = [playlist_info_text + page for page in pages]
+            message = await interaction.edit_original_response(content=pages[0])
+            view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
+            await interaction.edit_original_response(content=pages[0], view=view)
+        else:
+            track_hours = int(tracks[0].duration // 3600)
+            track_minutes = int((tracks[0].duration % 60) // 60)
+            track_seconds = int(tracks[0].duration % 60)
+            await interaction.edit_original_response(content=f"`{tracks[0].title}  -  {f'{track_hours}:02' + ':' if track_hours > 0 else ''}{track_minutes:02}:{track_seconds:02} was added to the queue`")
+
 
         await current_player.add_to_queue(single=False, track=tracks)
-
-        await interaction.edit_original_response(content=f"**{titles}**was added to the queue")
-
         if current_player.current_track is None:
             await current_player.play_next_track()
 
@@ -505,16 +548,15 @@ class Music(commands.Cog):
             return
 
         now_playing = current_player.current_track
-
         if current_player.current_track:
-            now_playing_text = f"NOW PLAYING ➤ {now_playing.title}" \
+            now_playing_text = f"**`NOW PLAYING ➤ {now_playing.title}" \
                                f"  -  {int(current_player.position / 60)}" \
                                f":{int(current_player.position % 60):02}" \
-                               f" / {int(now_playing.length / 60)}:{int(now_playing.length % 60):02}\n"
+                               f" / {int(now_playing.length / 60)}:{int(now_playing.length % 60):02}`**"
         else:
-            now_playing_text = f"__**NOW PLAYING**__ ➤ Nothing\n"
+            now_playing_text = f"**`NOW PLAYING ➤ Nothing`**\n"
 
-        await interaction.edit_original_response(content=now_playing_text)
+        current_player.now_playing_message = await interaction.edit_original_response(content=now_playing_text)
 
 
     async def toggle_pause(self, interaction: discord.Interaction = None):
@@ -615,6 +657,8 @@ class Music(commands.Cog):
         await interaction.response.send_message(content=f"Loop Mode: {message}")
 
 
+
+
     # @app_commands.command(name="jumpto", description="jumps to the given spot in the queue")
     # async def jump_to(self, interaction: discord.Interaction, index: int):
     #     await self.skip_unskip_track(interaction, False, index-1)
@@ -664,7 +708,7 @@ class Music(commands.Cog):
         player.skip_to_prev = False
         player.skip_count = 1
 
-        print("track ended")
+        # print("track ended")
 
 
 
@@ -683,11 +727,27 @@ class Music(commands.Cog):
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, player: Player, track: wavelink.Track):
-        track_title: str = str(player.source)
+        # track_title: str = str(player.source)
+        #
+        # if not player.source:
+        #     track_title = track.title
+        # await player.dj_channel.send(content=f"Now Playing **{track_title}**")
 
-        if not player.source:
-            track_title = track.title
-        await player.dj_channel.send(content=f"Now Playing **{track_title}**")
+
+        track = player.current_track
+        track_hours = int(track.duration // 3600)
+        track_minutes = int((track.duration % 60) // 60)
+        track_seconds = int(track.duration % 60)
+        message = f"**`NOW PLAYING {track.title}  -  {f'{track_hours}:02' + ':' if track_hours > 0 else ''}{track_minutes:02}:{track_seconds:02} `**"
+
+        if player.now_playing_message is None:
+            player.now_playing_message = await player.dj_channel.send(content=message)
+        elif player.dj_channel.last_message_id == player.now_playing_message.id:
+            await player.now_playing_message.edit(content=message)
+        else:
+            new_message = await player.dj_channel.send(content=message)
+            await player.now_playing_message.delete()
+            player.now_playing_message = new_message
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):

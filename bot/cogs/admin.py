@@ -35,9 +35,9 @@ class Admin(commands.Cog):
                 await self.bot.reload_extension(f"cogs.{name}")
         await ctx.send("Reloaded all cogs")
 
-    @commands.command(name="reload", description="reloads a cog")
+    @commands.command(name="reload", description="reloads a  cog")
     @commands.is_owner()
-    async def reload_all_cogs(self, ctx, cog_name):
+    async def reload_cog(self, ctx, cog_name):
         for file in os.listdir("bot/cogs"):
             if file.endswith(".py"):
                 name = file[:-3]
@@ -54,6 +54,7 @@ class Admin(commands.Cog):
     async def close_bot(self, ctx):
         await ctx.send("Shutting Down")
         await self.bot.close()
+
 
 
     @commands.Cog.listener()
