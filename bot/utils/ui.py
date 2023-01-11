@@ -189,8 +189,10 @@ class MessageScroller(CustomUIView):
 
     async def update_message(self):
         self.current_page_number = clamp(self.current_page_number, 0, self.page_count)
-        await self.message.edit(content=self.pages[self.current_page_number])
-
+        try:
+            await self.message.edit(content=self.pages[self.current_page_number])
+        except discord.HTTPException:
+            pass
 
 
     @discord.ui.button(emoji="⬆", style=discord.ButtonStyle.gray, custom_id="MessageScroller:first", row=0)

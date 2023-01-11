@@ -5,6 +5,14 @@ def clamp(num, min_value, max_value):
     return num
 
 
+def seconds_to_time(seconds: int) -> (int, int, int):
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = int(seconds % 60)
+    return hours, minutes, seconds
+
+
+
 class ClampedValue:
     def __init__(self, value: int | float, min_value, max_value):
         self._value = value
