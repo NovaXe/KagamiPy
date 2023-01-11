@@ -20,6 +20,7 @@ import atexit
 import math
 from bot.utils.ui import MessageScroller
 from bot.utils.ui import QueueController
+from bot.utils.utils import seconds_to_time
 from bot.utils.musichelpers import *
 
 from bot.utils import ui
@@ -498,21 +499,18 @@ class Music(commands.Cog):
                 content += "```"
                 pages.insert(page_index, content)
 
-            playlist_hours = int(runtime // 3600)
-            playlist_minutes = int((runtime % 60) // 60)
-            playlist_seconds = int(runtime % 60)
+            hours, minutes, seconds = seconds_to_time(runtime)
+
             playlist_info_text = f"```swift\n{track_count} tracks were added to the queue, adding " \
-                                 f"{playlist_hours:02}:{playlist_minutes:02}:{playlist_seconds:02} to the runtime\n"
+                                 f"{hours:02}:{minutes:02}:{seconds:02} to the runtime\n"
 
             pages = [playlist_info_text + page for page in pages]
             message = await interaction.edit_original_response(content=pages[0])
             view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
             await interaction.edit_original_response(content=pages[0], view=view)
         else:
-            track_hours = int(tracks[0].duration // 3600)
-            track_minutes = int((tracks[0].duration % 60) // 60)
-            track_seconds = int(tracks[0].duration % 60)
-            await interaction.edit_original_response(content=f"`{tracks[0].title}  -  {f'{track_hours}:02' + ':' if track_hours > 0 else ''}{track_minutes:02}:{track_seconds:02} was added to the queue`")
+            hours, minutes, seconds = seconds_to_time(tracks[0].duration)
+            await interaction.edit_original_response(content=f"`{tracks[0].title}  -  {f'{hours}:02' + ':' if hours > 0 else ''}{minutes:02}:{seconds:02} was added to the queue`")
 
 
         await current_player.add_to_queue(single=False, track=tracks)
@@ -549,10 +547,16 @@ class Music(commands.Cog):
 
         now_playing = current_player.current_track
         if current_player.current_track:
+
+            hours, minutes, seconds = seconds_to_time(now_playing.duration)
+            p_hours, p_minutes, p_seconds = seconds_to_time(current_player.position)
+
             now_playing_text = f"**`NOW PLAYING ➤ {now_playing.title}" \
-                               f"  -  {int(current_player.position / 60)}" \
-                               f":{int(current_player.position % 60):02}" \
-                               f" / {int(now_playing.length / 60)}:{int(now_playing.length % 60):02}`**"
+                               f"  -  {f'{p_hours}:02' + ':' if p_hours > 0 else ''}{p_minutes:02}" \
+                               f":{p_seconds:02}" \
+                               f" / {f'{hours}:02' + ':' if minutes > 0 else ''}:{seconds:02}`**"
+
+
         else:
             now_playing_text = f"**`NOW PLAYING ➤ Nothing`**\n"
 
@@ -735,17 +739,18 @@ class Music(commands.Cog):
 
 
         track = player.current_track
-        track_hours = int(track.duration // 3600)
-        track_minutes = int((track.duration % 60) // 60)
-        track_seconds = int(track.duration % 60)
-        message = f"**`NOW PLAYING {track.title}  -  {f'{track_hours}:02' + ':' if track_hours > 0 else ''}{track_minutes:02}:{track_seconds:02} `**"
+
+        hours, minutes, seconds = seconds_to_time(track.duration)
+
+        now_playing_text = f"**`NOW PLAYING ➤ {track.title}" \
+                           f"  -  {f'{hours}:02' + ':' if minutes > 0 else ''}:{seconds:02}`**"
 
         if player.now_playing_message is None:
-            player.now_playing_message = await player.dj_channel.send(content=message)
+            player.now_playing_message = await player.dj_channel.send(content=now_playing_text)
         elif player.dj_channel.last_message_id == player.now_playing_message.id:
-            await player.now_playing_message.edit(content=message)
+            await player.now_playing_message.edit(content=now_playing_text)
         else:
-            new_message = await player.dj_channel.send(content=message)
+            new_message = await player.dj_channel.send(content=now_playing_text)
             await player.now_playing_message.delete()
             player.now_playing_message = new_message
 

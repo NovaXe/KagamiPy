@@ -19,15 +19,15 @@ music functionality
 --queue, active sessions
 --play/pause
 --youtube,spotify
--files
+--files
 -dj host
--looping
+--looping
 -volume control
 --skipping
 --playlist creation and saving
 --queue to playlist
 -seeking
--stop command
+--stop command
 
 
 SCROLLABLE TEXT / MESSAGES
