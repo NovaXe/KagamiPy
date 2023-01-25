@@ -1,5 +1,14 @@
 import asyncio
 import math
+import re
+
+from typing import (
+    Literal,
+    Dict,
+    Union,
+    Optional,
+    List,
+)
 
 import wavelink
 from wavelink.ext import spotify
@@ -8,19 +17,6 @@ import discord
 from enum import Enum
 from typing import List
 
-
-class Server:
-    def __init__(self, guild_id: int, player=None):
-        self.id = str(guild_id)
-        self.playlists: dict[str, Playlist] = {}     # name : Playlist
-        self.player: Player = player
-        self.has_player: bool = False
-        self.views = {}
-
-
-    def create_playlist(self, name: str):
-        self.playlists[name] = Playlist(name)
-        return self.playlists[name]
 
 
 class Playlist:
@@ -86,6 +82,9 @@ class Player(wavelink.Player):
         self.is_stopped = False
         self.now_playing_message: discord.Message = None
 
+        self.interrupt_position = 0
+        self.interrupted_by_sound = False
+
 
     async def add_to_queue(self, single: bool, track: wavelink.Track) -> None:
         if single:
@@ -110,6 +109,21 @@ class Player(wavelink.Player):
         await self.play(source=self.current_track, replace=True)
         # await asyncio.sleep(3)
         # pass
+
+    async def interrupt_current_track(self, track):
+        if self.current_track:
+            self.interrupt_position = self.position
+            self.interrupted_by_sound = True
+
+        await self.play(source=track, replace=True)
+
+    async def resume_interrupted_track(self):
+        if self.current_track:
+            await self.play(source=self.current_track, replace=True)
+            await self.seek(int(self.interrupt_position*1000))
+            self.interrupt_position = 0
+            self.interrupted_by_sound = False
+
 
     async def restart_current_track(self):
         # await self.pause()
@@ -141,7 +155,6 @@ class Player(wavelink.Player):
         self.loop_mode = iter(self.loop_mode)
 
 
-
     # async def restart_track(self):
     #     await self.play(source=self.current_track, replace=True)
     #
@@ -159,7 +172,6 @@ class Player(wavelink.Player):
 #     message = f"**`NOW PLAYING {track.title}  -  {f'{track_hours}:02' + ':' if track_hours > 0 else ''}{track_minutes:02}:{track_seconds:02} `**"
 #     await player.now_playing_message.delete()
 #     player.now_playing_message = await channel.send(content=message)
-
 
 def track_to_string(track: wavelink.Track):
     title = ""
@@ -284,4 +296,54 @@ async def create_queue_pages(player: Player):
 
 
     return pages, home_page
+
+
+URL_REG = re.compile(r'https?://(?:www\.)?.+')
+YT_URL_REG = re.compile(r"(?:https://)(?:www\.)?(?:youtube|youtu\.be)(?:\.com)?\/(?:watch\?v=)?(.{11})")
+YT_PLAYLIST_REG = re.compile(r"[\?|&](list=)(.*)\&")
+DISCORD_ATTACHMENT_REG = re.compile(r"(https://|http://)?(cdn\.|media\.)discord(app)?\.(com|net)/attachments/[0-9]{17,19}/[0-9]{17,19}/(?P<filename>.{1,256})\.(?P<mime>[0-9a-zA-Z]{2,4})(\?size=[0-9]{1,4})?")
+SOUNDCLOUD_REG = re.compile("^https?:\/\/(www\.|m\.)?soundcloud\.com\/[a-z0-9](?!.*?(-|_){2})[\w-]{1,23}[a-z0-9](?:\/.+)?$")
+
+
+async def search_song(search: str, single_track=False) -> list[wavelink.Track]:
+    is_yt_url = bool(YT_URL_REG.search(search))
+    is_url = bool(URL_REG.search(search))
+    decoded_spotify_url = spotify.decode_url(search)
+    is_spotify_url = bool(decoded_spotify_url is not None)
+    is_soundcloud_url = bool(SOUNDCLOUD_REG.search(search))
+    attachment_regex_result = DISCORD_ATTACHMENT_REG.search(search)
+    is_discord_attachment = bool(attachment_regex_result)
+    tracks = []
+
+    node = wavelink.NodePool.get_node()
+
+    if is_yt_url:
+        if "list=" in search:
+
+            playlist = await node.get_playlist(identifier=search, cls=wavelink.YouTubePlaylist)
+            if "playlist" in search:
+                tracks = playlist.tracks
+            else:
+                tracks = [playlist.tracks[playlist.selected_track]]
+        else:
+            tracks = await node.get_tracks(query=search, cls=wavelink.YouTubeTrack)
+    elif is_spotify_url:
+        if decoded_spotify_url["type"] is spotify.SpotifySearchType.track:
+            tracks = [await spotify.SpotifyTrack.search(query=decoded_spotify_url["id"],
+                                                        type=decoded_spotify_url["type"],
+                                                        return_first=True)]
+        elif decoded_spotify_url["type"] in (spotify.SpotifySearchType.playlist, spotify.SpotifySearchType.album):
+            tracks = await spotify.SpotifyTrack.search(query=decoded_spotify_url["id"],
+                                                       type=decoded_spotify_url["type"])
+    elif is_soundcloud_url:
+        tracks = await node.get_tracks(query=search, cls=wavelink.SoundCloudTrack)
+
+    elif is_discord_attachment:
+        modified_track = (await node.get_tracks(query=search, cls=wavelink.LocalTrack))[0]
+        modified_track.title = attachment_regex_result.group("filename")+"."+attachment_regex_result.group("mime")
+        tracks = [modified_track]
+    else:
+        tracks = [await wavelink.YouTubeTrack.search(query=search, return_first=True)]
+
+    return tracks[0] if single_track else tracks
 

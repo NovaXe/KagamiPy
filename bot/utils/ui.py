@@ -8,8 +8,10 @@ from discord.ext import commands
 from discord import app_commands
 from typing import Optional
 
-from bot.utils.musichelpers import *
+from bot.utils.music_helpers import *
 from discord.ext import tasks
+
+
 
 
 class CustomUIView(discord.ui.View):
