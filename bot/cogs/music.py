@@ -147,7 +147,7 @@ class Music(commands.Cog):
 
 
         await interaction.response.defer()
-        tracks = await search_song(interaction, search)
+        tracks = await search_song(search)
         track_count = len(tracks)
         total_page_count = math.ceil(track_count / 10)
 
@@ -456,7 +456,7 @@ class Music(commands.Cog):
         if playlist not in server.playlists.keys():
             await interaction.response.send_message("Playlist does not exist", ephemeral=True)
             return
-        tracks = await search_song(interaction, song)
+        tracks = await search_song(song)
         server.playlists[playlist].update_list(tracks)
         length = len(tracks)
         if length == 1:
