@@ -182,7 +182,7 @@ class Music(commands.Cog):
                                  f"{hours:02}:{minutes:02}:{seconds:02} to the runtime\n"
 
             pages = [playlist_info_text + page for page in pages]
-            message = await interaction.edit_original_response(content=pages[0])
+            message = await(await interaction.edit_original_response(content=pages[0])).fetch()
             view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
             await interaction.edit_original_response(content=pages[0], view=view)
         else:
@@ -204,7 +204,7 @@ class Music(commands.Cog):
             await interaction.edit_original_response(content="There is currently no voice session")
             return
         pages, home_page = await create_queue_pages(current_player)
-        message = await interaction.edit_original_response(content=pages[home_page])
+        message = await(await interaction.edit_original_response(content=pages[home_page])).fetch()
 
         # scrolling_view = MessageScroller(message=message, pages=pages, home_page=home_page)
         controller_view = QueueController(player=current_player, message=message, pages=pages, home_page=home_page)
@@ -583,7 +583,7 @@ class Music(commands.Cog):
 
         pages = [playlist_info_text + page for page in pages]
 
-        message = await interaction.edit_original_response(content=pages[0])
+        message = await(await interaction.edit_original_response(content=pages[0])).fetch()
 
         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
         await interaction.edit_original_response(view=view)
