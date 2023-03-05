@@ -18,7 +18,7 @@ class Server:
         self.has_player: bool = False
         self.views = {}
         self.soundboard: dict[str, str] = {}
-
+        self.fish_mode = False
         if json_data:
             self.playlists = json_data.get("playlists")
 

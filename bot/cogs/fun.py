@@ -12,7 +12,7 @@ import discord.utils
 from discord.ext import commands
 from discord import app_commands
 from bot.utils.ui import MessageReply
-
+from bot.utils.bot_data import Server
 
 class Fun(commands.Cog):
     def __init__(self, bot):
@@ -32,6 +32,8 @@ class Fun(commands.Cog):
                 callback=self.msg_copy_reactions
             )
         ]
+
+
         for ctx_menu in self.ctx_menus:
             self.bot.tree.add_command(ctx_menu)
         self.reaction_messages = {}
@@ -104,6 +106,20 @@ class Fun(commands.Cog):
 
         await interaction.response.send_message(file=discord.File(fp=output_buffer, filename="color_image.png"))
 
+
+    @app_commands.command(name="fish", description="fish reacts all")
+    async def fish_all(self, interaction: discord.Interaction):
+        server: Server = self.bot.fetch_server(interaction.guild_id)
+        server.fish_mode = not server.fish_mode
+
+        await interaction.response.send_message(f"Fish Mode: {'On' if server.fish_mode else 'Off'}")
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        server: Server = self.bot.fetch_server(message.guild.id)
+        if server.fish_mode:
+            await message.add_reaction("🐟")
+
     # context menu commands
     async def msg_reply(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.send_modal(MessageReply(message))
@@ -122,6 +138,8 @@ class Fun(commands.Cog):
     async def fish_react(self, interaction: discord.Interaction, message: discord.Message):
         await message.add_reaction("🐟")
         await interaction.response.send_message("Fish Reacted", ephemeral=True, delete_after=3)
+
+
 
     # async def msg_react(self, interaction: discord.Interaction, message: discord.Message):
     #     await interaction.response.defer(ephemeral=True)

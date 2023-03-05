@@ -193,8 +193,8 @@ class MessageScroller(CustomUIView):
         self.current_page_number = clamp(self.current_page_number, 0, self.page_count)
         try:
             await self.message.edit(content=self.pages[self.current_page_number])
-        except discord.HTTPException:
-            pass
+        except discord.HTTPException as e:
+            print(e)
 
 
     @discord.ui.button(emoji="⬆", style=discord.ButtonStyle.gray, custom_id="MessageScroller:first", row=0)
@@ -252,6 +252,7 @@ class QueueController(PlayerControls, MessageScroller):
         try:
             await self.message.delete()
         except discord.HTTPException as e:
+            print(e)
             return
 
 
