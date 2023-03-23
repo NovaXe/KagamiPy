@@ -14,6 +14,7 @@ from discord import app_commands
 from bot.utils.ui import MessageReply
 from bot.utils.bot_data import Server
 
+
 class Fun(commands.Cog):
     def __init__(self, bot):
         self.bot = bot

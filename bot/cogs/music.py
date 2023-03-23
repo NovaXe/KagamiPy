@@ -210,6 +210,37 @@ class Music(commands.Cog):
         controller_view = QueueController(player=current_player, message=message, pages=pages, home_page=home_page)
         await interaction.edit_original_response(view=controller_view)
 
+    @app_commands.command(name="pop_track", description="Pops the given track from the queue")
+    async def pop_song(self, interaction: discord.Interaction, position: int):
+        await interaction.response.defer(thinking=True)
+        current_player: Player = interaction.guild.voice_client
+        if current_player is None:
+            await interaction.edit_original_response(content="There is currently no voice session")
+            return
+
+        popped_track = None
+        if position < 0:
+            history_length = current_player.history.count
+
+            # new_position_of_track = ((position * -1) - 1)
+            new_position_of_track = (history_length-1) - ((position * -1) - 1)
+            popped_tracks: wavelink.Track = current_player.history._queue[new_position_of_track]
+            del current_player.history._queue[new_position_of_track]
+
+
+            await interaction.edit_original_response(content=f"Popped `{popped_track.title} from the history`")
+        elif position == 0:
+            popped_track: wavelink.Track = current_player.current_track
+            current_player.current_track = None
+            await self.skip_unskip_track(interaction, skip_back=False, skip_count=1)
+            await interaction.edit_original_response(content=f"Popped the current track `{popped_track.title}`")
+
+        else:
+            popped_track: wavelink.Track = current_player.queue._queue[position-1]
+            del current_player.queue._queue[position-1]
+            await interaction.edit_original_response(content=f"Popped `{popped_track.title} from the queue`")
+
+
 
 
 
@@ -521,13 +552,13 @@ class Music(commands.Cog):
 
         def shorten_name(name: str) -> str:
             length = len(name)
-            if length > 36:
-                if length <= 40:
-                    new_name = name.ljust(40)
+            if length > 28:
+                if length <= 32:
+                    new_name = name.ljust(32)
                 else:
-                    new_name = (name[:36] + " ...").ljust(40)
+                    new_name = (name[:28] + " ...").ljust(32)
             else:
-                new_name = name.ljust(40)
+                new_name = name.ljust(32)
             return new_name
 
         message = f"```swift\n{interaction.guild.name} Playlists:\n"

@@ -11,13 +11,14 @@ from bot.utils.music_helpers import Playlist
 
 
 class Server:
-    def __init__(self, guild_id: int, player=None, json_data=None):
+    def __init__(self, guild_id: [int, str], player=None, json_data=None):
         self.id = str(guild_id)
         self.playlists: dict[str, Playlist] = {}     # name : Playlist
         self.player: Player = player
         self.has_player: bool = False
         self.views = {}
         self.soundboard: dict[str, str] = {}
+        self.tags = {}
         self.fish_mode = False
         if json_data:
             self.playlists = json_data.get("playlists")

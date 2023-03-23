@@ -13,6 +13,13 @@ user info
 server info
 
 cross server tags
+get
+set
+delete
+global
+per server
+
+
 
 music functionality
 --joining/leaving
@@ -20,9 +27,7 @@ music functionality
 --play/pause
 --youtube,spotify
 --files
--dj host
 --looping
--volume control
 --skipping
 --playlist creation and saving
 --queue to playlist
