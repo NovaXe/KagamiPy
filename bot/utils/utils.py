@@ -1,4 +1,4 @@
-
+import aiohttp
 
 def clamp(num, min_value, max_value):
     num = max(min(num, max_value), min_value)
@@ -12,6 +12,11 @@ def seconds_to_time(seconds: int) -> (int, int, int):
     return hours, minutes, seconds
 
 
+async def link_to_file(link: str) -> bytes:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(link) as r:
+            data = await r.read()
+    return data
 
 class ClampedValue:
     def __init__(self, value: int | float, min_value, max_value):

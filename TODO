@@ -12,13 +12,17 @@ ping
 user info
 server info
 
-cross server tags
-get
-set
-delete
-global
-per server
-
+--cross server tags
+--get
+--set
+--delete
+--global
+--per server
+saving attachments
+save attachment to bot if under a certain size limit
+possibly save to somewhere like google drive and recall the file for sending
+could also just copy the link to the attachment and send that with the message although
+that is at risk of becoming useless if the original message is deleted or modified
 
 
 music functionality
@@ -33,6 +37,8 @@ music functionality
 --queue to playlist
 --seeking
 --stop command
+priority queue "play next"
+plays the song first in the queue
 
 
 SCROLLABLE TEXT / MESSAGES

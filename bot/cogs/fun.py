@@ -34,10 +34,12 @@ class Fun(commands.Cog):
             )
         ]
 
-
         for ctx_menu in self.ctx_menus:
             self.bot.tree.add_command(ctx_menu)
         self.reaction_messages = {}
+
+    react_group = app_commands.Group(name="react", description="Commands regarding to automatic message reactions")
+
 
     async def cog_unload(self) -> None:
         for ctx_menu in self.ctx_menus:
@@ -115,6 +117,9 @@ class Fun(commands.Cog):
 
         await interaction.response.send_message(f"Fish Mode: {'On' if server.fish_mode else 'Off'}")
 
+
+
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         server: Server = self.bot.fetch_server(message.guild.id)
@@ -139,6 +144,8 @@ class Fun(commands.Cog):
     async def fish_react(self, interaction: discord.Interaction, message: discord.Message):
         await message.add_reaction("🐟")
         await interaction.response.send_message("Fish Reacted", ephemeral=True, delete_after=3)
+
+
 
 
 
@@ -187,11 +194,6 @@ class Fun(commands.Cog):
     #         valid_user = self.reaction_messages[reaction.message.id]
     #         if valid_user == user.id or valid_user == self.bot.user.id:
     #             await reaction.message.remove_reaction(reaction, self.bot.user)
-
-
-
-
-
 
 async def setup(bot):
     await bot.add_cog(Fun(bot))

@@ -5,6 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 from bot.utils.bot_data import Server
 from bot.utils.ui import MessageScroller
+from bot.utils.utils import link_to_file
 
 from typing import Literal
 from bot.kagami import Kagami
@@ -13,13 +14,32 @@ from difflib import (
     get_close_matches,
     SequenceMatcher
 )
+from functools import partial
+from io import BytesIO
+
 
 
 class Tags(commands.GroupCog, group_name="tag"):
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
+        self.ctx_menus = [
+            app_commands.ContextMenu(
+                name="Create Local Tag",
+                callback=self.create_local_tag_handler
+            ),
+            app_commands.ContextMenu(
+                name="Create Global Tag",
+                callback=self.create_global_tag_handler
+            )
+        ]
 
+        for ctx_menu in self.ctx_menus:
+            self.bot.tree.add_command(ctx_menu)
+
+    async def cog_unload(self) -> None:
+        for ctx_menu in self.ctx_menus:
+            self.bot.tree.remove_command(ctx_menu.name, type=ctx_menu.type)
 
     get_group = app_commands.Group(name="get", description="gets a tag")
     set_group = app_commands.Group(name="set", description="sets a tag")
@@ -69,7 +89,6 @@ class Tags(commands.GroupCog, group_name="tag"):
             for tag_name, tag_data in tags.items() if current.lower() in tag_name.lower()
         ]
 
-
     # Was going to write my own but snagged this baby off stack overflow lol
     @staticmethod
     def find_closely_matching_tags(search: str, tags: dict, n, cutoff=0.45):
@@ -82,7 +101,7 @@ class Tags(commands.GroupCog, group_name="tag"):
                 matches.append([key, value])
         return dict(matches)
 
-
+    # Search Commands
     @search_group.command(name="global", description="searches for a global tag")
     async def search_global(self, interaction: discord.Interaction, search: str, count: int=10):
         await interaction.response.defer(thinking=True)
@@ -118,9 +137,7 @@ class Tags(commands.GroupCog, group_name="tag"):
             view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
             await interaction.edit_original_response(content=pages[0], view=view)
 
-
-
-
+    # Fetch Commands
     @app_commands.autocomplete(tag_name=tag_autocomplete)
     @get_group.command(name="global", description="get a global tag")
     async def get_global(self, interaction: discord.Interaction, tag_name: str):
@@ -132,7 +149,13 @@ class Tags(commands.GroupCog, group_name="tag"):
             await interaction.edit_original_response(content=f"The tag **`{tag_name}`** doesn't exist")
             return
         tag_data = self.bot.global_tags[tag_name]
-        await interaction.edit_original_response(content=tag_data["content"])
+
+        if "attachments" in tag_data:
+            attachment_files = [discord.File(BytesIO(await link_to_file(link)), link.split('/')[-1]) for link in tag_data['attachments']][:10]
+        else:
+            attachment_files = []
+
+        await interaction.edit_original_response(content=tag_data["content"], attachments=attachment_files)
 
     @app_commands.autocomplete(tag_name=tag_autocomplete)
     @get_group.command(name="local", description="get a tag from the server")
@@ -143,7 +166,14 @@ class Tags(commands.GroupCog, group_name="tag"):
             await interaction.edit_original_response(content=f"The tag **`{tag_name}`** doesn't exist")
             return
         tag_data = server.tags[tag_name]
-        await interaction.edit_original_response(content=tag_data["content"])
+
+        if "attachments" in tag_data:
+            attachment_files = [discord.File(BytesIO(await link_to_file(link))) for link in tag_data['attachments']][
+                               :10]
+        else:
+            attachment_files = []
+
+        await interaction.edit_original_response(content=tag_data["content"], attachments=attachment_files)
 
     @app_commands.autocomplete(server=server_autocomplete, tag_name=tag_autocomplete)
     @get_group.command(name="server", description="get a tag from another server")
@@ -154,41 +184,74 @@ class Tags(commands.GroupCog, group_name="tag"):
         if tag_name not in server.tags.keys():
             await interaction.edit_original_response(content=f"The tag **`{tag_name}`** doesn't exist")
             return
-        tag_data = server.tags[tag_name]
-        await interaction.edit_original_response(content=tag_data["content"])
+        tag_data: dict = server.tags[tag_name]
+
+        if "attachments" in tag_data:
+            attachment_files = [discord.File(BytesIO(await link_to_file(link))) for link in tag_data['attachments']][:10]
+        else:
+            attachment_files = []
+
+        await interaction.edit_original_response(content=tag_data["content"], attachments=attachment_files)
 
 
+    async def create_local_tag_handler(self, interaction: discord.Interaction, message: discord.Message):
+        await self.send_create_modal(interaction, message, tag_type='local')
+
+    async def create_global_tag_handler(self, interaction: discord.Interaction, message: discord.Message):
+        await self.send_create_modal(interaction, message, tag_type='global')
+
+    async def send_create_modal(self, interaction: discord.Interaction, message: discord.Message, tag_type: Literal["local", "global"]):
+        await interaction.response.send_modal(TagCreationModal(cog=self, tag_type=tag_type, message=message))
+
+    # Set Commands
     @set_group.command(name="local", description="set a tag for this server")
     async def set_local(self, interaction: discord.Interaction, tag_name: str, content: str):
-        await interaction.response.defer(thinking=True)
-        server: Server = self.bot.fetch_server(interaction.guild_id)
-        if tag_name in server.tags.keys():
-            await interaction.edit_original_response(content=f"The tag **`{tag_name}`** already exists")
-            return
-        server.tags.update({
-            tag_name: {
-                "content": content,
-                "author": interaction.user.name,
-                "creation_date": date.today().strftime("%m/%d/%y")
-            }})
-
-        await interaction.edit_original_response(content=f"Added tag **`{tag_name}`** to the server")
-
+        print(interaction.user.name)
+        await self.set_handler(interaction, tag_name, content, 'local')
 
     @set_group.command(name="global", description="set a global tag")
     async def set_global(self, interaction: discord.Interaction, tag_name: str, content: str):
-        await interaction.response.defer(thinking=True)
-        if tag_name in self.bot.global_tags.keys():
-            await interaction.edit_original_response(content=f"The tag **`{tag_name}`** already exists")
-            return
-        self.bot.global_tags.update({
-            tag_name: {
-                "content": content
-            }})
+        await self.set_handler(interaction, tag_name, content, 'global')
 
-        await interaction.edit_original_response(content=f"Added tag **`{tag_name}`** to globals")
-        pass
+    async def set_handler(self, interaction: discord.Interaction, tag_name: str, content: str, mode: Literal['local', 'global'], attachment_links: list[str]=None):
+        if attachment_links is not None:
+            attachment_links = attachment_links[:10]
+        else:
+            attachment_links = []
 
+        if mode == 'local':
+            await interaction.response.defer(thinking=True)
+            server: Server = self.bot.fetch_server(interaction.guild_id)
+            if tag_name in server.tags.keys():
+                await interaction.edit_original_response(content=f"The tag **`{tag_name}`** already exists")
+                return
+            server.tags.update({
+                tag_name: {
+                    "content": content,
+                    "author": interaction.user.name,
+                    "creation_date": date.today().strftime("%m/%d/%y"),
+                    "attachments": attachment_links
+                }})
+
+            await interaction.edit_original_response(content=f"Added tag **`{tag_name}`** to the server")
+
+        elif mode == 'global':
+            await interaction.response.defer(thinking=True)
+            if tag_name in self.bot.global_tags.keys():
+                await interaction.edit_original_response(content=f"The tag **`{tag_name}`** already exists")
+                return
+            self.bot.global_tags.update({
+                tag_name: {
+                    "content": content,
+                    "author": interaction.user.name,
+                    "creation_date": date.today().strftime("%m/%d/%y"),
+                    "attachments": attachment_links
+                }})
+
+            await interaction.edit_original_response(content=f"Added tag **`{tag_name}`** to globals")
+            pass
+
+    # Delete Commands
     @app_commands.autocomplete(tag_name=tag_autocomplete)
     @delete_group.command(name="local", description="Deletes a tag from this server")
     async def delete_local(self, interaction: discord.Interaction, tag_name: str):
@@ -211,6 +274,7 @@ class Tags(commands.GroupCog, group_name="tag"):
         self.bot.global_tags.pop(tag_name, None)
         await interaction.edit_original_response(content=f"The global tag **`{tag_name}`** has been deleted")
 
+    # List Commands
     @list_group.command(name="global", description="lists the global tags")
     async def list_global(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
@@ -218,7 +282,6 @@ class Tags(commands.GroupCog, group_name="tag"):
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
         await interaction.edit_original_response(content=pages[0], view=view)
-
 
     @list_group.command(name="local", description="lists this server's tags")
     async def list_local(self, interaction: discord.Interaction):
@@ -238,7 +301,7 @@ class Tags(commands.GroupCog, group_name="tag"):
         pages = self.create_tag_pages(guild_name, server.tags)
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
-        await interaction.edit_original_response(content=pages[0], view=view)
+        await interaction.edit_original_response(view=view)
 
 
     @staticmethod
@@ -279,8 +342,22 @@ class Tags(commands.GroupCog, group_name="tag"):
         return pages
 
 
+class TagCreationModal(discord.ui.Modal, title="Create Tag"):
+    def __init__(self, cog: Tags, tag_type: Literal["global", "local"], message: discord.Message):
+        super().__init__()
+        self.message = message
+        self.cog = cog
+        self.tag_type = tag_type
+        self.tag_content.default = message.content
+        self.tag_attachments.default = '\n'.join([attachment.url for attachment in message.attachments])
 
 
+    tag_name = discord.ui.TextInput(label="Tag Name", placeholder='Enter the tag name')
+    tag_content = discord.ui.TextInput(label="Tag Content", placeholder='Enter the tag content', style=discord.TextStyle.paragraph, max_length=2000)
+    tag_attachments = discord.ui.TextInput(label="Attachments", placeholder="Put each link on a seperate line", style=discord.TextStyle.paragraph)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self.cog.set_handler(interaction=interaction, tag_name=self.tag_name.value, content=self.tag_content.value, mode=self.tag_type, attachment_links=self.tag_attachments.value.split('\n'))
 
 
 async def setup(bot):

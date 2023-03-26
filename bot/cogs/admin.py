@@ -7,7 +7,7 @@ import discord
 import discord.utils
 from discord.ext import commands
 from discord import app_commands
-
+from bot.kagami import Kagami
 
 def is_developer():
     def predicate(interaction: discord.Interaction) -> bool:
@@ -17,7 +17,7 @@ def is_developer():
 
 class Admin(commands.Cog):
     def __init__(self, bot):
-        self.bot = bot
+        self.bot: Kagami = bot
         self.config = bot.config
 
     @commands.command(name="sync", description="syncs the command tree")
@@ -25,6 +25,12 @@ class Admin(commands.Cog):
     async def sync_command_tree(self, ctx):
         await self.bot.tree.sync()
         await ctx.send("Command Tree Synced", ephemeral=True)
+
+    @commands.command(name="ping", description="checks the latency")
+    @commands.is_owner()
+    async def ping(self, ctx):
+        latency = int(self.bot.latency * 1000)
+        await ctx.send(f"Pong! {latency}ms")
 
     @commands.command(name="reload_all", description="reloads all cogs")
     @commands.is_owner()

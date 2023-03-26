@@ -80,6 +80,7 @@ class Kagami(commands.Bot):
             "servers": {}
         }
 
+
         data["global_tags"].update(self.global_tags)
 
         for server_id, server in self.servers.items():
@@ -121,8 +122,11 @@ class Kagami(commands.Bot):
 
 
         self.create_server_list()
+
         if "global_tags" in self.data.keys():
             self.global_tags: dict[str, dict] = self.data["global_tags"]
+        else:
+            self.global_tags = {}
 
 
     async def close(self):
