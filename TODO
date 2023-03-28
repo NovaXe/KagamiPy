@@ -24,6 +24,10 @@ possibly save to somewhere like google drive and recall the file for sending
 could also just copy the link to the attachment and send that with the message although
 that is at risk of becoming useless if the original message is deleted or modified
 
+add use_count to the tag data, for fun
+add ways to modify tags, change name, edit contents, update contents
+
+
 
 music functionality
 --joining/leaving
@@ -58,8 +62,31 @@ figure out what the hell is wrong with the player and currently playing
 
 
 auto reactions
+store under the key
+'sentinel_phrases': {
+    'sentinal': {
+        'use_count': 0,
+        'reaction': '',
+        'response': ''
+    }
+}
+
+reorganize global data under a seperate key
+'global': {
+    'tags': {}
+    'sentinels': {}
+}
+
+try to use a tranformer for autocomplete instead of a regular autocomplete
+this lets me pass arguments for the initialization of a transformer so the autocmplete will work with both global and local without any weird namespace fuckery
+
+
+
 reaction event handling
 adding reactions with bot
+
+
+
 
 per server settings and data
 word tallying
