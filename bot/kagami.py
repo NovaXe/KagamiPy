@@ -37,7 +37,9 @@ class Kagami(commands.Bot):
                                      owner_id=self.config["owner"])
         self.data = {}
         self.servers: dict[str, Server] = {}
+        self.global_data = {}
         self.global_tags = {}
+        self.global_sentinels = {}
 
         self.load_data()
 
@@ -68,20 +70,19 @@ class Kagami(commands.Bot):
             if "tags" in server_data_keys:
                 self.servers[server_id].tags = self.data["servers"][server_id]["tags"]
 
-
-
-
+            if 'sentinels' in server_data_keys:
+                self.servers[server_id].sentinels = self.data['servers'][server_id]['sentinels']
 
 
     def update_data(self):
         # print(self.data)
         data: dict[str, dict[str, dict[str, dict[str, str]]]] = {
-            "global_tags": {},
+            "global": {},
             "servers": {}
         }
 
 
-        data["global_tags"].update(self.global_tags)
+        data["global"].update(self.global_data)
 
         for server_id, server in self.servers.items():
             data["servers"][server_id] = {"playlists": {},
@@ -123,10 +124,10 @@ class Kagami(commands.Bot):
 
         self.create_server_list()
 
-        if "global_tags" in self.data.keys():
-            self.global_tags: dict[str, dict] = self.data["global_tags"]
+        if "global" in self.data.keys():
+            self.global_data: dict[str, dict] = self.data["global"]
         else:
-            self.global_tags = {}
+            self.global_data = {}
 
 
     async def close(self):

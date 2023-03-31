@@ -228,7 +228,7 @@ class Music(commands.Cog):
             del current_player.history._queue[new_position_of_track]
 
 
-            await interaction.edit_original_response(content=f"Popped `{popped_track.title} from the history`")
+            await interaction.edit_original_response(content=f"Popped `{popped_track.title}` from the history`")
         elif position == 0:
             popped_track: wavelink.Track = current_player.current_track
             current_player.current_track = None
@@ -238,7 +238,7 @@ class Music(commands.Cog):
         else:
             popped_track: wavelink.Track = current_player.queue._queue[position-1]
             del current_player.queue._queue[position-1]
-            await interaction.edit_original_response(content=f"Popped `{popped_track.title} from the queue`")
+            await interaction.edit_original_response(content=f"Popped `{popped_track.title}` from the queue`")
 
 
 
@@ -367,7 +367,7 @@ class Music(commands.Cog):
                 message = "Loop Song"
 
 
-        await interaction.response.send_message(content=f"Loop Mode: {message}")
+        await interaction.response.send_message(content=f"Loop Mode: `{message}`")
 
     @app_commands.command(name="seek", description="seeks the currently playing track")
     async def seek(self, interaction: discord.Interaction, position: int):
@@ -378,7 +378,7 @@ class Music(commands.Cog):
             return
 
         await current_player.seek(position*1000)
-        await interaction.edit_original_response(content=f"Seeked to {position} seconds")
+        await interaction.edit_original_response(content=f"Seeked to `{position}` seconds")
 
 
 
@@ -392,7 +392,7 @@ class Music(commands.Cog):
 
         current_player.queue.clear()
         # self.players[interaction.guild_id].history.clear()
-        await interaction.response.send_message(f"Cleared {queue_size} tracks from the queue")
+        await interaction.response.send_message(f"Cleared `{queue_size}` tracks from the queue")
 
 
     async def playlist_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
@@ -410,7 +410,7 @@ class Music(commands.Cog):
         current_player: Player = interaction.guild.voice_client
 
         if name in server.playlists.keys():
-            await interaction.edit_original_response(content=f"A playlist named '{name}' already exists")
+            await interaction.edit_original_response(content=f"A playlist named `{name}` already exists")
             return
 
         if source == "new":
@@ -440,7 +440,7 @@ class Music(commands.Cog):
             return
         server.playlists.pop(playlist)
         # del server.playlists[playlist]
-        await interaction.edit_original_response(content=f"Playlist: '{playlist}' was deleted")
+        await interaction.edit_original_response(content=f"Playlist: `{playlist}` was deleted")
 
     @playlist_group.command(name="rename", description="renames the playlist")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
@@ -452,11 +452,11 @@ class Music(commands.Cog):
             return
 
         if new_name in server.playlists.keys():
-            await interaction.response.send_message(f"A playlist named '{new_name}' already exists")
+            await interaction.response.send_message(f"A playlist named `{new_name}` already exists")
             return
 
         server.playlists[new_name] = server.playlists.pop(playlist)
-        await interaction.edit_original_response(content=f"Playlist: '{playlist}' renamed to '{new_name}'")
+        await interaction.edit_original_response(content=f"Playlist: `{playlist}` renamed to `{new_name}`")
 
     @playlist_group.command(name="update", description="merges the current queue into the playlist")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
@@ -478,7 +478,7 @@ class Music(commands.Cog):
         playlist_list = list(dict.fromkeys((history_list + current_track + queue_list)).keys())
 
         server.playlists[playlist].update_list(playlist_list)
-        await interaction.response.send_message(f"Updated playlist: '{playlist}' with the queue")
+        await interaction.response.send_message(f"Updated playlist: `{playlist}` with the queue")
 
     @playlist_group.command(name="add_tracks", description="Searches and adds the track(s) to the queue")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
@@ -491,9 +491,9 @@ class Music(commands.Cog):
         server.playlists[playlist].update_list(tracks)
         length = len(tracks)
         if length == 1:
-            await interaction.response.send_message(f"Added {tracks[0].title} to playlist: '{playlist}'")
+            await interaction.response.send_message(f"Added `{tracks[0].title}` to playlist: `{playlist}`")
         else:
-            await interaction.response.send_message(f"Added {length} tracks to playlist: '{playlist}")
+            await interaction.response.send_message(f"Added `{length}` tracks to playlist: `{playlist}`")
 
     @playlist_group.command(name="remove_track", description="Removes the track at the given position")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
@@ -506,7 +506,7 @@ class Music(commands.Cog):
         track_id = server.playlists[playlist].tracks.pop(track_position - 1)
         full_track = await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=track_id)
         await interaction.edit_original_response(
-            content=f"Removed track {track_position}: '{full_track.title}' from playlist: '{playlist}'")
+            content=f"Removed track {track_position}: '{full_track.title}' from playlist: `{playlist}`")
 
     @playlist_group.command(name="play", description="clears the queue and plays the playlist")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
@@ -526,7 +526,7 @@ class Music(commands.Cog):
         await current_player.add_to_queue(single=False, track=tracks)
         # await player.cycle_track()
         await current_player.play_next_track()
-        await interaction.edit_original_response(content=f"Now playing playlist: '{playlist}'")
+        await interaction.edit_original_response(content=f"Now playing playlist: `{playlist}`")
 
     @playlist_group.command(name="queue", description="adds the playlist to the end of the queue")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
@@ -543,7 +543,7 @@ class Music(commands.Cog):
                   for track_id in server.playlists[playlist].tracks
                   ]
         await current_player.add_to_queue(single=False, track=tracks)
-        await interaction.edit_original_response(content=f"Added playlist: '{playlist}' to the queue")
+        await interaction.edit_original_response(content=f"Added playlist: `{playlist}` to the queue")
 
     @playlist_group.command(name="list_all", description="lists all the server's playlists")
     async def playlist_list(self, interaction: discord.Interaction):
@@ -715,7 +715,7 @@ class Music(commands.Cog):
             # print("user left channel")
             if len(before.channel.members)-1 == 0:
                 # print("leaving")
-                await current_player.dj_channel.send(f"Everyone left '{before.channel.name}' so I left too")
+                await current_player.dj_channel.send(f"Everyone left `{before.channel.name}` so I left too")
                 await current_player.disconnect()
                 server.player = None
             # else:

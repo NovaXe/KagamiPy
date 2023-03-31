@@ -137,7 +137,7 @@ class Soundboard(commands.GroupCog, group_name="soundboard"):
             content += f"{interaction.guild.name} Soundboard has {soundboard_length} sound{'s' if soundboard_length>1 else ''}\n"
             content += "──────────────────────────\n"
             for sound_index, sound_name in enumerate(page_list):
-                number = str(sound_index+1 + (page_index+1) * 10) + ")"
+                number = str(sound_index+1 + page_index * 10) + ")"
                 content += f"{number.ljust(5)} {sound_name}\n"
 
             content += f"Page #: {page_index+1} / {math.ceil(soundboard_length/10)}\n```"

@@ -63,18 +63,30 @@ figure out what the hell is wrong with the player and currently playing
 
 auto reactions
 store under the key
-'sentinel_phrases': {
-    'sentinal': {
-        'use_count': 0,
-        'reaction': '',
+'sentinels': {
+    'sentinel_phrase': {
+        'uses': 0,
+        'reactions': [],
         'response': ''
     }
 }
+implement aliases for a sentinel or variations
+possibly switch to an array of json objects
+that contain a list of trigger phrases
+'sentinels': [
+    {
+        phrases: [''],
+        'uses': 0,
+        'reactions': [],
+        'response': ''
+    }
+]
+
 
 reorganize global data under a seperate key
 'global': {
-    'tags': {}
-    'sentinels': {}
+    'tags': {},
+    'sentinels': {},
 }
 
 try to use a tranformer for autocomplete instead of a regular autocomplete

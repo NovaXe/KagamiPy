@@ -70,7 +70,7 @@ class Tags(commands.GroupCog, group_name="tag"):
         # print(command_name)
         if "global" == command_name:
             # print("global tag")
-            tags = self.bot.global_tags
+            tags = self.bot.global_data['tags']
         elif "local" == command_name:
             # print("local tag")
             tags = self.bot.fetch_server(interaction.guild_id).tags
@@ -87,7 +87,7 @@ class Tags(commands.GroupCog, group_name="tag"):
         return [
             app_commands.Choice(name=tag_name, value=tag_name)
             for tag_name, tag_data in tags.items() if current.lower() in tag_name.lower()
-        ]
+        ][:25]
 
     # Was going to write my own but snagged this baby off stack overflow lol
     @staticmethod
@@ -105,7 +105,7 @@ class Tags(commands.GroupCog, group_name="tag"):
     @search_group.command(name="global", description="searches for a global tag")
     async def search_global(self, interaction: discord.Interaction, search: str, count: int=10):
         await interaction.response.defer(thinking=True)
-        matches = self.find_closely_matching_tags(search, self.bot.global_tags, count)
+        matches = self.find_closely_matching_tags(search, self.bot.global_data['tags'], count)
 
         pages = self.create_tag_pages(source="global", tags=matches, is_search=True)
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
@@ -142,13 +142,13 @@ class Tags(commands.GroupCog, group_name="tag"):
     @get_group.command(name="global", description="get a global tag")
     async def get_global(self, interaction: discord.Interaction, tag_name: str):
         await interaction.response.defer(thinking=True)
-        # if not self.bot.global_tags:
+        # if not self.bot.global_data['tags']:
         #     await interaction.edit_original_response(content="There are no global tags")
         #     return
-        if tag_name not in self.bot.global_tags.keys():
+        if tag_name not in self.bot.global_data['tags'].keys():
             await interaction.edit_original_response(content=f"The tag **`{tag_name}`** doesn't exist")
             return
-        tag_data = self.bot.global_tags[tag_name]
+        tag_data = self.bot.global_data['tags'][tag_name]
 
         if "attachments" in tag_data:
             attachment_files = [discord.File(BytesIO(await link_to_file(link)), link.split('/')[-1]) for link in tag_data['attachments']][:10]
@@ -237,10 +237,10 @@ class Tags(commands.GroupCog, group_name="tag"):
 
         elif mode == 'global':
             await interaction.response.defer(thinking=True)
-            if tag_name in self.bot.global_tags.keys():
+            if tag_name in self.bot.global_data['tags'].keys():
                 await interaction.edit_original_response(content=f"The tag **`{tag_name}`** already exists")
                 return
-            self.bot.global_tags.update({
+            self.bot.global_data['tags'].update({
                 tag_name: {
                     "content": content,
                     "author": interaction.user.name,
@@ -268,17 +268,17 @@ class Tags(commands.GroupCog, group_name="tag"):
     @delete_group.command(name="global", description="Deletes a global tag")
     async def delete_global(self, interaction: discord.Interaction, tag_name: str):
         await interaction.response.defer(thinking=True)
-        if tag_name not in self.bot.global_tags.keys():
+        if tag_name not in self.bot.global_data['tags'].keys():
             await interaction.edit_original_response(content=f"The tag **`{tag_name}`** doesn't exist")
             return
-        self.bot.global_tags.pop(tag_name, None)
+        self.bot.global_data['tags'].pop(tag_name, None)
         await interaction.edit_original_response(content=f"The global tag **`{tag_name}`** has been deleted")
 
     # List Commands
     @list_group.command(name="global", description="lists the global tags")
     async def list_global(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
-        pages = self.create_tag_pages('global', self.bot.global_tags)
+        pages = self.create_tag_pages('global', self.bot.global_data['tags'])
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
         await interaction.edit_original_response(content=pages[0], view=view)
