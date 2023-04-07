@@ -96,6 +96,11 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         # discord.PartialEmoji.from_str(reaction)
         if reactions:
             reactions = [reaction for reaction in reactions.split(' ') if reaction]
+        else:
+            reactions = []
+
+        if response is None:
+            response = ''
 
 
         print(reactions)
@@ -110,12 +115,21 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         await interaction.edit_original_response(content=f'Added the global sentinel `{sentinel_phrase}`')
 
     @add_group.command(name="local", description="Creates a new global sentinel")
-    async def add_local(self, interaction: discord.Interaction, sentinel_phrase: str, response: str = None, reaction: str = None):
+    async def add_local(self, interaction: discord.Interaction, sentinel_phrase: str, response: str = None, reactions: str = None):
         await interaction.response.defer(thinking=True)
         server: Server = self.bot.fetch_server(interaction.guild_id)
+
+        if reactions:
+            reactions = [reaction for reaction in reactions.split(' ') if reaction]
+        else:
+            reactions = []
+
+        if response is None:
+            response = ''
+
         new_sentinel = {
             'response': response,
-            'reactions': reaction,
+            'reactions': reactions,
             'uses': 0
         }
         server.sentinels.update({
@@ -261,8 +275,8 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
     @staticmethod
     async def process_sentinel_event(message: discord.Message, sentinels):
         content = message.content.lower()
-        if content := content.split(' '):
-            pass
+        # if content := content.split(' '):
+        #     pass
 
         for sentinel_phrase, sentinel_data in sentinels.items():
             if sentinel_phrase.lower() in content:
@@ -334,8 +348,8 @@ class SentinelEditorModal(discord.ui.Modal, title='Edit Sentinels'):
         self.reactions_txt.default = ' '.join(sentinel_source[sentinel_phrase]['reactions'])
 
     sentinel_phrase = discord.ui.TextInput(label='Phrase', placeholder='Enter the phrase the bot will listen for')
-    response = discord.ui.TextInput(label="Response", placeholder='Enter the response to the sentinel event')
-    reactions_txt = discord.ui.TextInput(label="Reactions", placeholder="Type your reactions like this :emote: :emote:")
+    response = discord.ui.TextInput(label="Response", placeholder='Enter the response to the sentinel event', required=False)
+    reactions_txt = discord.ui.TextInput(label="Reactions", placeholder="Type your reactions like this :emote: :emote:", required=False)
 
 
     async def on_submit(self, interaction: discord.Interaction) -> None:

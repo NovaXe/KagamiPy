@@ -252,7 +252,8 @@ class QueueController(PlayerControls, MessageScroller):
         try:
             await self.message.delete()
         except discord.HTTPException as e:
-            print(e)
+            print(f"Exception Encountered: {e}")
+
         del self
 
 

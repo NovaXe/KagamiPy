@@ -354,10 +354,11 @@ class TagCreationModal(discord.ui.Modal, title="Create Tag"):
 
     tag_name = discord.ui.TextInput(label="Tag Name", placeholder='Enter the tag name')
     tag_content = discord.ui.TextInput(label="Tag Content", placeholder='Enter the tag content', style=discord.TextStyle.paragraph, max_length=2000)
-    tag_attachments = discord.ui.TextInput(label="Attachments", placeholder="Put each link on a seperate line", style=discord.TextStyle.paragraph)
+    tag_attachments = discord.ui.TextInput(label="Attachments", placeholder="Put each link on a separate line", style=discord.TextStyle.paragraph, required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await self.cog.set_handler(interaction=interaction, tag_name=self.tag_name.value, content=self.tag_content.value, mode=self.tag_type, attachment_links=self.tag_attachments.value.split('\n'))
+        attachments = self.tag_attachments.value.split('\n') if self.tag_attachments.value else []
+        await self.cog.set_handler(interaction=interaction, tag_name=self.tag_name.value, content=self.tag_content.value, mode=self.tag_type, attachment_links=attachments)
 
 
 async def setup(bot):
