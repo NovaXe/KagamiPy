@@ -117,6 +117,15 @@ class Fun(commands.Cog):
 
         await interaction.response.send_message(f"Fish Mode: {'On' if server.fish_mode else 'Off'}")
 
+    @app_commands.command(name='timeout', description='sever mutes someone in vc')
+    async def timeout_user(self, interaction: discord.Interaction, member: discord.Member):
+        is_muted = member.voice.mute
+        await member.edit(mute=not is_muted)
+        if is_muted:
+            response = f"`{member.name}` can speak again"
+        else:
+            response = f"`{member.name}` can no longer speak"
+        await interaction.response.send_message(response)
 
 
 
@@ -144,6 +153,7 @@ class Fun(commands.Cog):
     async def fish_react(self, interaction: discord.Interaction, message: discord.Message):
         await message.add_reaction("🐟")
         await interaction.response.send_message("Fish Reacted", ephemeral=True, delete_after=3)
+
 
 
 
