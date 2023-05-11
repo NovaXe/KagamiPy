@@ -57,6 +57,7 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
     edit_group = app_commands.Group(name="edit", description="Edit an existing sentinel")
     list_group = app_commands.Group(name="list", description="Lists all sentinels")
     info_group = app_commands.Group(name="info", description="Gets sentinel info")
+    toggle_group = app_commands.Group(name="toggle", description="Toggle a sentinel")
 
     async def sentinel_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         source = None
@@ -181,6 +182,38 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         await interaction.response.send_modal(SentinelEditorModal(self.bot.fetch_server(interaction.guild_id).sentinels, sentinel_phrase))
 
 
+    @app_commands.autocomplete(sentinel_phrase=sentinel_autocomplete)
+    @toggle_group.command(name='global', description='Toggle the active status of a global sentinel')
+    async def toggle_global(self, interaction: discord.Interaction, sentinel_phrase: str):
+        if sentinel_phrase not in self.bot.global_data['sentinels'].keys():
+            await interaction.response.send_message(
+                content=f"The global sentinel **`{sentinel_phrase}`** doesn't exist")
+            return
+
+        previous_state = self.bot.global_data['sentinels'][sentinel_phrase]['enabled']
+        self.bot.global_data['sentinels'][sentinel_phrase]['enabled'] = not previous_state
+        await interaction.response.send_message(
+            content=f"The sentinel **`{sentinel_phrase}`** is now `{'enabled' if not previous_state else 'disabled'}`")
+
+
+
+    @app_commands.autocomplete(sentinel_phrase=sentinel_autocomplete)
+    @toggle_group.command(name='local', description='Toggle the active status of a local sentinel')
+    async def toggle_local(self, interaction: discord.Interaction, sentinel_phrase: str):
+        server: Server = self.bot.fetch_server(interaction.guild_id)
+        if sentinel_phrase not in server.sentinels.keys():
+            await interaction.response.send_message(
+                content=f"The sentinel **`{sentinel_phrase}`** doesn't exist on `{interaction.guild.name}`")
+            return
+        previous_state = server.sentinels[sentinel_phrase]["enabled"]
+        server.sentinels[sentinel_phrase]["enabled"] = not previous_state
+        await interaction.response.send_message(
+            content=f"The sentinel **`{sentinel_phrase}`** is now `{'enabled' if not previous_state else 'disabled'}`")
+
+
+
+
+
     @list_group.command(name='global', description="List all global sentinels")
     async def list_global(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
@@ -248,6 +281,9 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
                   f'```'
         return content
 
+
+
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.id == self.bot.user.id:
@@ -280,6 +316,8 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
 
         for sentinel_phrase, sentinel_data in sentinels.items():
             if sentinel_phrase.lower() in content:
+                if not sentinels[sentinel_phrase]['enabled']:
+                    return  # Ignore if disabled
                 if reactions := sentinel_data['reactions']:
                     for reaction in reactions:
                         await message.add_reaction(reaction)
