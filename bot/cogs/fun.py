@@ -1,4 +1,7 @@
-from typing import List
+from typing import (
+    List,
+    Literal
+)
 import asyncio
 
 from PIL import Image
@@ -126,6 +129,19 @@ class Fun(commands.Cog):
         else:
             response = f"`{member.name}` can no longer speak"
         await interaction.response.send_message(response)
+
+    @app_commands.command(name='spam', description='spam ping them lol')
+    async def spam_ping(self, interaction: discord.Interaction, mode: Literal["Ping", "Direct Message"], user: discord.Member, msg: str, count: int=5):
+        count = 20 if count > 20 else count
+        await interaction.response.send_message(ephemeral=True, content=f"Spamming {user.mention}")
+        for i in range(count):
+            # if i % 5 == 0:
+            #     await asyncio.sleep(delay=5)
+            if mode == 'Ping':
+                await interaction.channel.send(content=f"{user.mention} {msg}")
+            else:
+                await user.send(content=f'{msg}')
+            await asyncio.sleep(delay=1)
 
 
 

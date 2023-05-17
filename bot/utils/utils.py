@@ -1,5 +1,6 @@
 import aiohttp
 
+
 def clamp(num, min_value, max_value):
     num = max(min(num, max_value), min_value)
     return num
@@ -17,6 +18,7 @@ async def link_to_file(link: str) -> bytes:
         async with session.get(link) as r:
             data = await r.read()
     return data
+
 
 class ClampedValue:
     def __init__(self, value: int | float, min_value, max_value):
