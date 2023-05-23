@@ -90,22 +90,13 @@ class Tags(commands.GroupCog, group_name="tag"):
         ][:25]
 
     # Was going to write my own but snagged this baby off stack overflow lol
-    @staticmethod
-    def find_closely_matching_tags(search: str, tags: dict, n, cutoff=0.45):
-        input_list = tags.items()
-        matches = list()
-        for key, value in input_list:
-            if len(matches) > n:
-                break
-            if SequenceMatcher(None, search, key).ratio() >= cutoff:
-                matches.append([key, value])
-        return dict(matches)
+
 
     # Search Commands
     @search_group.command(name="global", description="searches for a global tag")
     async def search_global(self, interaction: discord.Interaction, search: str, count: int=10):
         await interaction.response.defer(thinking=True)
-        matches = self.find_closely_matching_tags(search, self.bot.global_data['tags'], count)
+        matches = self.find_closely_matching_dict_keys(search, self.bot.global_data['tags'], count)
 
         pages = self.create_tag_pages(source="global", tags=matches, is_search=True)
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
@@ -117,7 +108,7 @@ class Tags(commands.GroupCog, group_name="tag"):
     async def search_local(self, interaction: discord.Interaction, search: str, count: int = 10):
         await interaction.response.defer(thinking=True)
         server: Server = self.bot.fetch_server(interaction.guild_id)
-        matches = self.find_closely_matching_tags(search, server.tags, count)
+        matches = self.find_closely_matching_dict_keys(search, server.tags, count)
         pages = self.create_tag_pages(source=interaction.guild.name, tags=matches, is_search=True)
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         if count > 10:
@@ -130,7 +121,7 @@ class Tags(commands.GroupCog, group_name="tag"):
         await interaction.response.defer(thinking=True)
         guild_name = discord.utils.get(self.bot.guilds, id=int(server)).name
         server: Server = self.bot.fetch_server(server)
-        matches = self.find_closely_matching_tags(search, server.tags, count)
+        matches = self.find_closely_matching_dict_keys(search, server.tags, count)
         pages = self.create_tag_pages(source=guild_name, tags=matches, is_search=True)
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         if count > 10:

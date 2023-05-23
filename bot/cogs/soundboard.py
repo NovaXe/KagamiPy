@@ -22,6 +22,7 @@ from bot.utils.ui import QueueController
 from bot.utils.utils import seconds_to_time
 from bot.utils.bot_data import Server
 from bot.utils.music_helpers import *
+from bot.utils.utils import find_closely_matching_dict_keys
 
 
 class Soundboard(commands.GroupCog, group_name="soundboard"):
@@ -76,9 +77,20 @@ class Soundboard(commands.GroupCog, group_name="soundboard"):
     @app_commands.autocomplete(sound_name=soundboard_autocomplete)
     @app_commands.command(name="play", description="plays the given sound")
     async def play(self, interaction: discord.Interaction, sound_name: str):
+        await interaction.response.defer(thinking=True)
         current_player: Player = interaction.guild.voice_client
         server: Server = self.bot.fetch_server(interaction.guild_id)
-        await interaction.response.defer(thinking=True)
+        if sound_name not in server.soundboard.keys():
+            close_match = list(find_closely_matching_dict_keys(search=sound_name, tags=server.soundboard, n=1).keys())[0]
+            if not close_match:
+                await interaction.edit_original_response(content=f"The sound `{sound_name}` does not exist")
+                return
+            else:
+                sound_name = close_match
+
+
+
+
         current_player: Player = await self.attempt_to_join_vc(interaction=interaction, should_switch_channel=False)
         await interaction.edit_original_response(content=f"{interaction.user.name} played {sound_name}")
 

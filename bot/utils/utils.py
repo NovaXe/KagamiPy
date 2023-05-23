@@ -1,5 +1,8 @@
 import aiohttp
-
+from difflib import (
+    get_close_matches,
+    SequenceMatcher
+)
 
 def clamp(num, min_value, max_value):
     num = max(min(num, max_value), min_value)
@@ -18,6 +21,17 @@ async def link_to_file(link: str) -> bytes:
         async with session.get(link) as r:
             data = await r.read()
     return data
+
+
+def find_closely_matching_dict_keys(search: str, tags: dict, n, cutoff=0.45):
+    input_list = tags.items()
+    matches = list()
+    for key, value in input_list:
+        if len(matches) > n:
+            break
+        if SequenceMatcher(None, search, key).ratio() >= cutoff:
+            matches.append([key, value])
+    return dict(matches)
 
 
 class ClampedValue:
