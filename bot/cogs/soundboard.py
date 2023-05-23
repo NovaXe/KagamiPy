@@ -81,7 +81,8 @@ class Soundboard(commands.GroupCog, group_name="soundboard"):
         current_player: Player = interaction.guild.voice_client
         server: Server = self.bot.fetch_server(interaction.guild_id)
         if sound_name not in server.soundboard.keys():
-            close_match = list(find_closely_matching_dict_keys(search=sound_name, tags=server.soundboard, n=1).keys())[0]
+            close_match_dict = find_closely_matching_dict_keys(search=sound_name, tags=server.soundboard, n=1, cutoff=0.2)
+            close_match = list(close_match_dict.keys())[0] if len(close_match_dict) else None
             if not close_match:
                 await interaction.edit_original_response(content=f"The sound `{sound_name}` does not exist")
                 return
