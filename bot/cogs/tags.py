@@ -6,7 +6,7 @@ from discord.ext import commands
 from bot.utils.bot_data import Server
 from bot.utils.ui import MessageScroller
 from bot.utils.utils import link_to_file
-
+from bot.utils.utils import find_closely_matching_dict_keys
 from typing import Literal
 from bot.kagami import Kagami
 from datetime import date
@@ -96,7 +96,7 @@ class Tags(commands.GroupCog, group_name="tag"):
     @search_group.command(name="global", description="searches for a global tag")
     async def search_global(self, interaction: discord.Interaction, search: str, count: int=10):
         await interaction.response.defer(thinking=True)
-        matches = self.find_closely_matching_dict_keys(search, self.bot.global_data['tags'], count)
+        matches = find_closely_matching_dict_keys(search, self.bot.global_data['tags'], count)
 
         pages = self.create_tag_pages(source="global", tags=matches, is_search=True)
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
@@ -108,7 +108,7 @@ class Tags(commands.GroupCog, group_name="tag"):
     async def search_local(self, interaction: discord.Interaction, search: str, count: int = 10):
         await interaction.response.defer(thinking=True)
         server: Server = self.bot.fetch_server(interaction.guild_id)
-        matches = self.find_closely_matching_dict_keys(search, server.tags, count)
+        matches = find_closely_matching_dict_keys(search, server.tags, count)
         pages = self.create_tag_pages(source=interaction.guild.name, tags=matches, is_search=True)
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         if count > 10:
@@ -121,7 +121,7 @@ class Tags(commands.GroupCog, group_name="tag"):
         await interaction.response.defer(thinking=True)
         guild_name = discord.utils.get(self.bot.guilds, id=int(server)).name
         server: Server = self.bot.fetch_server(server)
-        matches = self.find_closely_matching_dict_keys(search, server.tags, count)
+        matches = find_closely_matching_dict_keys(search, server.tags, count)
         pages = self.create_tag_pages(source=guild_name, tags=matches, is_search=True)
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         if count > 10:

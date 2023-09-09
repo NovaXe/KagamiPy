@@ -42,6 +42,14 @@ class SentinelTransformer(app_commands.Transformer, ABC):
 
 
 
+def createSentinelData(response:str, reactions:str)->dict:
+    return {
+            'response': response,
+            'reactions': reactions,
+            'uses': 0,
+            'enabled': True
+        }
+
 class Sentinels(commands.GroupCog, group_name="sentinel"):
     def __init__(self, bot):
         self.bot: Kagami = bot
@@ -105,11 +113,7 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
 
 
         print(reactions)
-        new_sentinel = {
-            'response': response,
-            'reactions': reactions,
-            'uses': 0
-        }
+        new_sentinel = createSentinelData(response, reactions)
         self.bot.global_data['sentinels'].update({
             sentinel_phrase: new_sentinel
         })
@@ -128,11 +132,8 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         if response is None:
             response = ''
 
-        new_sentinel = {
-            'response': response,
-            'reactions': reactions,
-            'uses': 0
-        }
+        new_sentinel = createSentinelData(response, reactions)
+
         server.sentinels.update({
             sentinel_phrase: new_sentinel
         })
