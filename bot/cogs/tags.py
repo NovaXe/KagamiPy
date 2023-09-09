@@ -299,7 +299,7 @@ class Tags(commands.GroupCog, group_name="tag"):
     def create_tag_pages(source: str, tags: dict, is_search=False):
         tag_count = len(tags)
         num_full_pages, last_page_elem_count = divmod(tag_count, 10)
-        page_count = num_full_pages + 1 if last_page_elem_count else 0
+        page_count = num_full_pages + 1 if last_page_elem_count else num_full_pages
         pages = [""] * page_count
         info_text = f"```swift\n{'Kagami' if source=='global' else source} has {tag_count}{' global' if source=='global' else ''} tags registered\n"
         if is_search:
