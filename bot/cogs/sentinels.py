@@ -77,7 +77,7 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
 
     async def sentinel_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         source = None
-        if interaction.command.name == 'server':
+        if interaction.command.name == 'local':
             server: Server = self.bot.fetch_server(interaction.guild_id)
             source = server.sentinels
         elif interaction.command.name == 'global':
@@ -379,7 +379,7 @@ class SentinelEditorModal(discord.ui.Modal, title='Edit Sentinels'):
         self.original_sentinel_phrase = sentinel_phrase
         self.sentinel_phrase.default = sentinel_phrase
         self.response.default = sentinel_source[sentinel_phrase]['response']
-        self.reactions_txt.default = ' '.join(sentinel_source[sentinel_phrase]['reactions'])
+        self.reactions_txt.default = ','.join(sentinel_source[sentinel_phrase]['reactions'])
 
     sentinel_phrase = discord.ui.TextInput(label='Phrase', placeholder='Enter the phrase the bot will listen for')
     response = discord.ui.TextInput(label="Response", placeholder='Enter the response to the sentinel event', required=False)
@@ -387,13 +387,33 @@ class SentinelEditorModal(discord.ui.Modal, title='Edit Sentinels'):
 
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        data: dict = self.sentinel_source[self.original_sentinel_phrase]
         self.sentinel_source.pop(self.original_sentinel_phrase, None)
-        self.sentinel_source.update({
-            self.sentinel_phrase.value: {
-                'response': self.response.value,
-                'reactions': [f':{emote}:' for emote in self.reactions_txt.value.split(':') if emote]
-            }
+
+        data.update({
+            'response': self.response.value,
+            'reactions': [f'{emote}' for emote in self.reactions_txt.value.split(',') if emote]
         })
+
+
+        self.sentinel_source.update({
+            self.sentinel_phrase.value: data
+        })
+
+
+        # new_data = self.sentinel_source[self.sentinel_phrase].update({
+        #     'response': self.response.value,
+        #     'reactions': [f':{emote}:' for emote in self.reactions_txt.value.split(':') if emote]
+        # })
+
+
+
+        # self.sentinel_source.update({
+        #     self.sentinel_phrase.value: {
+        #         'response': self.response.value,
+        #         'reactions': [f':{emote}:' for emote in self.reactions_txt.value.split(':') if emote],
+        #     }
+        # })
         await interaction.response.send_message(content=f'Edited the sentinel `{self.original_sentinel_phrase}`'
                                                         f' {f"now called {self.sentinel_phrase.value}" if self.original_sentinel_phrase != self.sentinel_phrase.value else ""}')
 
