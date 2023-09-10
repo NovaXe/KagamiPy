@@ -15,6 +15,11 @@ from difflib import (
     SequenceMatcher
 )
 from functools import partial
+from bot.utils.utils import (
+    createPageInfoText,
+    createPageList
+)
+
 from io import BytesIO
 
 
@@ -36,6 +41,13 @@ class Tags(commands.GroupCog, group_name="tag"):
 
         for ctx_menu in self.ctx_menus:
             self.bot.tree.add_command(ctx_menu)
+
+    custom_key_reprs: dict = {
+        'author': 'Created by',
+        'creation_date': 'Created on'
+    }
+    ignored_key_values: list = ['content', 'attachments']
+
 
     async def cog_unload(self) -> None:
         for ctx_menu in self.ctx_menus:
@@ -98,7 +110,15 @@ class Tags(commands.GroupCog, group_name="tag"):
         await interaction.response.defer(thinking=True)
         matches = find_closely_matching_dict_keys(search, self.bot.global_data['tags'], count)
 
-        pages = self.create_tag_pages(source="global", tags=matches, is_search=True)
+        data: dict = matches
+        total_count = len(data)
+        info_text = createPageInfoText(total_count, 'global', 'search', 'tags')
+        pages = createPageList(info_text, data, total_count,
+                               custom_reprs=self.custom_key_reprs,
+                               ignored_values=self.ignored_key_values
+                               )
+
+
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         if count > 10:
             view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
@@ -109,7 +129,15 @@ class Tags(commands.GroupCog, group_name="tag"):
         await interaction.response.defer(thinking=True)
         server: Server = self.bot.fetch_server(interaction.guild_id)
         matches = find_closely_matching_dict_keys(search, server.tags, count)
-        pages = self.create_tag_pages(source=interaction.guild.name, tags=matches, is_search=True)
+
+        data: dict = matches
+        total_count = len(data)
+        info_text = createPageInfoText(total_count, interaction.guild.name, 'search', 'tags')
+        pages = createPageList(info_text, data, total_count,
+                               custom_reprs=self.custom_key_reprs,
+                               ignored_values=self.ignored_key_values
+                               )
+
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         if count > 10:
             view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
@@ -122,7 +150,15 @@ class Tags(commands.GroupCog, group_name="tag"):
         guild_name = discord.utils.get(self.bot.guilds, id=int(server)).name
         server: Server = self.bot.fetch_server(server)
         matches = find_closely_matching_dict_keys(search, server.tags, count)
-        pages = self.create_tag_pages(source=guild_name, tags=matches, is_search=True)
+
+        data: dict = matches
+        total_count = len(data)
+        info_text = createPageInfoText(total_count, guild_name, 'search', 'tags')
+        pages = createPageList(info_text, data, total_count,
+                               custom_reprs=self.custom_key_reprs,
+                               ignored_values=self.ignored_key_values
+                               )
+
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         if count > 10:
             view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
@@ -269,7 +305,15 @@ class Tags(commands.GroupCog, group_name="tag"):
     @list_group.command(name="global", description="lists the global tags")
     async def list_global(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
-        pages = self.create_tag_pages('global', self.bot.global_data['tags'])
+
+        data: dict = self.bot.global_data['tags']
+        total_count = len(data)
+        info_text = createPageInfoText(total_count, 'global', 'data', 'tags')
+        pages = createPageList(info_text, data, total_count,
+                               custom_reprs=self.custom_key_reprs,
+                               ignored_values=self.ignored_key_values
+                               )
+
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
         await interaction.edit_original_response(content=pages[0], view=view)
@@ -278,7 +322,15 @@ class Tags(commands.GroupCog, group_name="tag"):
     async def list_local(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
         server: Server = self.bot.fetch_server(interaction.guild_id)
-        pages = self.create_tag_pages(interaction.guild.name, server.tags)
+
+        data: dict = server.tags
+        total_count = len(data)
+        info_text = createPageInfoText(total_count, 'local', 'data', 'tags')
+        pages = createPageList(info_text, data, total_count,
+                               custom_reprs=self.custom_key_reprs,
+                               ignored_values=self.ignored_key_values
+                               )
+
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
         await interaction.edit_original_response(content=pages[0], view=view)
@@ -289,48 +341,21 @@ class Tags(commands.GroupCog, group_name="tag"):
         await interaction.response.defer(thinking=True)
         guild_name = discord.utils.get(self.bot.guilds, id=int(server)).name
         server: Server = self.bot.fetch_server(server)
-        pages = self.create_tag_pages(guild_name, server.tags)
+
+        data: dict = server.tags
+        total_count = len(data)
+        info_text = createPageInfoText(total_count, guild_name, 'data', 'tags')
+        pages = createPageList(info_text, data, total_count,
+                               custom_reprs=self.custom_key_reprs,
+                               ignored_values=self.ignored_key_values
+                               )
+
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
         await interaction.edit_original_response(view=view)
 
 
-    @staticmethod
-    def create_tag_pages(source: str, tags: dict, is_search=False):
-        tag_count = len(tags)
-        num_full_pages, last_page_elem_count = divmod(tag_count, 10)
-        page_count = num_full_pages + 1 if last_page_elem_count else num_full_pages
-        pages = [""] * page_count
-        info_text = f"```swift\n{'Kagami' if source=='global' else source} has {tag_count}{' global' if source=='global' else ''} tags registered\n"
-        if is_search:
-            info_text = f"```swift\nFound {tag_count}{' global' if source == 'global' else ''} tags that are similar to your search {f'on {source}' if source !='global' else ''}\n"
-        else:
-            info_text = f"```swift\n{'Kagami' if source == 'global' else source} has {tag_count}{' global' if source == 'global' else ''} tags registered\n"
 
-        page_index = 0
-        elem_count = 0
-        for tag_name, tag_data in sorted(tags.items()):
-            if len(tag_name) <= 20:
-                new_name = tag_name.ljust(20)
-            else:
-                new_name = (tag_name[:16] + " ...").ljust(20)
-
-            creation_date = tag_data['creation_date'] if 'creation_date' in tag_data else '##/##/##'
-            tag_author = tag_data['author'] if 'author' in tag_data else 'Unknown'
-            content = f"{f'{page_index*10 + elem_count+1})'.ljust(4)}{new_name} - Created: {creation_date}  By: {tag_author}\n"
-            pages[page_index] += content
-
-
-
-
-            elem_count += 1
-            if elem_count == 10 or (page_index + 1 == page_count and elem_count == last_page_elem_count):
-                pages[page_index] = info_text + pages[page_index] + f"Page #: {page_index+1} / {page_count}\n```"
-                page_index = 1
-                elem_count = 0
-        if not pages:
-            pages.append(info_text + "\n```")
-        return pages
 
 
 class TagCreationModal(discord.ui.Modal, title="Create Tag"):

@@ -9,11 +9,17 @@ from discord import app_commands
 from bot.kagami import Kagami
 from bot.utils.bot_data import Server
 from bot.utils.ui import MessageScroller
-
-
+from bot.utils.utils import (
+    createPageInfoText,
+    createPageList
+)
+from typing import (
+    Literal
+)
+from enum import Enum
 
 class SentinelTransformer(app_commands.Transformer, ABC):
-    def __init__(self, cog: 'Sentinels', mode: typing.Literal['global', 'local']):
+    def __init__(self, cog: 'Sentinels', mode: Literal['global', 'local']):
         self.mode = mode
         self.cog: 'Sentinels' = cog
 
@@ -58,7 +64,9 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         # self.localTransformer = SentinelTransformer(self, 'local')
         # self.local_sentinel_autocomplete = self.wrapped_sentinel_autocomplete(mode='global')
 
+    custom_key_repr = {}
 
+    ignored_key_values = ['response']
 
     add_group = app_commands.Group(name="add", description="Create a new sentinel")
     remove_group = app_commands.Group(name="remove", description="Remove a sentinel")
@@ -82,7 +90,7 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         ][:25]
         return options
 
-    # def wrapped_sentinel_autocomplete(self, mode: typing.Literal['local', 'global']):
+    # def wrapped_sentinel_autocomplete(self, mode: Literal['local', 'global']):
     #     async def callback(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     #         source = None
     #         if mode == 'server':
@@ -218,7 +226,14 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
     @list_group.command(name='global', description="List all global sentinels")
     async def list_global(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
-        pages = self.create_sentinel_pages('global', self.bot.global_data['sentinels'])
+
+        global_seninel_data:dict = self.bot.global_data['sentinels']
+        data = self.cleanSentinelData(global_seninel_data)
+        total_count = len(global_seninel_data)
+        info_text = createPageInfoText(total_count, 'global', 'data', 'sentinels')
+        pages = createPageList(info_text, data, total_count, ignored_values=self.ignored_key_values)
+
+        # pages = self.create_sentinel_pages('global', self.bot.global_data['sentinels'])
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
         await interaction.edit_original_response(content=pages[0], view=view)
@@ -227,7 +242,14 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
     async def list_local(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
         server: Server = self.bot.fetch_server(interaction.guild_id)
-        pages = self.create_sentinel_pages('local', server.sentinels)
+
+        local_sentinel_data: dict = server.sentinels
+        data = self.cleanSentinelData(local_sentinel_data)
+        total_count = len(local_sentinel_data)
+        info_text = createPageInfoText(total_count, interaction.guild.name, 'data', 'sentinels')
+        pages = createPageList(info_text, data, total_count, ignored_values=self.ignored_key_values)
+
+
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
         await interaction.edit_original_response(content=pages[0], view=view)
@@ -329,27 +351,9 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
 
 
     @staticmethod
-    def create_sentinel_pages(source: str, sentinels: dict, is_search=False):
-        sentinel_count = len(sentinels)
-        num_full_pages, last_page_elem_count = divmod(sentinel_count, 10)
-        page_count = num_full_pages + 1 if last_page_elem_count else num_full_pages
-        pages = [""] * page_count
-        info_text = f"```swift\n{'Kagami' if source == 'global' else source} has {sentinel_count}{' global' if source == 'global' else ''} tags registered\n"
-        if is_search:
-            info_text = f"```swift\nFound {sentinel_count}{' global' if source == 'global' else ''} tags that are similar to your search {f'on {source}' if source != 'global' else ''}\n"
-        else:
-            info_text = f"```swift\n{'Kagami' if source == 'global' else source} has {sentinel_count}{' global' if source == 'global' else ''} tags registered\n"
-
-        page_index = 0
-        elem_count = 0
-        for sentinel_phrase, sentinel_data in sorted(sentinels.items()):
-            if len(sentinel_phrase) <= 20:
-                new_name = sentinel_phrase.ljust(20)
-            else:
-                new_name = (sentinel_phrase[:16] + " ...").ljust(20)
-
-            response = sentinel_data['response'] if 'response' in sentinel_data else 'None'
-            reactions = []
+    def cleanSentinelData(sentinels: dict):
+        for sentinel, sentinel_data in sentinels.items():
+            clean_reactions = []
             if sentinel_data['reactions']:
                 for reaction in sentinel_data['reactions']:
                     partial_emoji = discord.PartialEmoji.from_str(reaction)
@@ -357,24 +361,15 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
                         name = f':{partial_emoji.name}:'  # {partial_emoji.id}
                     else:
                         name = partial_emoji.name
-                    reactions.append(name)
+                    clean_reactions.append(name)
             else:
-                reactions.append('None')
-            reactions = f"[ {' '.join(reactions)} ]"
+                clean_reactions.append('None')
+
+            sentinel_data["reactions"] = clean_reactions
+        return sentinels
 
 
-            uses = sentinel_data['uses'] if 'uses' in sentinel_data else 0
-            content = f"{f'{page_index * 10 + elem_count + 1})'.ljust(4)}{new_name} - Reactions: {reactions}  Uses: {uses}\n"
-            pages[page_index] += content
 
-            elem_count += 1
-            if elem_count == 10 or (page_index + 1 == page_count and elem_count == last_page_elem_count):
-                pages[page_index] = info_text + pages[page_index] + f"Page #: {page_index + 1} / {page_count}\n```"
-                page_index = 1
-                elem_count = 0
-        if not pages:
-            pages.append(info_text + "\n```")
-        return pages
 
 
 class SentinelEditorModal(discord.ui.Modal, title='Edit Sentinels'):

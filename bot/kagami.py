@@ -87,7 +87,8 @@ class Kagami(commands.Bot):
         for server_id, server in self.servers.items():
             data["servers"][server_id] = {"playlists": {},
                                           "soundboard": {},
-                                          "tags": {}
+                                          "tags": {},
+                                          "sentinels": {}
                                           }
             for playlist_name, playlist in server.playlists.items():
                 data["servers"][server_id]["playlists"].update({playlist_name: playlist.tracks})
@@ -96,6 +97,8 @@ class Kagami(commands.Bot):
                 data["servers"][server_id]["soundboard"].update({sound_name: sound_id})
 
             data["servers"][server_id]["tags"].update(server.tags.items())
+            data["servers"][server_id]["sentinels"].update(server.sentinels.items())
+
 
             # for tag_name, tag_data in server_id.tags.items():
             #     data["servers"][server_id]["tags"].update({tag_name: tag_data})
