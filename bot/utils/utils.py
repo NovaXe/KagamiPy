@@ -4,7 +4,8 @@ from difflib import (
     SequenceMatcher
 )
 from typing import (
-    Literal
+    Literal,
+    Union
 )
 
 
@@ -38,8 +39,6 @@ def find_closely_matching_dict_keys(search: str, tags: dict, n, cutoff=0.45):
     return dict(matches)
 
 
-
-
 # title at top
 # page data: 1...10
 # page number: #: pg/total
@@ -48,8 +47,7 @@ def find_closely_matching_dict_keys(search: str, tags: dict, n, cutoff=0.45):
 # rest is generic
 
 def createPageInfoText(total_item_count, scope: str, source: Literal['search', 'data'],
-                       data_type: Literal['sentinels', 'tags']):
-
+                       data_type: Literal['clean_sentinels', 'tags']):
     # if type(scope) is not Enum:
     #     raise TypeError("Parameter scope is not of type Enum")
     # if type(source) is not Enum:
@@ -66,8 +64,8 @@ def createPageInfoText(total_item_count, scope: str, source: Literal['search', '
 
     return info_text
 
-def createPageList(info_text:str, data: dict, total_item_count: int, custom_reprs: dict = None, ignored_values: list = None):
 
+def createPageList(info_text: str, data: [dict, list], total_item_count: int, custom_reprs: dict = None, ignored_values: list = None, max_key_length=20):
     key: str
     values: dict
     pages = [""]
@@ -75,8 +73,9 @@ def createPageList(info_text:str, data: dict, total_item_count: int, custom_repr
     full_page_count, last_page_item_count = divmod(total_item_count, 10)
     page_count = full_page_count + (1 if last_page_item_count else 0)
 
+
     if page_count == 0:
-        pages[0]=(
+        pages[0] = (
             "```swift\n" +
             info_text +
             "\n```"
@@ -85,11 +84,12 @@ def createPageList(info_text:str, data: dict, total_item_count: int, custom_repr
     else:
         pages *= page_count
 
+
     def keyShortener(s: str):
-        if len(key) <= 20:
-            s = key.ljust(20)
+        if len(key) <= max_key_length:
+            s = key.ljust(max_key_length)
         else:
-            s = (key[:16] + " ...").ljust(20)
+            s = (key[:max_key_length-4] + " ...").ljust(max_key_length)
         return s
 
     item_count = 0
@@ -104,13 +104,23 @@ def createPageList(info_text:str, data: dict, total_item_count: int, custom_repr
         line = f"{line_number_str}{key_short} -"
 
         for sub_key, sub_value in key_value.items():
-            if ignored_values:
-                if sub_key in ignored_values:
+
+            if ignored_values and sub_key in ignored_values:
+                continue
+
+            if custom_reprs:
+                custom_repr = custom_reprs[sub_key]["custom"]
+                is_ignored = custom_reprs[sub_key]["ignore"]
+                delim = custom_reprs[sub_key]["delim"]
+                if is_ignored:
                     continue
 
-            sub_key_repr = custom_reprs[sub_key] if custom_reprs else sub_key
+                rep = f"  {custom_repr}{delim} {sub_value}"
+            else:
+                rep = f"  {sub_key}: {sub_value}"
 
-            rep = f"  {sub_key_repr}: {sub_value}"
+
+
             line += rep
         line += "\n"
         page += line
@@ -119,6 +129,7 @@ def createPageList(info_text:str, data: dict, total_item_count: int, custom_repr
             page_ratio = f"Page #: {page_index + 1} / {page_count}"
             pages[page_index] = f"```swift\n" \
                                 f"{info_text}\n" \
+                                f"────────────────────────────────────────\n" \
                                 f"{page}" \
                                 f"{page_ratio}\n" \
                                 f"```"

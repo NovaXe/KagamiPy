@@ -20,10 +20,12 @@ import atexit
 import math
 from bot.utils.ui import MessageScroller
 from bot.utils.ui import QueueController
-from bot.utils.utils import seconds_to_time
 from bot.utils.bot_data import Server
 from bot.utils.music_helpers import *
-
+from bot.utils.utils import (
+    seconds_to_time,
+    createPageList,
+)
 
 
 from bot.utils import ui
@@ -79,20 +81,35 @@ class Music(commands.Cog):
         if guild:
             voice_client: Player = guild.voice_client
 
-        channel_to_join: discord.VoiceChannel = interaction.user.voice.channel
+
+
         if voice_channel:
             channel_to_join = voice_channel
+        else:
+            if interaction.user.voice:
+                channel_to_join: discord.VoiceChannel = interaction.user.voice.channel
+            else:
+                raise app_commands.AppCommandError("No VC specified")
 
         player = None
+        is_new_client = False
         if voice_client is not None:
             if keep_existing_player:
                 player = voice_client
+                await player.move_to(channel=channel_to_join)
             else:
                 player = Player(dj_user=interaction.user, dj_channel=interaction.channel)
+                await voice_client.disconnect()
+                is_new_client = True
         else:
             player = Player(dj_user=interaction.user, dj_channel=interaction.channel)
+            is_new_client = True
 
-        voice_client = await channel_to_join.connect(cls=player)
+        if is_new_client:
+            voice_client = await channel_to_join.connect(cls=player)
+
+
+
         server.has_player = True
         # server.player = voice_client
         return voice_client
@@ -102,7 +119,8 @@ class Music(commands.Cog):
 
         if voice_client:
             if should_switch_channel:
-                voice_client = await self.join_voice_channel(interaction, voice_channel=voice_channel, keep_existing_player=False)
+                voice_client = await self.join_voice_channel(interaction, voice_channel=voice_channel, keep_existing_player=True)
+
         else:
             voice_client = await self.join_voice_channel(interaction, voice_channel=voice_channel, keep_existing_player=False)
 
@@ -112,12 +130,14 @@ class Music(commands.Cog):
 
     @app_commands.command(name="join", description="joins your current voice channel")
     async def join_channel(self, interaction: discord.Interaction, voice_channel: discord.VoiceChannel=None) -> None:
-        voice_client = await self.attempt_to_join_vc(interaction=interaction, voice_channel=voice_channel, should_switch_channel=False)
+        voice_client = await self.attempt_to_join_vc(interaction=interaction, voice_channel=voice_channel, should_switch_channel=True)
         if voice_client is None:
             await interaction.response.send_message(f"An issue occurred when attempting to join the channel")
             return
 
-        await interaction.response.send_message(f"I have joined {interaction.user.voice.channel.name}")
+        await interaction.response.send_message(f"I have joined {voice_client.channel.name}")
+
+
 
     @app_commands.command(name="leave", description="leaves the channel")
     async def leave_channel(self, interaction: discord.Interaction):
@@ -260,9 +280,9 @@ class Music(commands.Cog):
             p_hours, p_minutes, p_seconds = seconds_to_time(current_player.position)
 
             now_playing_text = f"**`NOW PLAYING ➤ {now_playing.title}" \
-                               f"  -  {f'{p_hours}:02' + ':' if p_hours > 0 else ''}{p_minutes:02}" \
+                               f"  -  {f'{p_hours:02}' + ':' if p_hours > 0 else ''}{p_minutes:02}" \
                                f":{p_seconds:02}" \
-                               f" / {f'{hours}:02' + ':' if hours > 0 else ''}{minutes:02}:{seconds:02}`**"
+                               f" / {f'{hours:02}' + ':' if hours > 0 else ''}{minutes:02}:{seconds:02}`**"
 
 
         else:
@@ -297,7 +317,7 @@ class Music(commands.Cog):
         await current_player.resume()
         await interaction.response.send_message(content="Resumed the player", ephemeral=True)
 
-
+    @staticmethod
     async def skip_unskip_track(self, interaction: discord.Interaction, skip_back: bool, skip_count: int):
         # server: Server = self.fetch_server(interaction.guild_id)
         current_player: Player = interaction.guild.voice_client
@@ -483,6 +503,7 @@ class Music(commands.Cog):
     @playlist_group.command(name="add_tracks", description="Searches and adds the track(s) to the queue")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
     async def playlist_add_tracks(self, interaction: discord.Interaction, playlist: str, song: str):
+        await interaction.response.defer()
         server: Server = self.bot.fetch_server(interaction.guild_id)
         if playlist not in server.playlists.keys():
             await interaction.response.send_message("Playlist does not exist", ephemeral=True)
@@ -491,9 +512,9 @@ class Music(commands.Cog):
         server.playlists[playlist].update_list(tracks)
         length = len(tracks)
         if length == 1:
-            await interaction.response.send_message(f"Added `{tracks[0].title}` to playlist: `{playlist}`")
+            await interaction.edit_original_response(content=f"Added `{tracks[0].title}` to playlist: `{playlist}`")
         else:
-            await interaction.response.send_message(f"Added `{length}` tracks to playlist: `{playlist}`")
+            await interaction.edit_original_response(content=f"Added `{length}` tracks to playlist: `{playlist}`")
 
     @playlist_group.command(name="remove_track", description="Removes the track at the given position")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
@@ -545,10 +566,25 @@ class Music(commands.Cog):
         await current_player.add_to_queue(single=False, track=tracks)
         await interaction.edit_original_response(content=f"Added playlist: `{playlist}` to the queue")
 
+    @staticmethod
+    async def playlistDuration(tracks: list[str]):
+        duration = 0
+        for track_id in tracks:
+            full_track = await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=track_id)
+            duration += full_track.duration
+
+        hours, minutes, seconds = seconds_to_time(duration)
+        value = f"{f'{hours:02}' + ':' if hours > 0 else ''}{minutes:02}:{seconds:02}"
+        return value
+
     @playlist_group.command(name="list_all", description="lists all the server's playlists")
     async def playlist_list(self, interaction: discord.Interaction):
         server: Server = self.bot.fetch_server(interaction.guild_id)
         await interaction.response.defer()
+
+        playlist_count = len(server.playlists)
+
+        info_text = f"{interaction.guild.name} has {playlist_count} {'playlists' if playlist_count > 1 else 'playlist'}"
 
         def shorten_name(name: str) -> str:
             length = len(name)
@@ -561,13 +597,38 @@ class Music(commands.Cog):
                 new_name = name.ljust(32)
             return new_name
 
-        message = f"```swift\n{interaction.guild.name} Playlists:\n"
-        message += "\n".join([
-            f"\t{shorten_name(playlist_name)}   :   tracks: {len(playlist.tracks)}" for playlist_name, playlist in
-            server.playlists.items()
-        ])
-        message += "```"
-        await interaction.edit_original_response(content=message)
+
+        if server.playlists:
+            data = {
+                shorten_name(playlist_name): {
+                    "track_count": len(playlist.tracks),
+                    "duration": await self.playlistDuration(playlist.tracks)
+                }
+                for playlist_name, playlist in server.playlists.items()
+            }
+        else:
+            data = None
+
+
+        pages = createPageList(info_text,
+                               data,
+                               playlist_count,
+                               custom_reprs={
+                                   "track_count": "Tracks",
+                                   "duration": "Duration"}
+                               )
+
+        # message = f"```swift\n{interaction.guild.name} Playlists:\n"
+        # message += "\n".join([
+        #     f"\t{shorten_name(playlist)}   :   tracks: {len(playlist.tracks)}" for playlist, playlist in
+        #     server.playlists.items()
+        # ])
+        # message += "```"
+
+        message = await(await interaction.edit_original_response(content=pages[0])).fetch()
+        view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
+        await interaction.edit_original_response(view=view)
+
 
     @playlist_group.command(name="show_tracks", description="shows what songs are in a playlist")
     @app_commands.autocomplete(playlist=playlist_autocomplete)
@@ -578,41 +639,44 @@ class Music(commands.Cog):
             await interaction.edit_original_response(content="Playlist does not exist")
             return
 
-        track_names_info = ""
-        runtime: int = 0
-        track_ids = server.playlists[playlist].tracks
-        playlist_length = len(track_ids)
-        total_page_count = math.ceil(playlist_length / 10)
 
-        page_data = [(int(i / 10), track_ids[i:i + 10]) for i in range(0, playlist_length, 10)]
+        playlist = server.playlists[playlist]
+        track_count = len(playlist.tracks)
 
-        pages: List[str] = []
-        track_index = 0
-        for page_index, page_list in page_data:
 
-            content = ""
-            content += "──────────────────────────\n"
-            for index, track_id in enumerate(page_list):
-                full_track: wavelink.Track = await wavelink.NodePool.get_node().build_track(cls=wavelink.Track,
-                                                                                            identifier=track_id)
-                track_string = track_to_string(full_track)
-                position = (str(track_index + 1) + ")").ljust(5)
-                content += f"{position} {track_string}"
-                runtime += full_track.duration
-                track_index += 1
+        async def buildTracks(tracks):
+            _data = {}
+            _duration = 0
+            for _track_id in tracks:
+                _full_track = await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=_track_id)
+                _duration += _full_track.duration
+                _data.update({_full_track.title: {"duration": secondsToTime(_full_track.duration)}})
+            return _data, _duration
 
-            # pages[current_page] = content
-            content += f"Page #: {page_index + 1} / {total_page_count}\n"
-            content += "```"
-            pages.insert(page_index, content)
+        def secondsToTime(t):
+            hours, minutes, seconds = seconds_to_time(t)
+            value = f"{f'{hours:02}' + ':' if hours > 0 else ''}{minutes:02}:{seconds:02}"
+            return value
 
-        playlist_hours = int(runtime // 3600)
-        playlist_minutes = int((runtime % 60) // 60)
-        playlist_seconds = int(runtime % 60)
-        playlist_info_text = f"```swift\n{playlist} has {playlist_length} tracks and a runtime of " \
-                             f"{playlist_hours:02}:{playlist_minutes:02}:{playlist_seconds:02}\n"
 
-        pages = [playlist_info_text + page for page in pages]
+        data, duration = await buildTracks(playlist.tracks)
+        duration_text = secondsToTime(duration)
+
+        info_text = f"{playlist.name} has {track_count} tracks and a runtime of {duration_text}"
+
+        pages = createPageList(
+            info_text=info_text,
+            data=data,
+            total_item_count=track_count,
+            custom_reprs={
+                "duration": {
+                    "custom": "",
+                    "delim": "",
+                    "ignore": False
+                }
+            },
+            max_key_length=50
+        )
 
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
 
@@ -703,25 +767,29 @@ class Music(commands.Cog):
         server: Server = self.bot.fetch_server(member.guild.id)
         current_player: Player = member.guild.voice_client
 
+
+        # print("state change")
+        if before.channel is None:
+            # print("joined a voice channel when previously not in one")
+            return
+
         if current_player is None:
             server.player = None
             # print("no voice client")
             return
-        # print("state change")
-        if before.channel is None:
-            # print("not in channel")
-            return
-        if before.channel != after.channel:
-            # print("user left channel")
-            if len(before.channel.members)-1 == 0:
-                # print("leaving")
-                await current_player.dj_channel.send(f"Everyone left `{before.channel.name}` so I left too")
-                await current_player.disconnect()
-                server.player = None
-            # else:
-            #     print("members remain")
-        # else:
-        #     print("user didn't leave")
+        else:
+            if before.channel == current_player.channel:
+                if before.channel != after.channel:
+                    # print("user left music channel")
+                    if len(before.channel.members)-1 == 0:
+                        # print("leaving")
+                        await current_player.dj_channel.send(f"Everyone left `{before.channel.name}` so I left too")
+                        await current_player.disconnect()
+                        server.player = None
+                    # else:
+                    #     print("members remain")
+                # else:
+                #     print("user didn't leave")
 
 
 

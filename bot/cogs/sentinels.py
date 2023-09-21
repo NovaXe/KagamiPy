@@ -1,7 +1,7 @@
 import re
 import typing
 from abc import ABC
-
+from copy import deepcopy
 import discord
 import discord.ui
 from discord.ext import commands
@@ -30,7 +30,7 @@ class SentinelTransformer(app_commands.Transformer, ABC):
             server: Server = self.cog.bot.fetch_server(interaction.guild_id)
             source = server.sentinels
         elif self.mode == 'global':
-            source = self.cog.bot.global_data['sentinels']
+            source = self.cog.bot.global_data['clean_sentinels']
 
         return source[value]
 
@@ -40,10 +40,10 @@ class SentinelTransformer(app_commands.Transformer, ABC):
             server: Server = self.cog.bot.fetch_server(interaction.guild_id)
             source = server.sentinels
         elif self.mode == 'global':
-            source = self.cog.bot.global_data['sentinels']
+            source = self.cog.bot.global_data['clean_sentinels']
 
         options = [app_commands.Choice(name=sentinel_phrase, value=sentinel_phrase)
-                   for sentinel_phrase, sentinel_data in source['sentinels']
+                   for sentinel_phrase, sentinel_data in source['clean_sentinels']
                    if current.lower() in sentinel_phrase.lower()][:25]
 
 
@@ -55,6 +55,7 @@ def createSentinelData(response:str, reactions:str)->dict:
             'uses': 0,
             'enabled': True
         }
+
 
 class Sentinels(commands.GroupCog, group_name="sentinel"):
     def __init__(self, bot):
@@ -71,7 +72,7 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
     add_group = app_commands.Group(name="add", description="Create a new sentinel")
     remove_group = app_commands.Group(name="remove", description="Remove a sentinel")
     edit_group = app_commands.Group(name="edit", description="Edit an existing sentinel")
-    list_group = app_commands.Group(name="list", description="Lists all sentinels")
+    list_group = app_commands.Group(name="list", description="Lists all clean_sentinels")
     info_group = app_commands.Group(name="info", description="Gets sentinel info")
     toggle_group = app_commands.Group(name="toggle", description="Toggle a sentinel")
 
@@ -231,7 +232,10 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         data = self.cleanSentinelData(global_seninel_data)
         total_count = len(global_seninel_data)
         info_text = createPageInfoText(total_count, 'global', 'data', 'sentinels')
-        pages = createPageList(info_text, data, total_count, ignored_values=self.ignored_key_values)
+        pages = createPageList(info_text=info_text,
+                               data=data,
+                               total_item_count=total_count,
+                               ignored_values=self.ignored_key_values)
 
         # pages = self.create_sentinel_pages('global', self.bot.global_data['sentinels'])
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
@@ -352,7 +356,8 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
 
     @staticmethod
     def cleanSentinelData(sentinels: dict):
-        for sentinel, sentinel_data in sentinels.items():
+        clean_sentinels = deepcopy(sentinels)
+        for sentinel, sentinel_data in clean_sentinels.items():
             clean_reactions = []
             if sentinel_data['reactions']:
                 for reaction in sentinel_data['reactions']:
@@ -366,7 +371,7 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
                 clean_reactions.append('None')
 
             sentinel_data["reactions"] = clean_reactions
-        return sentinels
+        return clean_sentinels
 
 
 
