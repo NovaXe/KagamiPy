@@ -1,4 +1,5 @@
 import aiohttp
+from io import BytesIO
 from dataclasses import dataclass
 from difflib import (
     get_close_matches,
@@ -28,11 +29,20 @@ def seconds_to_time(seconds: int) -> (int, int, int):
     return hours, minutes, seconds
 
 
-async def link_to_file(link: str) -> bytes:
+async def link_to_bytes(link: str) -> bytes:
     async with aiohttp.ClientSession() as session:
         async with session.get(link) as r:
             data = await r.read()
     return data
+
+
+async def link_to_attachment(link: str, file_name: str) -> discord.File:
+    file_extension = '.'.join(link.split('?')[0].split('/')[-1].split(".")[1:])
+    file = discord.File(
+        fp=BytesIO(await link_to_bytes(link)),
+        filename=f"{file_name}.{file_extension}")
+    return file
+
 
 
 def find_closely_matching_dict_keys(search: str, tags: dict, n, cutoff=0.45):

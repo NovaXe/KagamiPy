@@ -5,20 +5,21 @@ from discord import app_commands
 from discord.ext import commands
 from bot.utils.bot_data import Server
 from bot.utils.ui import MessageScroller
-from bot.utils.utils import link_to_file
-from bot.utils.utils import find_closely_matching_dict_keys
 from typing import Literal
 from bot.kagami import Kagami
 from datetime import date
+import re
 from difflib import (
     get_close_matches,
     SequenceMatcher
 )
 from functools import partial
 from bot.utils.utils import (
+    find_closely_matching_dict_keys,
     createPageInfoText,
     createPageList,
-    CustomRepr
+    CustomRepr,
+    link_to_attachment
 )
 
 from io import BytesIO
@@ -185,11 +186,14 @@ class Tags(commands.GroupCog, group_name="tag"):
         tag_data = self.bot.global_data['tags'][tag_name]
 
         if "attachments" in tag_data:
-            attachment_files = [discord.File(BytesIO(await link_to_file(link)), link.split('/')[-1]) for link in tag_data['attachments']][:10]
+            attachment_files = []
+            for index, link in enumerate(tag_data['attachments']):
+                file = await link_to_attachment(link, file_name=f"{tag_name}{index}")
+                attachment_files.append(file)
         else:
             attachment_files = []
 
-        await interaction.edit_original_response(content=tag_data["content"], attachments=attachment_files)
+        await interaction.edit_original_response(content=tag_data["content"], attachments=attachment_files[:10])
 
     @app_commands.autocomplete(tag_name=tag_autocomplete)
     @get_group.command(name="local", description="get a tag from the server")
@@ -202,12 +206,14 @@ class Tags(commands.GroupCog, group_name="tag"):
         tag_data = server.tags[tag_name]
 
         if "attachments" in tag_data:
-            attachment_files = [discord.File(BytesIO(await link_to_file(link))) for link in tag_data['attachments']][
-                               :10]
+            attachment_files = []
+            for index, link in enumerate(tag_data['attachments']):
+                file = await link_to_attachment(link, file_name=f"{tag_name}{index}")
+                attachment_files.append(file)
         else:
             attachment_files = []
 
-        await interaction.edit_original_response(content=tag_data["content"], attachments=attachment_files)
+        await interaction.edit_original_response(content=tag_data["content"], attachments=attachment_files[:10])
 
     @app_commands.autocomplete(server=server_autocomplete, tag_name=tag_autocomplete)
     @get_group.command(name="server", description="get a tag from another server")
@@ -221,11 +227,14 @@ class Tags(commands.GroupCog, group_name="tag"):
         tag_data: dict = server.tags[tag_name]
 
         if "attachments" in tag_data:
-            attachment_files = [discord.File(BytesIO(await link_to_file(link))) for link in tag_data['attachments']][:10]
+            attachment_files = []
+            for index, link in enumerate(tag_data['attachments']):
+                file = await link_to_attachment(link, file_name=f"{tag_name}{index}")
+                attachment_files.append(file)
         else:
             attachment_files = []
 
-        await interaction.edit_original_response(content=tag_data["content"], attachments=attachment_files)
+        await interaction.edit_original_response(content=tag_data["content"], attachments=attachment_files[:10])
 
 
     async def create_local_tag_handler(self, interaction: discord.Interaction, message: discord.Message):
