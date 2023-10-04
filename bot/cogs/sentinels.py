@@ -17,7 +17,7 @@ from bot.utils.utils import (
 from typing import (
     Literal
 )
-from enum import Enum
+
 
 class SentinelTransformer(app_commands.Transformer, ABC):
     def __init__(self, cog: 'Sentinels', mode: Literal['global', 'local']):
@@ -48,8 +48,7 @@ class SentinelTransformer(app_commands.Transformer, ABC):
                    if current.lower() in sentinel_phrase.lower()][:25]
 
 
-
-def createSentinelData(response:str, reactions:str)->dict:
+def createSentinelData(response: str, reactions: str) -> dict:
     return {
             'response': response,
             'reactions': reactions,
@@ -94,20 +93,29 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         ][:25]
         return options
 
-    # def wrapped_sentinel_autocomplete(self, mode: Literal['local', 'global']):
-    #     async def callback(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    #         source = None
-    #         if mode == 'server':
-    #             server: Server = self.bot.fetch_server(interaction.guild_id)
-    #             source = server.sentinels
-    #         elif mode == 'global':
-    #             source = self.bot.global_data['sentinels']
-    #
-    #         options = [app_commands.Choice(name=sentinel_phrase, value=sentinel_phrase)
-    #                    for sentinel_phrase, sentinel_data in source['sentinels']
-    #                    if current.lower() in sentinel_phrase.lower()][:25]
-    #     return callback
 
+    # Add Commands
+    @staticmethod
+    async def add_handler(interaction, data, source, sentinel_phrase,  response, reactions):
+        if reactions:
+            reactions = [reaction for reaction in reactions.split(' ') if reaction]
+        else:
+            reactions = []
+
+        if response is None:
+            response = ''
+
+        new_sentinel = createSentinelData(response, reactions)
+        data.update({
+            sentinel_phrase: new_sentinel
+        })
+
+        if source == 'global':
+            await interaction.edit_original_response(content=f'Added the global sentinel `{sentinel_phrase}`')
+        elif source == 'local':
+            await interaction.edit_original_response(content=f'Added the sentinel `{sentinel_phrase}` to {interaction.guild.name}')
+        else:
+            await interaction.edit_original_response(content=f"what?")
 
     @add_group.command(name="global", description="Creates a new global sentinel")
     async def add_global(self, interaction: discord.Interaction, sentinel_phrase: str, response: str=None, reactions: str=None):
@@ -115,43 +123,17 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         # reactions = re.findall('(<a?:[a-zA-Z0-9_]+:[0-9]+>)', reactions)
         # reaction_names = [f":{re.match(r'<(a?):([a-zA-Z0-9_]+):([0-9]+)>$', reaction).group(2)}:" for reaction in reactions]
         # discord.PartialEmoji.from_str(reaction)
-        if reactions:
-            reactions = [reaction for reaction in reactions.split(' ') if reaction]
-        else:
-            reactions = []
-
-        if response is None:
-            response = ''
-
-
-        print(reactions)
-        new_sentinel = createSentinelData(response, reactions)
-        self.bot.global_data['sentinels'].update({
-            sentinel_phrase: new_sentinel
-        })
-        await interaction.edit_original_response(content=f'Added the global sentinel `{sentinel_phrase}`')
+        data = self.bot.global_data['sentinels']
+        await self.add_handler(interaction, data, 'global', sentinel_phrase, response, reactions)
 
     @add_group.command(name="local", description="Creates a new global sentinel")
     async def add_local(self, interaction: discord.Interaction, sentinel_phrase: str, response: str = None, reactions: str = None):
         await interaction.response.defer(thinking=True)
         server: Server = self.bot.fetch_server(interaction.guild_id)
+        data = server.sentinels
+        await self.add_handler(interaction, data, interaction.guild.name, sentinel_phrase, response, reactions)
 
-        if reactions:
-            reactions = [reaction for reaction in reactions.split(' ') if reaction]
-        else:
-            reactions = []
-
-        if response is None:
-            response = ''
-
-        new_sentinel = createSentinelData(response, reactions)
-
-        server.sentinels.update({
-            sentinel_phrase: new_sentinel
-        })
-        await interaction.edit_original_response(content=f'Added the sentinel `{sentinel_phrase}` to {interaction.guild.name}')
-        pass
-
+    # Remove Commands
     @app_commands.autocomplete(sentinel_phrase=sentinel_autocomplete)
     @remove_group.command(name="global", description="Remove a global sentinel")
     async def remove_global(self, interaction: discord.Interaction, sentinel_phrase: str):
@@ -175,8 +157,7 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         server.sentinels.pop(sentinel_phrase, None)
         await interaction.edit_original_response(content=f'Removed the sentinel `{sentinel_phrase}` from `{interaction.guild.name}`')
 
-        pass
-
+    # Edit Commands
     @app_commands.autocomplete(sentinel_phrase=sentinel_autocomplete)
     @edit_group.command(name='global', description='Edit a global sentinel')
     async def edit_global(self, interaction: discord.Interaction, sentinel_phrase: str):
@@ -194,7 +175,7 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
             return
         await interaction.response.send_modal(SentinelEditorModal(self.bot.fetch_server(interaction.guild_id).sentinels, sentinel_phrase))
 
-
+    # Toggle Commands
     @app_commands.autocomplete(sentinel_phrase=sentinel_autocomplete)
     @toggle_group.command(name='global', description='Toggle the active status of a global sentinel')
     async def toggle_global(self, interaction: discord.Interaction, sentinel_phrase: str):
@@ -207,8 +188,6 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         self.bot.global_data['sentinels'][sentinel_phrase]['enabled'] = not previous_state
         await interaction.response.send_message(
             content=f"The sentinel **`{sentinel_phrase}`** is now `{'enabled' if not previous_state else 'disabled'}`")
-
-
 
     @app_commands.autocomplete(sentinel_phrase=sentinel_autocomplete)
     @toggle_group.command(name='local', description='Toggle the active status of a local sentinel')
@@ -223,77 +202,37 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         await interaction.response.send_message(
             content=f"The sentinel **`{sentinel_phrase}`** is now `{'enabled' if not previous_state else 'disabled'}`")
 
-
-
-
-
-    @list_group.command(name='global', description="List all global sentinels")
-    async def list_global(self, interaction: discord.Interaction):
-        await interaction.response.defer(thinking=True)
-
-        global_sentinel_data: dict = self.bot.global_data['sentinels']
-        data = self.cleanSentinelData(global_sentinel_data)
-        total_count = len(global_sentinel_data)
-        info_text = createPageInfoText(total_count, 'global', 'data', 'sentinels')
+    # List Commands
+    async def list_handler(self, interaction, data, source):
+        data = self.cleanSentinelData(data)
+        total_count = len(data)
+        info_text = createPageInfoText(total_count, source, 'data', 'sentinels')
         pages = createPageList(info_text=info_text,
                                data=data,
                                total_item_count=total_count,
                                custom_reprs=self.custom_key_reprs)
-
-
 
         # pages = self.create_sentinel_pages('global', self.bot.global_data['sentinels'])
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
         await interaction.edit_original_response(content=pages[0], view=view)
 
+    @list_group.command(name='global', description="List all global sentinels")
+    async def list_global(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
+        data: dict = self.bot.global_data['sentinels']
+        await self.list_handler(interaction, data, 'global')
+
     @list_group.command(name='local', description="List all local sentinels")
     async def list_local(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
         server: Server = self.bot.fetch_server(interaction.guild_id)
+        data: dict = server.sentinels
+        await self.list_handler(interaction, data, interaction.guild.name)
 
-        local_sentinel_data: dict = server.sentinels
-        data = self.cleanSentinelData(local_sentinel_data)
-        total_count = len(local_sentinel_data)
-        info_text = createPageInfoText(total_count, interaction.guild.name, 'data', 'sentinels')
-        pages = createPageList(info_text=info_text,
-                               data=data,
-                               total_item_count=total_count,
-                               custom_reprs=self.custom_key_reprs)
-
-        message = await(await interaction.edit_original_response(content=pages[0])).fetch()
-        view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
-        await interaction.edit_original_response(content=pages[0], view=view)
-
-    @app_commands.autocomplete(sentinel_phrase=sentinel_autocomplete)
-    @info_group.command(name='global', description='Gets the info of a global sentinel')
-    async def info_global(self, interaction: discord.Interaction, sentinel_phrase: str):
-        await interaction.response.defer(thinking=True)
-        if sentinel_phrase not in self.bot.global_data['sentinels'].keys():
-            await interaction.edit_original_response(content=f"The global sentinel **`{sentinel_phrase}`** doesn't exist")
-            return
-        sentinel_data = self.bot.global_data['sentinels'][sentinel_phrase]
-        content = await self.info_response(sentinel_phrase, sentinel_data)
-
-        await interaction.edit_original_response(content=content)
-
-
-    @app_commands.autocomplete(sentinel_phrase=sentinel_autocomplete)
-    @info_group.command(name='local', description='Gets the info of a local sentinel')
-    async def info_local(self, interaction: discord.Interaction, sentinel_phrase: str):
-        await interaction.response.defer(thinking=True)
-        server: Server = self.bot.fetch_server(interaction.guild_id)
-        if sentinel_phrase not in server.sentinels.keys():
-            await interaction.edit_original_response(content=f"The sentinel **`{sentinel_phrase}`** doesn't exist")
-            return
-        sentinel_data = server.sentinels[sentinel_phrase]
-        content = await self.info_response(sentinel_phrase, sentinel_data)
-
-        await interaction.edit_original_response(content=content)
-
-
+    # Info Commands
     @staticmethod
-    async def info_response(sentinel_phrase, sentinel_data):
+    async def info_handler(interaction, source, sentinel_phrase, sentinel_data):
         reactions = []
         if _reactions := sentinel_data['reactions']:
             for reaction in _reactions:
@@ -308,17 +247,37 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         reactions = f"[ {' '.join(reactions)} ]"
 
         content = f'```swift\n' \
-                  f'Local Sentinel Info: {sentinel_phrase}\n'   \
-                  f'──────────────────────────────────────\n'   \
-                  f'Reactions:  {reactions}\n'                  \
-                  f'Uses:       {sentinel_data["uses"]}\n'      \
-                  f'Enabled:    {sentinel_data["enabled"]}'     \
+                  f'{source.capitalize()} Sentinel Info: {sentinel_phrase}\n' \
+                  f'──────────────────────────────────────\n' \
+                  f'Reactions:  {reactions}\n' \
+                  f'Uses:       {sentinel_data["uses"]}\n' \
+                  f'Enabled:    {sentinel_data["enabled"]}' \
                   f'```'
-        return content
 
+        await interaction.edit_original_response(content=content)
 
+    @app_commands.autocomplete(sentinel_phrase=sentinel_autocomplete)
+    @info_group.command(name='global', description='Gets the info of a global sentinel')
+    async def info_global(self, interaction: discord.Interaction, sentinel_phrase: str):
+        await interaction.response.defer(thinking=True)
+        if sentinel_phrase not in self.bot.global_data['sentinels'].keys():
+            await interaction.edit_original_response(content=f"The global sentinel **`{sentinel_phrase}`** doesn't exist")
+            return
+        sentinel_data = self.bot.global_data['sentinels'][sentinel_phrase]
+        await self.info_handler(interaction, 'global', sentinel_phrase, sentinel_data)
 
+    @app_commands.autocomplete(sentinel_phrase=sentinel_autocomplete)
+    @info_group.command(name='local', description='Gets the info of a local sentinel')
+    async def info_local(self, interaction: discord.Interaction, sentinel_phrase: str):
+        await interaction.response.defer(thinking=True)
+        server: Server = self.bot.fetch_server(interaction.guild_id)
+        if sentinel_phrase not in server.sentinels.keys():
+            await interaction.edit_original_response(content=f"The sentinel **`{sentinel_phrase}`** doesn't exist")
+            return
+        sentinel_data = server.sentinels[sentinel_phrase]
+        await self.info_handler(interaction, 'local', sentinel_phrase, sentinel_data)
 
+    # Sentinel Event
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.id == self.bot.user.id:
@@ -327,21 +286,6 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
 
         await self.process_sentinel_event(message, self.bot.global_data['sentinels'])
         await self.process_sentinel_event(message, server.sentinels)
-
-        # for sentinel_phrase, sentinel_data in self.bot.global_data['sentinels']:
-        #     if sentinel_phrase in message.content:
-        #         for reaction in sentinel_data['reactions']:
-        #             await message.add_reaction(reaction)
-        #         await message.reply(content=sentinel_data['response'])
-        #         sentinel_data['uses'] += 1
-        #
-        # for sentinel_phrase, sentinel_data in server.sentinels:
-        #     if sentinel_phrase in message.content:
-        #         for reaction in sentinel_data['reactions']:
-        #             await message.add_reaction(reaction)
-        #         await message.reply(content=sentinel_data['response'])
-        #         sentinel_data['uses'] += 1
-        # pass
 
     @staticmethod
     async def process_sentinel_event(message: discord.Message, sentinels):
