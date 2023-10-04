@@ -25,6 +25,7 @@ from bot.utils.music_helpers import *
 from bot.utils.utils import (
     seconds_to_time,
     createPageList,
+    CustomRepr
 )
 
 
@@ -614,8 +615,8 @@ class Music(commands.Cog):
                                data,
                                playlist_count,
                                custom_reprs={
-                                   "track_count": "Tracks",
-                                   "duration": "Duration"}
+                                   "track_count": CustomRepr("Tracks"),
+                                   "duration": CustomRepr("Duration")}
                                )
 
         # message = f"```swift\n{interaction.guild.name} Playlists:\n"
@@ -669,11 +670,7 @@ class Music(commands.Cog):
             data=data,
             total_item_count=track_count,
             custom_reprs={
-                "duration": {
-                    "custom": "",
-                    "delim": "",
-                    "ignore": False
-                }
+                "duration": CustomRepr("", "")
             },
             max_key_length=50
         )

@@ -11,7 +11,8 @@ from bot.utils.bot_data import Server
 from bot.utils.ui import MessageScroller
 from bot.utils.utils import (
     createPageInfoText,
-    createPageList
+    createPageList,
+    CustomRepr
 )
 from typing import (
     Literal
@@ -65,9 +66,11 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         # self.localTransformer = SentinelTransformer(self, 'local')
         # self.local_sentinel_autocomplete = self.wrapped_sentinel_autocomplete(mode='global')
 
-    custom_key_repr = {}
+    custom_key_reprs = {
+        "response": CustomRepr(ignored=True)
+    }
 
-    ignored_key_values = ['response']
+
 
     add_group = app_commands.Group(name="add", description="Create a new sentinel")
     remove_group = app_commands.Group(name="remove", description="Remove a sentinel")
@@ -228,14 +231,16 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
     async def list_global(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
 
-        global_seninel_data:dict = self.bot.global_data['sentinels']
-        data = self.cleanSentinelData(global_seninel_data)
-        total_count = len(global_seninel_data)
+        global_sentinel_data: dict = self.bot.global_data['sentinels']
+        data = self.cleanSentinelData(global_sentinel_data)
+        total_count = len(global_sentinel_data)
         info_text = createPageInfoText(total_count, 'global', 'data', 'sentinels')
         pages = createPageList(info_text=info_text,
                                data=data,
                                total_item_count=total_count,
-                               ignored_values=self.ignored_key_values)
+                               custom_reprs=self.custom_key_reprs)
+
+
 
         # pages = self.create_sentinel_pages('global', self.bot.global_data['sentinels'])
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
@@ -251,8 +256,10 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         data = self.cleanSentinelData(local_sentinel_data)
         total_count = len(local_sentinel_data)
         info_text = createPageInfoText(total_count, interaction.guild.name, 'data', 'sentinels')
-        pages = createPageList(info_text, data, total_count, ignored_values=self.ignored_key_values)
-
+        pages = createPageList(info_text=info_text,
+                               data=data,
+                               total_item_count=total_count,
+                               custom_reprs=self.custom_key_reprs)
 
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
@@ -301,10 +308,11 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         reactions = f"[ {' '.join(reactions)} ]"
 
         content = f'```swift\n' \
-                  f'Local Sentinel Info: {sentinel_phrase}\n' \
-                  f'──────────────────────────────────────\n' \
-                  f'Reactions:  {reactions}\n' \
-                  f'Uses:       {sentinel_data["uses"]}\n' \
+                  f'Local Sentinel Info: {sentinel_phrase}\n'   \
+                  f'──────────────────────────────────────\n'   \
+                  f'Reactions:  {reactions}\n'                  \
+                  f'Uses:       {sentinel_data["uses"]}\n'      \
+                  f'Enabled:    {sentinel_data["enabled"]}'     \
                   f'```'
         return content
 

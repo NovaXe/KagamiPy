@@ -17,7 +17,8 @@ from difflib import (
 from functools import partial
 from bot.utils.utils import (
     createPageInfoText,
-    createPageList
+    createPageList,
+    CustomRepr
 )
 
 from io import BytesIO
@@ -43,10 +44,13 @@ class Tags(commands.GroupCog, group_name="tag"):
             self.bot.tree.add_command(ctx_menu)
 
     custom_key_reprs: dict = {
-        'author': 'Created by',
-        'creation_date': 'Created on'
+        "author":           CustomRepr("Created by"),
+        "creation_date":    CustomRepr("Created on"),
+        "content":          CustomRepr(ignored=True),
+        "attachments":      CustomRepr(ignored=True),
     }
-    ignored_key_values: list = ['content', 'attachments']
+
+    # ignored_key_values: list = ['content', 'attachments']
 
 
     async def cog_unload(self) -> None:
@@ -113,9 +117,10 @@ class Tags(commands.GroupCog, group_name="tag"):
         data: dict = matches
         total_count = len(data)
         info_text = createPageInfoText(total_count, 'global', 'search', 'tags')
-        pages = createPageList(info_text, data, total_count,
-                               custom_reprs=self.custom_key_reprs,
-                               ignored_values=self.ignored_key_values
+        pages = createPageList(info_text=info_text,
+                               data=data,
+                               total_item_count=total_count,
+                               custom_reprs=self.custom_key_reprs
                                )
 
 
@@ -133,9 +138,10 @@ class Tags(commands.GroupCog, group_name="tag"):
         data: dict = matches
         total_count = len(data)
         info_text = createPageInfoText(total_count, interaction.guild.name, 'search', 'tags')
-        pages = createPageList(info_text, data, total_count,
-                               custom_reprs=self.custom_key_reprs,
-                               ignored_values=self.ignored_key_values
+        pages = createPageList(info_text=info_text,
+                               data=data,
+                               total_item_count=total_count,
+                               custom_reprs=self.custom_key_reprs
                                )
 
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
@@ -154,9 +160,10 @@ class Tags(commands.GroupCog, group_name="tag"):
         data: dict = matches
         total_count = len(data)
         info_text = createPageInfoText(total_count, guild_name, 'search', 'tags')
-        pages = createPageList(info_text, data, total_count,
-                               custom_reprs=self.custom_key_reprs,
-                               ignored_values=self.ignored_key_values
+        pages = createPageList(info_text=info_text,
+                               data=data,
+                               total_item_count=total_count,
+                               custom_reprs=self.custom_key_reprs
                                )
 
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
@@ -309,9 +316,10 @@ class Tags(commands.GroupCog, group_name="tag"):
         data: dict = self.bot.global_data['tags']
         total_count = len(data)
         info_text = createPageInfoText(total_count, 'global', 'data', 'tags')
-        pages = createPageList(info_text, data, total_count,
-                               custom_reprs=self.custom_key_reprs,
-                               ignored_values=self.ignored_key_values
+        pages = createPageList(info_text=info_text,
+                               data=data,
+                               total_item_count=total_count,
+                               custom_reprs=self.custom_key_reprs
                                )
 
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
@@ -326,9 +334,10 @@ class Tags(commands.GroupCog, group_name="tag"):
         data: dict = server.tags
         total_count = len(data)
         info_text = createPageInfoText(total_count, 'local', 'data', 'tags')
-        pages = createPageList(info_text, data, total_count,
-                               custom_reprs=self.custom_key_reprs,
-                               ignored_values=self.ignored_key_values
+        pages = createPageList(info_text=info_text,
+                               data=data,
+                               total_item_count=total_count,
+                               custom_reprs=self.custom_key_reprs
                                )
 
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()
@@ -345,9 +354,10 @@ class Tags(commands.GroupCog, group_name="tag"):
         data: dict = server.tags
         total_count = len(data)
         info_text = createPageInfoText(total_count, guild_name, 'data', 'tags')
-        pages = createPageList(info_text, data, total_count,
-                               custom_reprs=self.custom_key_reprs,
-                               ignored_values=self.ignored_key_values
+        pages = createPageList(info_text=info_text,
+                               data=data,
+                               total_item_count=total_count,
+                               custom_reprs=self.custom_key_reprs
                                )
 
         message = await(await interaction.edit_original_response(content=pages[0])).fetch()

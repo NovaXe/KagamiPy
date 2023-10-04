@@ -9,6 +9,7 @@ from discord.ext import commands
 from discord import app_commands
 from bot.kagami import Kagami
 
+
 def is_developer():
     def predicate(interaction: discord.Interaction) -> bool:
         return interaction.user.id == json.load(open("bot/data/config.json"))["developer"]
@@ -82,6 +83,8 @@ class Admin(commands.Cog):
         else:
             await ctx.send(error)
             traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
+
+
 
 
 

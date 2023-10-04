@@ -1,4 +1,5 @@
 import aiohttp
+from dataclasses import dataclass
 from difflib import (
     get_close_matches,
     SequenceMatcher
@@ -7,6 +8,12 @@ from typing import (
     Literal,
     Union
 )
+import discord
+import discord.utils
+from discord.ext import commands
+from discord import app_commands
+from bot.kagami import Kagami
+
 
 
 def clamp(num, min_value, max_value):
@@ -65,11 +72,18 @@ def createPageInfoText(total_item_count, scope: str, source: Literal['search', '
     return info_text
 
 
-def createPageList(info_text: str, data: [dict, list], total_item_count: int, custom_reprs: dict = None, ignored_values: list = None, max_key_length=20):
+@dataclass
+class CustomRepr:
+    alias: str = ""
+    delim: str = ":"
+    ignored: bool = False
+
+
+def createPageList(info_text: str, data: [dict, list], total_item_count: int, custom_reprs: dict[str, CustomRepr] = None, max_key_length=20):
     key: str
     values: dict
-    pages = [""]
 
+    pages = [""]
     full_page_count, last_page_item_count = divmod(total_item_count, 10)
     page_count = full_page_count + (1 if last_page_item_count else 0)
 
@@ -95,7 +109,7 @@ def createPageList(info_text: str, data: [dict, list], total_item_count: int, cu
     item_count = 0
     page_index = 0
     page = ""
-    for key, key_value in sorted(data.items()):
+    for key, key_value in (items := sorted(data.items())):
 
         item_count += 1
         line_number_str = f"{item_count})".ljust(4)
@@ -105,17 +119,15 @@ def createPageList(info_text: str, data: [dict, list], total_item_count: int, cu
 
         for sub_key, sub_value in key_value.items():
 
-            if ignored_values and sub_key in ignored_values:
-                continue
+            if custom_reprs and (custom_repr := custom_reprs[sub_key]):
 
-            if custom_reprs:
-                custom_repr = custom_reprs[sub_key]["custom"]
-                is_ignored = custom_reprs[sub_key]["ignore"]
-                delim = custom_reprs[sub_key]["delim"]
-                if is_ignored:
+                alias = custom_repr.alias
+                delim = custom_repr.delim
+                ignored = custom_repr.ignored
+                if ignored:
                     continue
 
-                rep = f"  {custom_repr}{delim} {sub_value}"
+                rep = f"  {alias}{delim} {sub_value}"
             else:
                 rep = f"  {sub_key}: {sub_value}"
 
