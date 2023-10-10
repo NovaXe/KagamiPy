@@ -13,8 +13,6 @@ import discord
 import discord.utils
 from discord.ext import commands
 from discord import app_commands
-from bot.kagami import Kagami
-
 
 
 def clamp(num, min_value, max_value):

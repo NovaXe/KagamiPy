@@ -1,6 +1,6 @@
 server: # REST and WS server
   port: 4762
-  address: 127.0.0.1
+  address: localhost
 lavalink:
   server:
     password: "KagamiLavalink1337"

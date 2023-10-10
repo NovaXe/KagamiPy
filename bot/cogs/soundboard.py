@@ -95,7 +95,7 @@ class Soundboard(commands.GroupCog, group_name="soundboard"):
         current_player: Player = await self.attempt_to_join_vc(interaction=interaction, should_switch_channel=False)
         await interaction.edit_original_response(content=f"{interaction.user.name} played {sound_name}")
 
-        track = await wavelink.NodePool.get_node().build_track(identifier=server.soundboard[sound_name], cls=wavelink.Track)
+        track = await wavelink.NodePool.get_node().build_track(encoded=server.soundboard[sound_name], cls=wavelink.GenericTrack)
         track.title = sound_name
         await current_player.interrupt_current_track(track)
 
@@ -117,7 +117,7 @@ class Soundboard(commands.GroupCog, group_name="soundboard"):
     @app_commands.command(name="add", description="adds a sound to the soundboard")
     async def add_sound(self, interaction: discord.Interaction, sound_name: str, sound_search: str):
         await interaction.response.defer(thinking=True)
-        track: wavelink.Track = await search_song(sound_search, single_track=True)
+        track: wavelink.GenericTrack = await search_song(sound_search, single_track=True)
         server: Server = self.bot.fetch_server(interaction.guild_id)
 
         if sound_name in server.soundboard.keys():

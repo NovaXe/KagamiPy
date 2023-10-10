@@ -12,7 +12,7 @@ import discord
 import discord.utils
 import wavelink
 from discord.ext import commands
-from discord import app_commands, VoiceChannel, StageChannel
+from discord import app_commands, VoiceChannel, StageChannel, interactions
 from discord.ext import tasks
 from wavelink import YouTubeTrack
 from collections import deque
@@ -58,13 +58,16 @@ class Music(commands.Cog):
     @tasks.loop(seconds=10)
     async def connect_nodes(self):
         await self.bot.wait_until_ready()
-        await wavelink.NodePool.create_node(bot=self.bot,
-                                            host='127.0.0.1',
-                                            port=4762,
-                                            password='KagamiLavalink1337',
-                                            spotify_client=spotify.SpotifyClient(client_id=self.config["spotify"]["client_id"],
-                                                                                 client_secret=self.config["spotify"]["client_secret"])
-                                            )
+        node = wavelink.Node(uri='http://localhost:4762', password='KagamiLavalink1337')
+        spotify_client = spotify.SpotifyClient(
+            client_id=self.config["spotify"]["client_id"],
+            client_secret=self.config["spotify"]["client_secret"]
+        )
+        await wavelink.NodePool.connect(
+            client=self.bot,
+            nodes=[node],
+            spotify=spotify_client
+        )
 
     @staticmethod
     async def close_nodes() -> None:
@@ -73,7 +76,7 @@ class Music(commands.Cog):
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, node: wavelink.Node):
-        print(f"Node: <{node.identifier}> is ready")
+        print(f"Node: <{node.id}> is ready")
 
 
     async def join_voice_channel(self, interaction: discord.Interaction, guild: discord.Guild=None, voice_channel: discord.VoiceChannel=None, keep_existing_player=False):
@@ -245,19 +248,19 @@ class Music(commands.Cog):
 
             # new_position_of_track = ((position * -1) - 1)
             new_position_of_track = (history_length-1) - ((position * -1) - 1)
-            popped_tracks: wavelink.Track = current_player.history._queue[new_position_of_track]
+            popped_tracks: wavelink.GenericTrack = current_player.history._queue[new_position_of_track]
             del current_player.history._queue[new_position_of_track]
 
 
             await interaction.edit_original_response(content=f"Popped `{popped_track.title}` from the history`")
         elif position == 0:
-            popped_track: wavelink.Track = current_player.current_track
+            popped_track: wavelink.GenericTrack = current_player.current_track
             current_player.current_track = None
             await self.skip_unskip_track(interaction, skip_back=False, skip_count=1)
             await interaction.edit_original_response(content=f"Popped the current track `{popped_track.title}`")
 
         else:
-            popped_track: wavelink.Track = current_player.queue._queue[position-1]
+            popped_track: wavelink.GenericTrack = current_player.queue._queue[position-1]
             del current_player.queue._queue[position-1]
             await interaction.edit_original_response(content=f"Popped `{popped_track.title}` from the queue`")
 
@@ -277,12 +280,11 @@ class Music(commands.Cog):
         now_playing = current_player.current_track
         if current_player.current_track:
 
-            hours, minutes, seconds = seconds_to_time(now_playing.duration)
-            p_hours, p_minutes, p_seconds = seconds_to_time(current_player.position)
+            hours, minutes, seconds = seconds_to_time(int(now_playing.duration//1000))
+            p_hours, p_minutes, p_seconds = seconds_to_time(int(current_player.position//1000))
 
             now_playing_text = f"**`NOW PLAYING ➤ {now_playing.title}" \
-                               f"  -  {f'{p_hours:02}' + ':' if p_hours > 0 else ''}{p_minutes:02}" \
-                               f":{p_seconds:02}" \
+                               f"  -  {f'{p_hours:02}' + ':' if p_hours > 0 else ''}{p_minutes:02}:{p_seconds:02}" \
                                f" / {f'{hours:02}' + ':' if hours > 0 else ''}{minutes:02}:{seconds:02}`**"
 
 
@@ -319,7 +321,7 @@ class Music(commands.Cog):
         await interaction.response.send_message(content="Resumed the player", ephemeral=True)
 
     @staticmethod
-    async def skip_unskip_track(self, interaction: discord.Interaction, skip_back: bool, skip_count: int):
+    async def skip_unskip_track(interaction: discord.Interaction, skip_back: bool, skip_count: int):
         # server: Server = self.fetch_server(interaction.guild_id)
         current_player: Player = interaction.guild.voice_client
         if current_player is None:
@@ -358,14 +360,14 @@ class Music(commands.Cog):
 
     @app_commands.command(name="skip", description="skips to the next song")
     async def skip_forward(self, interaction: discord.Interaction, count: int = 1):
-        if await self.skip_unskip_track(interaction, skip_back=False, skip_count=count) is False:
+        if await self.skip_unskip_track(interaction=interaction, skip_back=False, skip_count=count) is False:
             await interaction.response.send_message("There is currently no voice session")
             return
         await interaction.response.send_message("Skipped to next song")
 
     @app_commands.command(name="unskip", description="skips back to the previous song")
     async def skip_back(self, interaction: discord.Interaction, count: int = 1):
-        if await self.skip_unskip_track(interaction, skip_back=True, skip_count=count) is False:
+        if await self.skip_unskip_track(interaction=interaction, skip_back=True, skip_count=count) is False:
             await interaction.response.send_message("There is currently no voice session")
             return
         await interaction.response.send_message("Skipped to previous song")
@@ -526,7 +528,7 @@ class Music(commands.Cog):
             return
         interaction.response.defer()
         track_id = server.playlists[playlist].tracks.pop(track_position - 1)
-        full_track = await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=track_id)
+        full_track = await wavelink.NodePool.get_node().build_track(cls=wavelink.GenericTrack, encoded=track_id)
         await interaction.edit_original_response(
             content=f"Removed track {track_position}: '{full_track.title}' from playlist: `{playlist}`")
 
@@ -542,7 +544,7 @@ class Music(commands.Cog):
         current_player.queue.clear()
         current_player.current_track = None
         current_player.history.clear()
-        tracks = [await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=track_id)
+        tracks = [await wavelink.NodePool.get_node().build_track(cls=wavelink.GenericTrack, encoded=track_id)
                   for track_id in server.playlists[playlist].tracks
                   ]
         await current_player.add_to_queue(single=False, track=tracks)
@@ -561,7 +563,7 @@ class Music(commands.Cog):
         current_player: Player = await self.attempt_to_join_vc(interaction)
         tracks = []
 
-        tracks = [await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=track_id)
+        tracks = [await wavelink.NodePool.get_node().build_track(cls=wavelink.GenericTrack, encoded=track_id)
                   for track_id in server.playlists[playlist].tracks
                   ]
         await current_player.add_to_queue(single=False, track=tracks)
@@ -571,7 +573,7 @@ class Music(commands.Cog):
     async def playlistDuration(tracks: list[str]):
         duration = 0
         for track_id in tracks:
-            full_track = await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=track_id)
+            full_track = await wavelink.NodePool.get_node().build_track(cls=wavelink.GenericTrack, encoded=track_id)
             duration += full_track.duration
 
         hours, minutes, seconds = seconds_to_time(duration)
@@ -649,9 +651,10 @@ class Music(commands.Cog):
             _data = {}
             _duration = 0
             for _track_id in tracks:
-                _full_track = await wavelink.NodePool.get_node().build_track(cls=wavelink.Track, identifier=_track_id)
-                _duration += _full_track.duration
-                _data.update({_full_track.title: {"duration": secondsToTime(_full_track.duration)}})
+                _full_track = await wavelink.NodePool.get_node().build_track(cls=wavelink.GenericTrack, encoded=_track_id)
+                track_duration = int(_full_track.duration//1000)
+                _duration += track_duration
+                _data.update({_full_track.title: {"duration": secondsToTime(track_duration)}})
             return _data, _duration
 
         def secondsToTime(t):
@@ -681,13 +684,14 @@ class Music(commands.Cog):
         await interaction.edit_original_response(view=view)
 
     @commands.Cog.listener()
-    async def on_wavelink_track_end(self, player: Player, track: wavelink.Track, **payload: dict):
-        # print("loop mode ", player.loop_mode)
+    async def on_wavelink_track_end(self, payload: wavelink.TrackEventPayload):
+        player: Player = payload.player
+        reason = payload.reason
 
-        if payload["reason"] == "REPLACED":
+        if reason == "REPLACED":
             return
 
-        if payload["reason"] == "FINISHED":
+        if reason == "FINISHED":
             if player.interrupted_by_sound:
                 await player.resume_interrupted_track()
                 return
@@ -720,17 +724,21 @@ class Music(commands.Cog):
         await player.start_current_track()
 
     @commands.Cog.listener()
-    async def on_wavelink_track_exception(self, player: Player, track: wavelink.Track, error):
+    async def on_wavelink_track_exception(self, payload: wavelink.TrackEventPayload):
+        player: Player = payload.player
         await player.play_next_track()
         # print("track exception\n")
 
     @commands.Cog.listener()
-    async def on_wavelink_track_stuck(self, player: Player, track: wavelink.Track, threshold):
+    async def on_wavelink_track_stuck(self, payload: wavelink.TrackEventPayload):
+        player: Player = payload.player
         await player.play_next_track()
         # print("track stuck\n")
 
     @commands.Cog.listener()
-    async def on_wavelink_track_start(self, player: Player, track: wavelink.Track):
+    async def on_wavelink_track_start(self, payload: wavelink.TrackEventPayload):
+        track = payload.track
+        player: Player = payload.player
         # track_title: str = str(player.source)
         #
         # if not player.source:
@@ -742,7 +750,7 @@ class Music(commands.Cog):
 
         track = player.current_track
 
-        hours, minutes, seconds = seconds_to_time(track.duration)
+        hours, minutes, seconds = seconds_to_time(int(track.duration//1000))
 
         now_playing_text = f"**`NOW PLAYING ➤ {track.title}" \
                            f"  -  {f'{hours}:02' + ':' if hours > 0 else ''}{minutes:02}:{seconds:02}`**"

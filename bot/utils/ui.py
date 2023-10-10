@@ -254,8 +254,6 @@ class QueueController(PlayerControls, MessageScroller):
         except discord.HTTPException as e:
             print(f"Exception Encountered: {e}")
 
-        del self
-
 
 
 
