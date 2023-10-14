@@ -1,4 +1,5 @@
 import asyncio
+import enum
 import math
 import re
 
@@ -17,7 +18,8 @@ import discord
 from enum import Enum
 from typing import List
 from bot.utils.utils import (
-    seconds_to_time
+    secondsDivMod,
+    secondsToTime
 )
 
 
@@ -68,7 +70,7 @@ class SkipMode(Enum):
     PREV = 1
 
 
-class Player(wavelink.Player):
+class OldPlayer(wavelink.Player):
     def __init__(self, dj_user: discord.Member, dj_channel: discord.TextChannel):
         super().__init__()
         self.history = wavelink.Queue()
@@ -186,12 +188,12 @@ def track_to_string(track: wavelink.GenericTrack):
     else:
         title = track.title.ljust(40)
 
-    d_hours, d_minutes, d_seconds = seconds_to_time(int(track.length // 1000))
+    d_hours, d_minutes, d_seconds = secondsDivMod(int(track.length // 1000))
     message = f"{title}  -  {f'{d_hours}:02' + ':' if d_hours > 0 else ''}{d_minutes:02}:{d_seconds:02}\n"
     return message
 
 
-async def create_queue_pages(player: Player):
+async def create_queue_pages(player: OldPlayer):
     now_playing = player.current_track
     history_list = list(player.history)
     history_length = len(history_list)
@@ -216,8 +218,8 @@ async def create_queue_pages(player: Player):
 
     now_playing_text = ""
     if now_playing:
-        d_hours, d_minutes, d_seconds = seconds_to_time(int(now_playing.length // 1000))
-        p_hours, p_minutes, p_seconds = seconds_to_time(int(player.position // 1000))
+        d_hours, d_minutes, d_seconds = secondsDivMod(int(now_playing.length // 1000))
+        p_hours, p_minutes, p_seconds = secondsDivMod(int(player.position // 1000))
 
         now_playing_text = f"NOW PLAYING ➤ {now_playing.title}" \
                            f"  -  {f'{p_hours}:02' + ':' if p_hours > 0 else ''}{p_minutes:02}:{p_seconds:02}" \
@@ -336,10 +338,8 @@ async def search_song(search: str, single_track=False) -> list[wavelink.GenericT
         else:
             tracks = await node.get_tracks(query=search, cls=wavelink.YouTubeTrack)
     elif is_spotify_url:
-        if decoded_spotify_url.type is spotify.SpotifySearchType.track:
-            tracks = [await spotify.SpotifyTrack.search(query=decoded_spotify_url.id)]
-        elif decoded_spotify_url.type in (spotify.SpotifySearchType.playlist, spotify.SpotifySearchType.album):
-            tracks = await spotify.SpotifyTrack.search(query=decoded_spotify_url.id)
+        tracks = await spotify.SpotifyTrack.search(query=decoded_spotify_url.id)
+
     elif is_soundcloud_url:
         tracks = await node.get_tracks(query=search, cls=wavelink.SoundCloudTrack)
 
@@ -348,7 +348,6 @@ async def search_song(search: str, single_track=False) -> list[wavelink.GenericT
         modified_track.title = attachment_regex_result.group("filename")+"."+attachment_regex_result.group("mime")
         tracks = [modified_track]
     else:
-        tracks = [await wavelink.YouTubeTrack.search(query=search)]
-
+        tracks = [(await wavelink.YouTubeTrack.search(search))[0]]
     return tracks[0] if single_track else tracks
 

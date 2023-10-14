@@ -50,7 +50,7 @@ class PlayerControls(CustomUIView):
             "message": message,
         })
         super().__init__(**kwargs)
-        self.player: Player = player
+        self.player: OldPlayer = player
         self.message = message
 
     async def update_player_buttons(self):
@@ -230,7 +230,7 @@ class MessageScroller(CustomUIView):
 
 
 class QueueController(PlayerControls, MessageScroller):
-    def __init__(self, player: Player, message, pages, home_page):
+    def __init__(self, player: OldPlayer, message, pages, home_page):
         super().__init__(player=player, message=message, pages=pages, home_page=home_page, timeout=600)
         # self.add_item(DeleteMessageButton(deletes_message=True))
         self.update_pages_loop.start()

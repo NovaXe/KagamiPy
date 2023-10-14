@@ -20,11 +20,17 @@ def clamp(num, min_value, max_value):
     return num
 
 
-def seconds_to_time(seconds: int) -> (int, int, int):
+def secondsDivMod(seconds: int) -> (int, int, int):
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     seconds = int(seconds % 60)
     return hours, minutes, seconds
+
+
+def secondsToTime(t):
+    hours, minutes, seconds = secondsDivMod(t)
+    value = f"{f'{hours:02}' + ':' if hours > 0 else ''}{minutes:02}:{seconds:02}"
+    return value
 
 
 async def link_to_bytes(link: str) -> bytes:
@@ -87,14 +93,20 @@ class CustomRepr:
     ignored: bool = False
 
 
-def createPageList(info_text: str, data: [dict, list], total_item_count: int, custom_reprs: dict[str, CustomRepr] = None, max_key_length=20):
+def createPageList(info_text: str,
+                   data: [dict, list],
+                   total_item_count: int,
+                   custom_reprs: dict[str, CustomRepr] = None,
+                   max_key_length:int=20,
+                   leftside_spacing:int=6,
+                   sort_items=True):
     key: str
     values: dict
 
     pages = [""]
     full_page_count, last_page_item_count = divmod(total_item_count, 10)
     page_count = full_page_count + (1 if last_page_item_count else 0)
-
+    leftside_spacing = 6
 
     if page_count == 0:
         pages[0] = (
@@ -117,10 +129,16 @@ def createPageList(info_text: str, data: [dict, list], total_item_count: int, cu
     item_count = 0
     page_index = 0
     page = ""
-    for key, key_value in (items := sorted(data.items())):
+
+    if sort_items:
+        items = sorted(data.items())
+    else:
+        items = data.items()
+
+    for key, key_value in items:
 
         item_count += 1
-        line_number_str = f"{item_count})".ljust(4)
+        line_number_str = f"{item_count})".ljust(leftside_spacing)
 
         key_short = keyShortener(key)
         line = f"{line_number_str}{key_short} -"
