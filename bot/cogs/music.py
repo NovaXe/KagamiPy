@@ -1,3 +1,5 @@
+import asyncio
+import copy
 import math
 import sys
 import traceback
@@ -25,7 +27,6 @@ class Music(commands.GroupCog,
     def __init__(self, bot):
         self.bot = bot
         self.config = bot.config
-
 
     # music_group = app_commands.Group(name="m", description="commands relating to music playback")
     playlist_group = app_commands.Group(name="playlist", description="commands relating to music playlists")
@@ -187,14 +188,67 @@ class Music(commands.GroupCog,
                          description="shows the current song")
     async def m_nowplaying(self, interaction: Interaction):
         voice_client: Player = interaction.guild.voice_client
-        if not voice_client: raise errors.NotInVC
+        # await interaction.response.defer(ephemeral=True)
 
-        track, pos = voice_client.currentlyPlaying()
-        if track:
-            response = createNowPlayingMessage(track, pos)
+
+
+
+        if voice_client.np_message_id is None:
+            channel = interaction.channel
+            response = "`Enabled the NowPlaying message`"
+            await interaction.response.send_message(response, ephemeral=True, delete_after=3)
+            msg: InteractionMessage = await channel.send( createNowPlayingMessage(*voice_client.currentlyPlaying()))
+            voice_client.setNowPlayingInfo(msg.channel.id, msg.id)
+            await self.nowplayingMessage.start(voice_client)
         else:
-            response = "Nothing"
-        await interaction.response.send_message(f"`{response}`")
+            response = "`Disabled the NowPlaying message`"
+            await interaction.response.send_message(response, ephemeral=True, delete_after=3)
+            self.nowplayingMessage.cancel()
+            channel = discord.utils.get(voice_client.guild.text_channels, id=voice_client.np_channel_id)
+            message = channel.get_partial_message(voice_client.np_message_id)
+            try:
+                await message.delete()
+            except discord.NotFound:
+                pass
+            voice_client.setNowPlayingInfo()
+
+        await interaction.edit_original_response(content=response)
+        # og_response = await interaction.original_response()
+        # await og_response.edit(content=response)
+        # await og_response.delete(delay=3)
+
+
+
+
+    @tasks.loop(seconds=5)
+    async def nowplayingMessage(self, voice_client: Player):
+        np_text = createNowPlayingMessage(*voice_client.currentlyPlaying())
+        channel = discord.utils.get(voice_client.guild.text_channels, id=voice_client.np_channel_id)
+        message_id = voice_client.np_message_id
+        try:
+            message = await channel.get_partial_message(message_id).fetch()
+        except discord.NotFound:
+            message = None
+
+        last_message_id = channel.last_message_id
+
+
+        async def sendNewMessage(ch):
+            msg: InteractionMessage = await ch.send(np_text)
+            voice_client.setNowPlayingInfo(msg.channel.id, msg.id)
+
+
+        if not message:
+            await sendNewMessage(channel)
+        elif message.id != last_message_id:
+            await asyncio.gather(
+                message.delete(),
+                sendNewMessage(channel)
+            )
+        else:
+            await message.edit(content=np_text)
+
+
 
 
     async def on_app_command_error(self, interaction: Interaction, error: AppCommandError):

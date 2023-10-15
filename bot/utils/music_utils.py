@@ -6,6 +6,7 @@ import wavelink
 from wavelink.ext import spotify
 from enum import (Enum, auto)
 from bot.utils.utils import (secondsToTime, secondsDivMod)
+from discord import(Message, Interaction)
 
 WavelinkTrack = wavelink.GenericTrack
 
@@ -36,6 +37,14 @@ class Player(wavelink.Player):
         self.start_pos: int = 0
         self.loop_mode = Player.LoopType.NO_LOOP
         self.interupted = False
+        self.np_message_id: int = None
+        self.np_channel_id: int = None
+
+
+    def setNowPlayingInfo(self, channel_id:int=None, message_id:int=None):
+        self.np_channel_id = channel_id
+        self.np_message_id = message_id
+
 
 
     def changeLoopMode(self, mode: LoopType=None):
@@ -155,23 +164,23 @@ async def searchForTracks(search: str, count: int=1) -> ([WavelinkTrack], str):
             else:
                 tracks = [playlist.tracks[playlist.selected_track]]
         else:
-            tracks = await node.get_tracks(query=search, cls=wavelink.YouTubeTrack)[0:count]
+            tracks = (await node.get_tracks(query=search, cls=wavelink.YouTubeTrack))[0:count]
     elif is_spotify_url:
         source = "spotify"
         # Not sure cause i think having it be the whole list will make it work for playlists
         # tracks = await spotify.SpotifyTrack.search(query=search)[0:count]
-        tracks = await spotify.SpotifyTrack.search(query=search)
+        tracks = (await spotify.SpotifyTrack.search(query=search))
     elif is_soundcloud_url:
         source = "soundcloud"
-        tracks = await node.get_tracks(query=search, cls=wavelink.SoundCloudTrack)
+        tracks = (await node.get_tracks(query=search, cls=wavelink.SoundCloudTrack))
     elif is_discord_attachment:
         source = "attachment"
-        modified_track = (await node.get_tracks(query=search, cls=wavelink.GenericTrack))[0]
+        modified_track = (await node.get_tracks(query=search, cls=wavelink.GenericTrack))[0:count]
         modified_track.title = attachment_regex_result.group("filename") + "." + attachment_regex_result.group("mime")
         tracks = [modified_track]
     else:
         source = "youtube"
-        tracks = await wavelink.YouTubeTrack.search(search)[0:count]
+        tracks = (await wavelink.YouTubeTrack.search(search))[0:count]
 
     return tracks, source
 
@@ -201,7 +210,10 @@ def track_to_string(track: WavelinkTrack) -> str:
     return message
 
 def createNowPlayingMessage(track: WavelinkTrack, position: int) -> str:
-    message = f"NOW PLAYING ➤ {track.title}  -  {secondsToTime(position//1000)} / {secondsToTime(track.duration//1000)}"
+    if track is None:
+        message = f"**`NOW PLAYING ➤ Nothing`**"
+    else:
+        message = f"**`NOW PLAYING ➤ {track.title}  -  {secondsToTime(position//1000)} / {secondsToTime(track.duration//1000)}`**"
     return message
 
 
