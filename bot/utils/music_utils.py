@@ -1,12 +1,20 @@
 import collections
+from collections import namedtuple
+import itertools
+from dataclasses import dataclass
 import re
+from math import(ceil, floor)
 
 import discord
+from discord import(Message, Interaction)
+from discord.ext import commands
+from bot.kagami import Kagami
+from discord.ui import(Button, Select, TextInput, View)
 import wavelink
 from wavelink.ext import spotify
 from enum import (Enum, auto)
 from bot.utils.utils import (secondsToTime, secondsDivMod)
-from discord import(Message, Interaction)
+from bot.ext.types import *
 
 WavelinkTrack = wavelink.GenericTrack
 
@@ -225,6 +233,107 @@ def trackListData(tracks: [WavelinkTrack]) ->(dict, int):
         # data.update({track.title: {"duration": secondsToTime(track.length//1000)}})
         total_duration += track.length
     return data, total_duration
+
+
+def queueSlice(queue: wavelink.Queue, start, end):
+    deque_slice: list[WavelinkTrack] = list(collections.deque(itertools.islice(queue, start, end)))
+    return deque_slice
+
+
+
+def getEdgeIndices(queue: wavelink.Queue):
+    history_page_count = 0
+    upnext_page_count = 0
+    if (h_len := len(queue.history) - 6) > 0:
+        history_page_count = ceil(h_len / 10)
+    if (u_len := len(queue) - 5) > 0:
+        upnext_page_count = ceil(u_len / 10)
+
+    return EdgeIndices(-1*history_page_count, upnext_page_count)
+
+
+
+def getPageTracks(queue: wavelink.Queue, page_index: int) -> list[wavelink] | None:
+    tracks: list[WavelinkTrack] = []
+    history: list[WavelinkTrack] = list(queue.history)[::-1]
+    upnext: list[WavelinkTrack] = list(queue)
+
+    first_index = ceil(len(history))
+
+    if page_index==0:
+        # tracks = [*queue.history[1:6], queue.history[0], *queue[0:5]]
+        history_tracks = history[1:6]
+        upnext_tracks = upnext[0:5]
+        selected_track = history[0:1]
+        tracks = history_tracks + selected_track + upnext_tracks
+    elif page_index<0:
+        relative_index = abs(page_index)*10 - 1
+        start = 6 * relative_index*10
+        end = start+10
+        tracks = history[start:end]
+    else:
+        relative_index = abs(page_index)*10 - 1
+        start = relative_index + 5
+        end = start+10
+        tracks = upnext[start:end]
+
+    if len(tracks):
+        return tracks
+    else:
+        return None
+
+
+def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
+    """
+    :param queue:
+    :param page_index: history < 0 < upnext
+    :return:
+    """
+
+
+
+    """
+    page indices
+    pg -1 : queue.history[6:16]
+    offset = 6
+    queue.history[offset:offset+10]
+    
+    
+    central: 
+    history: queue.history[1:6]
+    selected: queue.history[0]
+    upnext: queue[0:5]
+    
+    pg 1
+    """
+
+    tracks = getPageTracks(queue, page_index)
+    if tracks is None:
+        page = "Nothing Here"
+    else:
+        page = '\n'.join([track.title for track in tracks])
+    return f"{page}\n page {page_index}"
+
+
+
+
+"""
+queue controller
+attributes:
+message id
+channel id
+
+generate page on button click
+cache generated pages
+mark page for regen if something has changed
+list[page, need_regen]
+list[str, bool]
+
+upgrade old message scroller and player controls to utilize new dynamic shit
+
+"""
+
+
 
 
 

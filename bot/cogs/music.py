@@ -1,9 +1,10 @@
 import asyncio
 import copy
+import functools
 import math
 import sys
 import traceback
-import re
+from functools import partial
 
 import wavelink
 from wavelink import TrackEventPayload
@@ -18,8 +19,11 @@ from discord.ext import (commands, tasks)
 from collections import namedtuple
 from bot.utils.music_utils import *
 from bot.utils.utils import (createPageInfoText, createPageList, CustomRepr)
-from bot.utils.ui import (MessageScroller)
-from bot.ext import errors
+from bot.utils.ui import (MessageScroller, QueueController)
+from bot.ext import (errors, ui)
+
+
+# assert type(Interaction.response) is InteractionResponse
 
 class Music(commands.GroupCog,
             group_name="m",
@@ -77,7 +81,9 @@ class Music(commands.GroupCog,
     # Make queue automatically cycle
 
 
-    async def attemptToJoin(self, interaction: Interaction, voice_channel:VoiceChannel=None, send_response=True):
+
+    @staticmethod
+    async def attemptToJoin(interaction: Interaction, voice_channel:VoiceChannel=None, send_response=True):
         voice_client: Player = interaction.guild.voice_client
         user_vc = user_voice.channel if (user_voice:=interaction.user.voice) else None
         voice_channel = voice_channel or user_vc
@@ -91,11 +97,12 @@ class Music(commands.GroupCog,
             # raise errors.AlreadyInVC
 
         else:
-            voice_client = await self.joinVoice(interaction, voice_channel)
+            voice_client = await Music.joinVoice(interaction, voice_channel)
             if send_response: await interaction.response.send_message(f"I have joined {voice_client.channel.name}")
         return voice_client
 
-    async def joinVoice(self, interaction: Interaction, voice_channel:VoiceChannel):
+    @staticmethod
+    async def joinVoice(interaction: Interaction, voice_channel:VoiceChannel):
         voice_client: Player = interaction.guild.voice_client
         if voice_client:
             await voice_client.move_to(voice_channel)
@@ -103,6 +110,20 @@ class Music(commands.GroupCog,
         else:
             voice_client = await voice_channel.connect(cls=Player())
         return voice_client
+
+    @staticmethod
+    def requireVoiceclient(begin_session=False):
+        async def predicate(interaction: Interaction):
+            voice_client = interaction.guild.voice_client
+
+            if voice_client is None:
+                if begin_session:
+                    await Music.attemptToJoin(interaction, send_response=False)
+                else:
+                    raise errors.NoVoiceClient
+            else:
+                return True
+        return app_commands.check(predicate)
 
 
     @music_group.command(name="join",
@@ -122,17 +143,17 @@ class Music(commands.GroupCog,
         await interaction.response.send_message(message)
 
 
-
+    @requireVoiceclient(begin_session=True)
     @music_group.command(name="play",
                          description="plays the given song or adds it to the queue")
     async def m_play(self, interaction: Interaction, search: str=None):
         voice_client: Player = interaction.guild.voice_client
-        if voice_client is None:
-            if search:
-                voice_client = await self.attemptToJoin(interaction, interaction.user.voice.channel, send_response=False)
-            else:
-                voice_client = await self.attemptToJoin(interaction, interaction.user.voice.channel)
-                return
+        # if voice_client is None:
+        #     if search:
+        #         voice_client = await self.attemptToJoin(interaction, interaction.user.voice.channel, send_response=False)
+        #     else:
+        #         voice_client = await self.attemptToJoin(interaction, interaction.user.voice.channel)
+        #         return
 
         if not search:
             await voice_client.resume()
@@ -168,12 +189,12 @@ class Music(commands.GroupCog,
             await voice_client.beginPlayback()
 
 
-
+    @requireVoiceclient()
     @music_group.command(name="skip",
                          description="skips the current track")
     async def m_skip(self, interaction: Interaction, count: int=1):
         voice_client: Player = interaction.guild.voice_client
-        if not voice_client: raise errors.NotInVC
+        # if not voice_client: raise errors.NotInVC
 
 
         await voice_client.cycleQueue(count)
@@ -183,15 +204,12 @@ class Music(commands.GroupCog,
 
 
 
-
+    @requireVoiceclient()
     @music_group.command(name="nowplaying",
                          description="shows the current song")
     async def m_nowplaying(self, interaction: Interaction):
         voice_client: Player = interaction.guild.voice_client
         # await interaction.response.defer(ephemeral=True)
-
-
-
 
         if voice_client.np_message_id is None:
             channel = interaction.channel
@@ -247,6 +265,64 @@ class Music(commands.GroupCog,
             )
         else:
             await message.edit(content=np_text)
+
+
+    @requireVoiceclient()
+    @music_group.command(name="queue", description="shows the previous and upcoming tracks")
+    async def m_queue(self, interaction: Interaction):
+        voice_client: Player = interaction.guild.voice_client
+
+        # assert isinstance(interaction.response, InteractionResponse)
+        await interaction.response.defer()
+        og_response = await interaction.original_response()
+        message_info = MessageInfo(og_response.id,
+                                   og_response.channel.id)
+
+        # def pageGen(_voice_client: Player, page_index: int) -> str:
+        #     if _voice_client:
+        #         return createQueuePage(_voice_client.queue, page_index)
+        #     else:
+        #         return None
+        #
+        # def edgeIndices(_voice_client: Player) -> EdgeIndices:
+        #     if _voice_client:
+        #         return getEdgeIndices(_voice_client.queue)
+        #     else:
+        #         return None
+
+        def pageGen(interaction: Interaction, page_index: int) -> str:
+            voice_client: Player
+            if voice_client := interaction.guild.voice_client:
+                return createQueuePage(voice_client.queue, page_index)
+            else:
+                return None
+
+        def edgeIndices(interaction: Interaction) -> EdgeIndices:
+            voice_client: Player
+            if voice_client := interaction.guild.voice_client:
+                return getEdgeIndices(voice_client.queue)
+            else:
+                return None
+
+        # partialPageGen = partial(pageGen, _voice_client=voice_client)
+        # partialEdgeIndices = partial(edgeIndices, _voice_client=voice_client)
+        #
+        #
+        # page_callbacks = PageGenCallbacks(genPage=partialPageGen,
+        #                                   getEdgeIndices=partialEdgeIndices)
+
+        page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
+
+
+        view = ui.PageScroller(bot=self.bot,
+                               message_info=message_info,
+                               page_callbacks=page_callbacks)
+        home_text = pageGen(interaction=interaction, page_index=0)
+
+        await og_response.edit(content=home_text, view=view)
+
+
+
 
 
 

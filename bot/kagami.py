@@ -20,7 +20,6 @@ from typing import (
 from bot.utils.bot_data import Server
 from bot.utils.music_helpers import Playlist
 
-
 intents = discord.Intents.all()
 # intents.message = True
 # intents.voice_states = True
@@ -43,7 +42,12 @@ class Kagami(commands.Bot):
 
         self.load_data()
 
-
+    def getPartialMessage(self, message_id, channel_id) -> discord.PartialMessage | None:
+        channel = self.get_channel(channel_id)
+        if channel:
+            return channel.get_partial_message(message_id)
+        else:
+            return None
 
     def fetch_server(self, server_id: [int, str]):
         if str(server_id) not in self.servers:

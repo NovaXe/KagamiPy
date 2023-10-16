@@ -15,6 +15,8 @@ from discord.ext import commands
 from discord import app_commands
 
 
+
+
 def clamp(num, min_value, max_value):
     num = max(min(num, max_value), min_value)
     return num
@@ -102,6 +104,14 @@ def createPageList(info_text: str,
                    sort_items=True):
     key: str
     values: dict
+
+    # TODO Info text location top/bottom
+    # TODO Numbering position, start numbering at arbitrarying index
+    # TODO IE starting at index 4 would result in 4 3 2 1 0 1 2 3 4 5 cascading down
+    # TODO Hide index in custom repr
+    # TODO custom item count
+    # TODO ignore elem entirely in custom repr
+
 
     pages = [""]
     full_page_count, last_page_item_count = divmod(total_item_count, 10)
