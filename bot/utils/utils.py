@@ -522,6 +522,8 @@ def createPageList(info_text: str,
             s = (key[:max_key_length-4] + " ...").ljust(max_key_length)
         return s
 
+    item_count = 0
+    page_index = 0
     page = ""
 
     if sort_items:
@@ -551,13 +553,14 @@ def createPageList(info_text: str,
                 ignored = custom_repr.ignored
                 if ignored:
                     continue
+
                 rep = f"  {alias}{delim} {sub_value}"
             else:
                 rep = f"  {sub_key}: {sub_value}"
 
+
+
             line += rep
-
-
         line += "\n"
         lines.append(line)
         page += line

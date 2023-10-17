@@ -205,7 +205,7 @@ class Music(commands.GroupCog,
         await voice_client.cycleQueue(count)
         await voice_client.stop()
 
-        await respond(interaction, message=f"Skiped {'back' if count<0 else ''} {abs(count)} tracks")
+        await interaction.response.send_message(f"Skipped {'back' if count<0 else ''} {abs(count)} tracks")
 
 
 
@@ -318,17 +318,12 @@ class Music(commands.GroupCog,
 
         page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
 
-
         view = ui.PageScroller(bot=self.bot,
                                message_info=message_info,
                                page_callbacks=page_callbacks)
         home_text = pageGen(interaction=interaction, page_index=0)
 
         await og_response.edit(content=home_text, view=view)
-
-
-
-
 
 
 

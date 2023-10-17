@@ -16,6 +16,7 @@ from wavelink.ext import spotify
 from enum import (Enum, auto)
 from bot.utils.utils import (secondsToTime, secondsDivMod, createSinglePage)
 from bot.utils.utils import (PageBehavior, PageIndices, InfoSeperators, InfoTextElem, ITL)
+from bot.ext.ui import (PageScroller)
 from bot.ext.types import *
 
 WavelinkTrack = wavelink.GenericTrack
@@ -49,6 +50,7 @@ class Player(wavelink.Player):
         self.interrupted = False
         self.np_message_id: int = None
         self.np_channel_id: int = None
+        # self.queue_displays: list[PageScroller] = []
 
 
     def setNowPlayingInfo(self, channel_id:int=None, message_id:int=None):

@@ -4,6 +4,7 @@ from discord import ui
 from discord.ui import (View, Button, Select, TextInput)
 from discord import (ButtonStyle, Interaction)
 from typing import (Callable)
+from bot.utils.music_utils import (createQueuePage, Player)
 from bot.ext.types import *
 
 
@@ -65,6 +66,8 @@ class PageScroller(CustomView):
         self.page_callbacks = page_callbacks
         self.page_index = 0
 
+
+
     async def changePage(self, interaction: Interaction, page_index):
         p_message = self.partialMessage()
         page = self.page_callbacks.genPage(interaction=interaction, page_index=page_index)
@@ -77,6 +80,13 @@ class PageScroller(CustomView):
     def lastPageIndices(self, interaction: Interaction):
         return self.page_callbacks.getEdgeIndices(interaction=interaction)
 
+
+    """
+    how to keep track of last page
+    track count is below 10
+    or cant make the next page
+    
+    """
 
     @ui.button(emoji="⬆", style=ButtonStyle.gray, custom_id="MessageScroller:first", row=0)
     async def page_first(self, interaction: Interaction, button: Button):
