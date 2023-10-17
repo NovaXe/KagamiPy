@@ -4,7 +4,6 @@ from discord import ui
 from discord.ui import (View, Button, Select, TextInput)
 from discord import (ButtonStyle, Interaction)
 from typing import (Callable)
-from bot.utils.music_utils import (createQueuePage, Player)
 from bot.ext.types import *
 
 
@@ -49,7 +48,13 @@ class CustomView(View):
 
 
 
-
+# TODO potential idea for PageScroller page refresh method
+# Bundle the interaction into a payload datatype that contains other data too
+# The Scroller doesn't need to know about those other bits of data
+# The payload would be passed along to the callback for usage
+# This would bypass the callback needing to know specific data
+# Instead the payload simply holds a slew of info that may be useful for a callback
+# This is so smart
 
 class PageScroller(CustomView):
     def __init__(self, *args, bot: Kagami,
@@ -61,6 +66,8 @@ class PageScroller(CustomView):
         self.page_index = 0
 
 
+    async def refresh(self, interaction: Interaction):
+        await self.changePage(interaction, self.page_index)
 
     async def changePage(self, interaction: Interaction, page_index):
         p_message = self.partialMessage()

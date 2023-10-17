@@ -36,6 +36,7 @@ class Music(commands.GroupCog,
     playlist_group = app_commands.Group(name="playlist", description="commands relating to music playlists")
     music_group = app_commands
 
+
     # Wavelink Handling
     @tasks.loop(seconds=10)
     async def connectNodes(self):
@@ -200,7 +201,7 @@ class Music(commands.GroupCog,
         await voice_client.cycleQueue(count)
         await voice_client.stop()
 
-        await interaction.response.send_message(f"Skiped {'back' if count<0 else ''} {abs(count)} tracks")
+        await interaction.response.send_message(f"Skipped {'back' if count<0 else ''} {abs(count)} tracks")
 
 
 
@@ -313,17 +314,14 @@ class Music(commands.GroupCog,
 
         page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
 
-
         view = ui.PageScroller(bot=self.bot,
                                message_info=message_info,
                                page_callbacks=page_callbacks)
         home_text = pageGen(interaction=interaction, page_index=0)
+        voice_client.queue_displays.append(view)
+
 
         await og_response.edit(content=home_text, view=view)
-
-
-
-
 
 
 
@@ -346,7 +344,7 @@ class Music(commands.GroupCog,
         if reason == "REPLACED":
             return
         elif reason == "FINISHED":
-            if voice_client.interupted:
+            if voice_client.interrupted:
                 await voice_client.resumeInteruptedTrack()
                 return
             else:
@@ -354,15 +352,14 @@ class Music(commands.GroupCog,
 
         await voice_client.beginPlayback()
 
-
+    @commands.Cog.listener()
+    async def on_wavelink_track_start(self, payload: TrackEventPayload):
+        player: Player = payload.player
 
 
 
 
 # Music Related Classes
-
-
-
 
 async def setup(bot):
     music_cog = Music(bot)

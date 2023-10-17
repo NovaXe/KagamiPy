@@ -154,8 +154,8 @@ def createPageList(info_text: str,
         line = f"{line_number_str}{key_short} -"
 
         for sub_key, sub_value in key_value.items():
-
-            if custom_reprs and (custom_repr := custom_reprs[sub_key]):
+            if custom_reprs and sub_key in custom_reprs:
+                custom_repr = custom_reprs[sub_key]
 
                 alias = custom_repr.alias
                 delim = custom_repr.delim

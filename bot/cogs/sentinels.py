@@ -14,6 +14,7 @@ from bot.utils.utils import (
     createPageList,
     CustomRepr
 )
+from bot.ext.types import *
 from typing import (
     Literal
 )
@@ -66,7 +67,10 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
         # self.local_sentinel_autocomplete = self.wrapped_sentinel_autocomplete(mode='global')
 
     custom_key_reprs = {
-        "response": CustomRepr(ignored=True)
+        "response": CustomRepr(ignored=True),
+        "reactions": CustomRepr(),
+        "uses": CustomRepr(),
+        "enabled": CustomRepr()
     }
 
 
