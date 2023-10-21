@@ -7,8 +7,11 @@ from difflib import (
 )
 from typing import (
     Literal,
-    Union
+    Union,
+    NamedTuple
 )
+from collections import namedtuple
+from enum import (Enum, auto)
 import discord
 import discord.utils
 from discord.ext import commands
@@ -95,6 +98,254 @@ class CustomRepr:
     ignored: bool = False
 
 
+class Position(Enum):
+    UP = auto()
+    DOWN = auto()
+    LEFT = auto()
+    RIGHT = auto()
+
+    TOP = auto()
+    MIDDLE = auto()
+    BOTTOM = auto()
+
+    START = auto()
+    END = auto()
+
+
+# Info Text Location
+class ITL(Enum):
+    """
+    Info Text Location Enum\n
+    Values:
+    TOP, MIDDLE, BOTTOM
+    """
+    TOP = auto()
+    MIDDLE = auto()
+    BOTTOM = auto()
+
+
+@dataclass
+class PageVariations:
+    max_key_length: int = 20
+    sort_items: bool = True
+    info_text_loc: ITL = ITL.TOP
+    start_index: int = 0
+    ignored_indices: list[int] = None
+
+@dataclass
+class PageBehavior:
+    # page_index:int
+    # infotext_loc: ITL = ITL.TOP
+    max_elems: int=None
+    max_key_length: int=20
+    ignored_indices: list[int]=None
+    index_spacing:int = 6
+
+@dataclass
+class PageIndices:
+    first: int
+    current: int
+    last: int
+
+@dataclass
+class InfoSeperators:
+    top: str=None
+    bottom: str=None
+
+@dataclass
+class InfoTextElem:
+    text: str
+    seperators: InfoSeperators
+    loc: ITL
+
+
+PageIndexBounds = namedtuple("IndexBounds", "start end")
+
+
+
+page_behavior: dict[int, PageBehavior]
+
+
+def keyShortener(k: str, max_key_length):
+    if len(k) > max_key_length:
+        cutoff = " ..."
+        k = k[:max_key_length - len(cutoff)] + cutoff
+    return k.ljust(max_key_length)
+
+def getPageProgress(start_index, current_index, last_index):
+    """example
+    Page #: 7/11
+    [ -4 ] • • • ○ • ( 2 ) • • • [ 6 ]
+    """
+    s = f"Page #: {start_index - current_index + 1}\n"
+    s += f"[ {start_index} ] "
+    s += "• " * (abs(start_index) - 1)
+    s += "( 0 ) " if current_index == 0 else '○ '
+    s += "• " * (abs(last_index) - 1)
+    s += f"[ {last_index} ]"
+    return s
+
+
+
+def createSinglePage(data: [dict, list],
+                     behavior: PageBehavior = PageBehavior,
+                     infotext: InfoTextElem=None,
+                     custom_reprs: dict[str, CustomRepr]=None,
+                     first_item_index=1,
+                     page_position: PageIndices=None):
+    # Local Variables for ease of use
+    max_elems = behavior.max_elems
+    if max_elems is None:
+        max_elems = len(data)
+    max_key_length = behavior.max_key_length
+    index_label_spacing = behavior.index_spacing
+    ignored_indices = behavior.ignored_indices
+
+    lines = []
+    for index, (key, key_value) in data.items():
+
+        absolute_index = index + first_item_index
+
+        if index == max_elems:
+            break
+
+        if ignored_indices and index in ignored_indices:
+            continue
+        else:
+            line_number_str = f"{abs(absolute_index)})".ljust(index_label_spacing)
+            key_short = keyShortener(key, max_key_length)
+            line = f"{line_number_str}{key_short} -"
+
+
+        # Sub key iteraction
+        for subkey_index, (subkey, sub_value) in enumerate(key_value.items()):
+            if custom_reprs and (custom_repr := custom_reprs[subkey]):
+                alias = custom_repr.alias
+                delim = custom_repr.delim
+                ignored = custom_repr.ignored
+                if ignored:
+                    continue
+                rep = f"  {alias}{delim} {sub_value}"
+            else:
+                rep = f"  {subkey}: {sub_value}"
+            # Adds seperators between subkey values
+            if subkey_index != 0:
+                line += ";" + rep
+            else:
+                line += rep
+            # Places line into list of lines
+            lines.append(line)
+
+    if page_position:
+        page_progress = getPageProgress(page_position.first,
+                                        page_position.current,
+                                        page_position.last)
+    else:
+        page_progress = f"Page #: ?/?\n" \
+                        f"[ -? ] ••• ( ? ) ••• [ ? ]"
+
+    page = "No Page Here"
+    # ────────────────────────────────────────
+    # Yes infotext element
+    if infotext:
+        loc = infotext.loc
+        if loc == ITL.TOP:
+            page_text = "\n".join(lines)
+            page = f"```swift\n" \
+                   f"{infotext.text}\n" \
+                   f"{infotext.seperators.bottom}" \
+                   f"{page_text}\n" \
+                   f"{page_progress}\n" \
+                   f"```"
+        elif loc == ITL.MIDDLE:
+            middle = max_elems // 2
+            first_half = '\n'.join(lines[:middle])
+            second_half = '\n'.join(lines[middle:])
+            page = f"```swift\n" \
+                   f"{first_half}\n" \
+                   f"{infotext.seperators.top}\n" \
+                   f"{infotext.text}\n" \
+                   f"{infotext.seperators.bottom}\n" \
+                   f"{second_half}\n" \
+                   f"```"
+        elif loc == ITL.BOTTOM:
+            page_text = "\n".join(lines)
+            page = f"```swift\n" \
+                   f"{page_text}\n" \
+                   f"{infotext.seperators.bottom}" \
+                   f"{infotext.text}\n" \
+                   f"{page_progress}\n" \
+                   f"```"
+        else:
+            raise ValueError("Incorrect enum value for ITL")
+    # No infotext Passed
+    else:
+        page_text = "\n".join(lines)
+        page = f"```swift" \
+               f"{page_text}\n" \
+               f"{page_progress}" \
+               f"```"
+
+    return page
+
+
+
+
+
+
+
+
+
+
+def createPage(data: [dict, list],
+               max_pages: int=None,
+               max_elems: int=None,
+               sort_items: bool=True,
+               custom_reprs: dict[str, CustomRepr]=None,
+               zero_index: int=None,
+               zero_offset: int=0,
+               page_behavior: dict[int, PageBehavior]=None,
+               starting_index: int=0):
+
+    page_count = starting_index + max_pages - 1
+
+
+    num_full_pages, last_page_item_count = divmod(max_items, 10)
+    pages_needed = num_full_pages + (1 if last_page_item_count else 0)
+    lastpage_index = startpage_index + (max_pages-1)
+
+
+    """
+    data of length N
+    pages with M elements per
+    element labeled as 0 at index Z
+    current page P
+    current item index = I
+    
+    absolute index = Z - I
+    """
+
+
+
+    if sort_items:
+        items=sorted(data.items())
+    else:
+        items = data.items()
+
+    page_index = startpage_index
+    pages = [""]
+    lines = []
+
+
+
+
+
+
+
+
+
+
+
 def createPageList(info_text: str,
                    data: [dict, list],
                    total_item_count: int,
@@ -136,8 +387,6 @@ def createPageList(info_text: str,
             s = (key[:max_key_length-4] + " ...").ljust(max_key_length)
         return s
 
-    item_count = 0
-    page_index = 0
     page = ""
 
     if sort_items:
@@ -145,6 +394,9 @@ def createPageList(info_text: str,
     else:
         items = data.items()
 
+    lines = []
+    page_index = 0
+    item_count = 0
     for key, key_value in items:
 
         item_count += 1
@@ -153,7 +405,8 @@ def createPageList(info_text: str,
         key_short = keyShortener(key)
         line = f"{line_number_str}{key_short} -"
 
-        for sub_key, sub_value in key_value.items():
+        # Sub key iteration
+        for index, (sub_key, sub_value) in enumerate(key_value.items()):
 
             if custom_reprs and (custom_repr := custom_reprs[sub_key]):
 
@@ -162,15 +415,15 @@ def createPageList(info_text: str,
                 ignored = custom_repr.ignored
                 if ignored:
                     continue
-
                 rep = f"  {alias}{delim} {sub_value}"
             else:
                 rep = f"  {sub_key}: {sub_value}"
 
-
-
             line += rep
+
+
         line += "\n"
+        lines.append(line)
         page += line
 
         if not item_count % 10 or item_count == total_item_count:
