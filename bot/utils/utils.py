@@ -136,7 +136,7 @@ class PageVariations:
 class PageBehavior:
     # page_index:int
     # infotext_loc: ITL = ITL.TOP
-    max_elems: int=None
+    max_elems: int=10
     max_key_length: int=20
     ignored_indices: list[int]=None
     index_spacing:int = 6
@@ -195,8 +195,9 @@ def createSinglePage(data: [dict, list],
                      page_position: PageIndices=None):
     # Local Variables for ease of use
     max_elems = behavior.max_elems
-    if max_elems is None:
-        max_elems = len(data)
+    # if max_elems is None:
+    #     max_elems = len(data)
+
     max_key_length = behavior.max_key_length
     index_label_spacing = behavior.index_spacing
     ignored_indices = behavior.ignored_indices
@@ -297,46 +298,38 @@ def createSinglePage(data: [dict, list],
 
 
 
-def createPage(data: [dict, list],
-               max_pages: int=None,
-               max_elems: int=None,
-               sort_items: bool=True,
-               custom_reprs: dict[str, CustomRepr]=None,
-               zero_index: int=None,
-               zero_offset: int=0,
-               page_behavior: dict[int, PageBehavior]=None,
-               starting_index: int=0):
-
-    page_count = starting_index + max_pages - 1
-
-
-    num_full_pages, last_page_item_count = divmod(max_items, 10)
-    pages_needed = num_full_pages + (1 if last_page_item_count else 0)
-    lastpage_index = startpage_index + (max_pages-1)
-
-
-    """
-    data of length N
-    pages with M elements per
-    element labeled as 0 at index Z
-    current page P
-    current item index = I
-    
-    absolute index = Z - I
-    """
-
-
+def createPages(data: [dict, list],
+                info_text: InfoTextElem=None,
+                max_pages: int=None,
+                max_elems: int=None,
+                sort_items: bool=True,
+                custom_reprs: dict[str, CustomRepr]=None,
+                zero_index: int=None,
+                zero_offset: int=0,
+                page_behavior: dict[int, PageBehavior]=None,
+                starting_index: int=0):
 
     if sort_items:
-        items=sorted(data.items())
-    else:
-        items = data.items()
-
-    page_index = startpage_index
-    pages = [""]
-    lines = []
+        data = sorted(data)
 
 
+    ending_index = starting_index + (max_pages-1)
+    pages = [""] * max_pages
+    page_interator = enumerate(zip(pages, range(starting_index, ending_index)))
+    page_first_elem = 0
+    for loop_index, (page, page_index) in page_interator:
+        pb = page_behavior[page_index]
+        page_max_elems = pb.max_elems
+
+        page_data = data[page_first_elem: page_first_elem + page_max_elems]
+        page = createSinglePage(page_data,
+                                behavior=pb,
+                                infotext=info_text,
+                                custom_reprs=custom_reprs,
+                                first_item_index=page_first_elem,
+                                page_position=PageIndices(starting_index, page_index, ending_index))
+        page_first_elem += page_max_elems
+    return pages
 
 
 
