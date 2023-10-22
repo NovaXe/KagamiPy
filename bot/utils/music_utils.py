@@ -255,7 +255,7 @@ def getEdgeIndices(queue: wavelink.Queue):
     if (h_len := len(queue.history) - 6) > 0:
         history_page_count = ceil(h_len / 10)
     if (u_len := len(queue) - 5) > 0:
-        upnext_page_count = ceil(u_len / 10) -1
+        upnext_page_count = ceil(u_len / 10)
 
     return EdgeIndices(-1*history_page_count, upnext_page_count)
 
@@ -270,19 +270,17 @@ def getPageTracks(queue: wavelink.Queue, page_index: int) -> list[wavelink] | No
 
     if page_index==0:
         # tracks = [*queue.history[1:6], queue.history[0], *queue[0:5]]
-        history_tracks = history[1:6]
+        history_tracks = history[1:6][::-1]
         upnext_tracks = upnext[0:5]
         selected_track = history[0:1]
         # tracks = history_tracks + selected_track + upnext_tracks
         tracks = history_tracks + upnext_tracks
     elif page_index<0:
-        relative_index = abs(page_index)*10 - 1
-        start = 6 * relative_index*10
-        end = start+10
-        tracks = history[start:end]
+        end = abs(page_index)*10 + 6
+        start = end - 10
+        tracks = history[start:end][::-1]
     else:
-        relative_index = abs(page_index)*10 - 1
-        start = relative_index + 5
+        start = (abs(page_index)-1)*10 + 5
         end = start+10
         tracks = upnext[start:end]
 
@@ -354,14 +352,16 @@ def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
     first_index: int
     if page_index < 0:
         iloc = ITL.BOTTOM
-        first_index = page_index * 10 - 5 + (10 - track_count)
+        # end = abs(page_index)*10 + 6
+        # first_index = (page_index * 10) - 5 + (10 - track_count) + 1
+        first_index = (page_index*10) - 6 + (10 - track_count)
     elif page_index == 0:
         iloc = ITL.MIDDLE
 
         first_index = -mid_index
     else:
         iloc = ITL.TOP
-        first_index = page_index * 10 - 5 - (10 - track_count)
+        first_index = ((page_index-1) * 10) + 6
 
     left, right = getEdgeIndices(queue)
 
@@ -371,6 +371,15 @@ def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
 
     bottom_text = f"──────────────────────────\n" \
                   f"{'🡇Up Next🡇'.rjust(i_spacing)}"
+
+    ignored_indices = None
+    if page_index ==0:
+        ignored_indices=[mid_index]
+        if h_len == 0:
+            top_text = None
+        if len(queue) == 0:
+            bottom_text = None
+
 
     now_playing = createNowPlayingMessage(queue.history[-1], formatting=False)
 
@@ -383,8 +392,8 @@ def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
                              mid_index=mid_index)
 
     page_behavior = PageBehavior(elem_count=track_count,
-                                 max_key_length=40,
-                                 ignored_indices=[mid_index],
+                                 max_key_length=55,
+                                 ignored_indices=ignored_indices,
                                  index_spacing=i_spacing)
 
     page = createSinglePage(data,

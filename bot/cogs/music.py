@@ -113,9 +113,9 @@ class Music(commands.GroupCog,
         return voice_client
 
     @staticmethod
-    def requireVoiceclient(begin_session=False):
+    def requireVoiceclient(begin_session=False, defer_response=True):
         async def predicate(interaction: Interaction):
-            await interaction.response.defer()
+            if defer_response: await interaction.response.defer()
             voice_client = interaction.guild.voice_client
 
             if voice_client is None:
@@ -209,7 +209,7 @@ class Music(commands.GroupCog,
 
 
 
-    @requireVoiceclient()
+    @requireVoiceclient(defer_response=False)
     @music_group.command(name="nowplaying",
                          description="shows the current song")
     async def m_nowplaying(self, interaction: Interaction):

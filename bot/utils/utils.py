@@ -190,14 +190,14 @@ def getPageProgress(start_index, current_index, last_index):
     Page #: 7/11
     [ -4 ] • • • ○ • ( 2 ) • • • [ 6 ]
     """
-    page_count = abs(last_index) + abs(start_index)
+    page_count = abs(last_index) + abs(start_index) + 1
     page_index = current_index-start_index
     markers = []
 
 
     s = f"Page #: {current_index - start_index+1} / {page_count}\n"
-    markers += ["•"] * (abs(start_index) - 1)
-    markers += '○'
+    markers += ["•"] * (abs(start_index))
+    markers += ['○']
     markers += ["•"] * (abs(last_index))
     markers[0] = f"[ {start_index} ]"
     markers[-1] = f"[ {last_index} ]"
@@ -291,12 +291,28 @@ def createSinglePage(data: [dict, list],
             middle = infotext.mid_index
             first_half = '\n'.join(lines[:middle])
             second_half = '\n'.join(lines[middle:])
+            if len(second_half):
+                second_half += "\n"
+            if len(first_half):
+                first_half += "\n"
+            if infotext.seperators.top:
+                sep_top = f"{infotext.seperators.top}\n"
+            else:
+                sep_top = ""
+
+            if infotext.seperators.bottom:
+                sep_bottom = f"{infotext.seperators.bottom}\n"
+            else:
+                sep_bottom = ""
+
+
+
             page = f"```swift\n" \
-                   f"{first_half}\n" \
-                   f"{infotext.seperators.top}\n" \
+                   f"{first_half}" \
+                   f"{sep_top}" \
                    f"{infotext.text}\n" \
-                   f"{infotext.seperators.bottom}\n" \
-                   f"{second_half}\n" \
+                   f"{sep_bottom}" \
+                   f"{second_half}" \
                    f"{page_progress}" \
                    f"```"
         elif loc == ITL.BOTTOM:

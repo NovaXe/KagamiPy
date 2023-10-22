@@ -89,7 +89,7 @@ class PageScroller(CustomView):
         # get first page index
         # generate at index
         first, last = self.lastPageIndices(interaction)
-        self.page_index = last
+        self.page_index = first
         await self.changePage(interaction, first)
 
     @ui.button(emoji="🔼", style=ButtonStyle.gray, custom_id="MessageScroller:prev", row=0)
