@@ -18,7 +18,8 @@ from discord.app_commands import AppCommandError
 from discord.ext import (commands, tasks)
 from collections import namedtuple
 from bot.utils.music_utils import *
-from bot.utils.utils import (createPageInfoText, createPageList, CustomRepr)
+from bot.utils.utils import (createPageInfoText, createPageList)
+from bot.ext.types import *
 from bot.utils.ui import (MessageScroller, QueueController)
 from bot.ext import (errors, ui)
 
@@ -337,6 +338,9 @@ class Music(commands.GroupCog,
             traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
 
 
+    @commands.Cog.listener()
+    async def on_wavelink_track_start(self, payload: TrackEventPayload):
+        player: Player = payload.player
 
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: TrackEventPayload):
@@ -346,7 +350,7 @@ class Music(commands.GroupCog,
         if reason == "REPLACED":
             return
         elif reason == "FINISHED":
-            if voice_client.interupted:
+            if voice_client.interrupted:
                 await voice_client.resumeInteruptedTrack()
                 return
             else:

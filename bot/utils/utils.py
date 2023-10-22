@@ -220,7 +220,8 @@ def createSinglePage(data: [dict, list],
 
         # Sub key iteraction
         for subkey_index, (subkey, sub_value) in enumerate(key_value.items()):
-            if custom_reprs and (custom_repr := custom_reprs[subkey]):
+            if custom_reprs and subkey in custom_reprs:
+                custom_repr = custom_reprs[subkey]
                 alias = custom_repr.alias
                 delim = custom_repr.delim
                 ignored = custom_repr.ignored
@@ -401,7 +402,8 @@ def createPageList(info_text: str,
         # Sub key iteration
         for index, (sub_key, sub_value) in enumerate(key_value.items()):
 
-            if custom_reprs and (custom_repr := custom_reprs[sub_key]):
+            if custom_reprs and sub_key in custom_reprs:
+                custom_repr = custom_reprs[sub_key]
 
                 alias = custom_repr.alias
                 delim = custom_repr.delim

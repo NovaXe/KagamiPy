@@ -68,16 +68,20 @@ class PageScroller(CustomView):
         if page:
             await p_message.edit(content=page)
 
+    async def refresh(self, interaction: Interaction):
+        await self.changePage(interaction, self.page_index)
+
     def lastPageIndices(self, interaction: Interaction):
         return self.page_callbacks.getEdgeIndices(interaction=interaction)
 
 
-    """
-    how to keep track of last page
-    track count is below 10
-    or cant make the next page
-    
-    """
+    # TODO potential idea for PageScroller page refresh method
+    # Bundle the interaction into a payload datatype that contains other data too
+    # The Scroller doesn't need to know about those other bits of data
+    # The payload would be passed along to the callback for usage
+    # This would bypass the callback needing to know specific data
+    # Instead the payload simply holds a slew of info that may be useful for a callback
+    # This is so smart
 
     @ui.button(emoji="⬆", style=ButtonStyle.gray, custom_id="MessageScroller:first", row=0)
     async def page_first(self, interaction: Interaction, button: Button):

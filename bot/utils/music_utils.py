@@ -14,7 +14,7 @@ from discord.ui import(Button, Select, TextInput, View)
 import wavelink
 from wavelink.ext import spotify
 from enum import (Enum, auto)
-from bot.utils.utils import (secondsToTime, secondsDivMod, createSinglePage, CustomRepr)
+from bot.utils.utils import (secondsToTime, secondsDivMod, createSinglePage)
 from bot.utils.utils import (PageBehavior, PageIndices, InfoSeperators, InfoTextElem, ITL)
 from bot.ext.types import *
 
@@ -46,7 +46,7 @@ class Player(wavelink.Player):
         super().__init__(args, kwargs)
         self.start_pos: int = 0
         self.loop_mode = Player.LoopType.NO_LOOP
-        self.interupted = False
+        self.interrupted = False
         self.np_message_id: int = None
         self.np_channel_id: int = None
 
@@ -337,7 +337,6 @@ def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
 ──────────────────────────
     """
     i_spacing = 6
-    if page_index < 0:
 
     """
     first_index
