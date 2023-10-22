@@ -136,7 +136,7 @@ class PageVariations:
 class PageBehavior:
     # page_index:int
     # infotext_loc: ITL = ITL.TOP
-    max_elems: int=10
+    elem_count: int=10
     max_key_length: int=20
     ignored_indices: list[int]=None
     index_spacing:int = 6
@@ -194,7 +194,7 @@ def createSinglePage(data: [dict, list],
                      first_item_index=1,
                      page_position: PageIndices=None):
     # Local Variables for ease of use
-    max_elems = behavior.max_elems
+    max_elems = behavior.elem_count
     # if max_elems is None:
     #     max_elems = len(data)
 
@@ -319,7 +319,7 @@ def createPages(data: [dict, list],
     page_first_elem = 0
     for loop_index, (page, page_index) in page_interator:
         pb = page_behavior[page_index]
-        page_max_elems = pb.max_elems
+        page_max_elems = pb.elem_count
 
         page_data = data[page_first_elem: page_first_elem + page_max_elems]
         page = createSinglePage(page_data,

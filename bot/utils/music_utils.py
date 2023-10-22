@@ -1,4 +1,5 @@
 import collections
+import math
 from collections import namedtuple
 import itertools
 from dataclasses import dataclass
@@ -13,7 +14,8 @@ from discord.ui import(Button, Select, TextInput, View)
 import wavelink
 from wavelink.ext import spotify
 from enum import (Enum, auto)
-from bot.utils.utils import (secondsToTime, secondsDivMod)
+from bot.utils.utils import (secondsToTime, secondsDivMod, createSinglePage, CustomRepr)
+from bot.utils.utils import (PageBehavior, PageIndices, InfoSeperators, InfoTextElem, ITL)
 from bot.ext.types import *
 
 WavelinkTrack = wavelink.GenericTrack
@@ -217,11 +219,15 @@ def track_to_string(track: WavelinkTrack) -> str:
     message = f"{title}  -  {secondsToTime(track.length//1000)}\n"
     return message
 
-def createNowPlayingMessage(track: WavelinkTrack, position: int) -> str:
+def createNowPlayingMessage(track: WavelinkTrack, position: int=None) -> str:
     if track is None:
         message = f"**`NOW PLAYING ➤ Nothing`**"
     else:
-        message = f"**`NOW PLAYING ➤ {track.title}  -  {secondsToTime(position//1000)} / {secondsToTime(track.duration//1000)}`**"
+        if position:
+            message = f"**`NOW PLAYING ➤ {track.title}  -  {secondsToTime(position//1000)} / {secondsToTime(track.duration//1000)}`**"
+        else:
+            message = f"**`NOW PLAYING ➤ {track.title}  -  {secondsToTime(track.duration//1000)}`**"
+
     return message
 
 
@@ -283,6 +289,10 @@ def getPageTracks(queue: wavelink.Queue, page_index: int) -> list[wavelink] | No
         return None
 
 
+
+
+
+
 def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
     """
     :param queue:
@@ -307,12 +317,86 @@ def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
     pg 1
     """
 
+
+
+
     tracks = getPageTracks(queue, page_index)
-    if tracks is None:
-        page = "Nothing Here"
+    track_count = len(tracks)
+    data = {}
+    for track in tracks:
+        data.update({
+            track.title: {
+                "duration": {
+                    secondsToTime(track.duration//1000)
+                }
+            }
+        })
+
+    """
+          🡅Previous🡅
+──────────────────────────
+    """
+    i_spacing = 6
+    if page_index < 0:
+
+    """
+    first_index
+    10 tracks per page
+    5 tracks on page 0
+    
+    
+    """
+    iloc: ITL
+    first_index: int
+    if page_index < 0:
+        iloc = ITL.BOTTOM
+        first_index = page_index * 10 - 5 + (10 - track_count)
+    elif page_index == 0:
+        iloc = ITL.MIDDLE
+        h_len = len(queue.history)
+        first_index = -min(5, h_len-1)
     else:
-        page = '\n'.join([track.title for track in tracks])
-    return f"{page}\n page {page_index}"
+        iloc = ITL.TOP
+        first_index = page_index * 10 - 5 - (10 - track_count)
+
+    left, right = getEdgeIndices(queue)
+
+    page_behavior = PageBehavior(elem_count=track_count,
+                                 max_key_length=40,
+                                 ignored_indices=[0 if page_index==0 else None],
+                                 index_spacing=i_spacing)
+    top_text = f"{'🡅Previous🡅'.rjust(i_spacing)}\n" \
+               f"──────────────────────────"
+
+    bottom_text = f"──────────────────────────\n" \
+                  f"{'🡇Up Next🡇'.rjust(i_spacing)}"
+
+    now_playing = createNowPlayingMessage(queue.history[0])
+
+
+
+    info_text = InfoTextElem(text=now_playing,
+                             seperators=InfoSeperators(
+                                 top=top_text,
+                                 bottom=bottom_text),
+                             loc=iloc
+                             )
+    page = createSinglePage(data,
+                            behavior=PageBehavior(elem_count=len(tracks),
+                                                  max_key_length=40,
+                                                  ignored_indices=(0 if page_index==0 else None)),
+                            infotext=info_text,
+                            custom_reprs={"duration": CustomRepr("", "")},
+                            first_item_index=first_index,
+                            page_position=PageIndices(left, page_index, right))
+
+
+    #
+    # if tracks is None:
+    #     page = "Nothing Here"
+    # else:
+    #     page = '\n'.join([track.title for track in tracks])
+    # return f"{page}\n page {page_index}"
 
 
 
