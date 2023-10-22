@@ -18,7 +18,7 @@ from discord.app_commands import AppCommandError
 from discord.ext import (commands, tasks)
 from collections import namedtuple
 from bot.utils.music_utils import *
-from bot.utils.utils import (createPageInfoText, createPageList)
+from bot.utils.utils import (createPageInfoText, createPageList, respond)
 from bot.ext.types import *
 from bot.utils.ui import (MessageScroller, QueueController)
 from bot.ext import (errors, ui)
@@ -115,11 +115,13 @@ class Music(commands.GroupCog,
     @staticmethod
     def requireVoiceclient(begin_session=False):
         async def predicate(interaction: Interaction):
+            await interaction.response.defer()
             voice_client = interaction.guild.voice_client
 
             if voice_client is None:
                 if begin_session:
                     await Music.attemptToJoin(interaction, send_response=False)
+                    return True
                 else:
                     raise errors.NoVoiceClient
             else:
@@ -149,6 +151,7 @@ class Music(commands.GroupCog,
                          description="plays the given song or adds it to the queue")
     async def m_play(self, interaction: Interaction, search: str=None):
         voice_client: Player = interaction.guild.voice_client
+
         # if voice_client is None:
         #     if search:
         #         voice_client = await self.attemptToJoin(interaction, interaction.user.voice.channel, send_response=False)
@@ -158,12 +161,13 @@ class Music(commands.GroupCog,
 
         if not search:
             await voice_client.resume()
-            await interaction.response.send_message("Resumed music playback")
+            await respond(interaction, "Resumed music playback")
+            # await interaction.response.send_message("Resumed music playback")
             return
 
 
 
-        await interaction.response.defer()
+        await respond(interaction)
         tracks, source = await searchForTracks(search, 1)
         await voice_client.waitAddToQueue(tracks)
         data, duration = trackListData(tracks)
@@ -201,7 +205,7 @@ class Music(commands.GroupCog,
         await voice_client.cycleQueue(count)
         await voice_client.stop()
 
-        await interaction.response.send_message(f"Skiped {'back' if count<0 else ''} {abs(count)} tracks")
+        await respond(interaction, message=f"Skiped {'back' if count<0 else ''} {abs(count)} tracks")
 
 
 
@@ -274,7 +278,7 @@ class Music(commands.GroupCog,
         voice_client: Player = interaction.guild.voice_client
 
         # assert isinstance(interaction.response, InteractionResponse)
-        await interaction.response.defer()
+        await respond(interaction)
         og_response = await interaction.original_response()
         message_info = MessageInfo(og_response.id,
                                    og_response.channel.id)

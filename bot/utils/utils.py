@@ -13,10 +13,22 @@ from typing import (
 from collections import namedtuple
 from enum import (Enum, auto)
 import discord
+from discord import (Interaction)
 import discord.utils
 from discord.ext import commands
 from discord import app_commands
 
+async def respond(interaction: Interaction, message: str=None):
+    if message:
+        try:
+            await interaction.response.send_message(content=message)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(content=message)
+    else:
+        try:
+            await interaction.response.defer()
+        except discord.InteractionResponded:
+            pass
 
 
 
@@ -157,6 +169,7 @@ class InfoTextElem:
     text: str
     seperators: InfoSeperators
     loc: ITL
+    mid_index: int=None
 
 
 PageIndexBounds = namedtuple("IndexBounds", "start end")
@@ -177,12 +190,20 @@ def getPageProgress(start_index, current_index, last_index):
     Page #: 7/11
     [ -4 ] • • • ○ • ( 2 ) • • • [ 6 ]
     """
-    s = f"Page #: {start_index - current_index + 1}\n"
-    s += f"[ {start_index} ] "
-    s += "• " * (abs(start_index) - 1)
-    s += "( 0 ) " if current_index == 0 else '○ '
-    s += "• " * (abs(last_index) - 1)
-    s += f"[ {last_index} ]"
+    page_count = abs(last_index) + abs(start_index)
+    page_index = current_index-start_index
+    markers = []
+
+
+    s = f"Page #: {current_index - start_index+1} / {page_count}\n"
+    markers += ["•"] * (abs(start_index) - 1)
+    markers += '○'
+    markers += ["•"] * (abs(last_index))
+    markers[0] = f"[ {start_index} ]"
+    markers[-1] = f"[ {last_index} ]"
+    markers[page_index] = f"( {current_index} )"
+    s += ' '.join(markers)
+
     return s
 
 
@@ -203,19 +224,26 @@ def createSinglePage(data: [dict, list],
     ignored_indices = behavior.ignored_indices
 
     lines = []
-    for index, (key, key_value) in data.items():
-
+    index_offset = 0
+    for index, (key, key_value) in enumerate(data.items()):
+        line: str = ""
         absolute_index = index + first_item_index
 
         if index == max_elems:
             break
 
         if ignored_indices and index in ignored_indices:
-            continue
-        else:
-            line_number_str = f"{abs(absolute_index)})".ljust(index_label_spacing)
-            key_short = keyShortener(key, max_key_length)
-            line = f"{line_number_str}{key_short} -"
+            index_offset +=1
+        #     This shit does not behave as expected
+        # Should offset all values but all other values don't care about it and it only affeacts the page in question
+        # Only useful for skipping over the stupid 0 index that I can't get rid of on the first page
+        # May have been a better idea to just allow custom handlers than make some perfectly generic shit cause this sucks
+
+
+
+        line_number_str = f"{abs(absolute_index+index_offset)})".ljust(index_label_spacing)
+        key_short = keyShortener(key, max_key_length)
+        line = f"{line_number_str}{key_short} -"
 
 
         # Sub key iteraction
@@ -255,12 +283,12 @@ def createSinglePage(data: [dict, list],
             page_text = "\n".join(lines)
             page = f"```swift\n" \
                    f"{infotext.text}\n" \
-                   f"{infotext.seperators.bottom}" \
+                   f"{infotext.seperators.bottom}\n" \
                    f"{page_text}\n" \
                    f"{page_progress}\n" \
                    f"```"
         elif loc == ITL.MIDDLE:
-            middle = max_elems // 2
+            middle = infotext.mid_index
             first_half = '\n'.join(lines[:middle])
             second_half = '\n'.join(lines[middle:])
             page = f"```swift\n" \
@@ -269,12 +297,13 @@ def createSinglePage(data: [dict, list],
                    f"{infotext.text}\n" \
                    f"{infotext.seperators.bottom}\n" \
                    f"{second_half}\n" \
+                   f"{page_progress}" \
                    f"```"
         elif loc == ITL.BOTTOM:
             page_text = "\n".join(lines)
             page = f"```swift\n" \
                    f"{page_text}\n" \
-                   f"{infotext.seperators.bottom}" \
+                   f"{infotext.seperators.top}\n" \
                    f"{infotext.text}\n" \
                    f"{page_progress}\n" \
                    f"```"
@@ -288,9 +317,9 @@ def createSinglePage(data: [dict, list],
                f"{page_progress}" \
                f"```"
 
+
+
     return page
-
-
 
 
 
