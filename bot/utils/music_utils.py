@@ -1,4 +1,5 @@
 import collections
+import math
 from collections import namedtuple
 import itertools
 from dataclasses import dataclass
@@ -13,8 +14,8 @@ from discord.ui import(Button, Select, TextInput, View)
 import wavelink
 from wavelink.ext import spotify
 from enum import (Enum, auto)
-from bot.utils.utils import (secondsToTime, secondsDivMod)
-from bot.ext.ui import (PageScroller)
+from bot.utils.utils import (secondsToTime, secondsDivMod, createSinglePage)
+from bot.utils.utils import (PageBehavior, PageIndices, InfoSeperators, InfoTextElem, ITL)
 from bot.ext.types import *
 
 WavelinkTrack = wavelink.GenericTrack
@@ -48,7 +49,6 @@ class Player(wavelink.Player):
         self.interrupted = False
         self.np_message_id: int = None
         self.np_channel_id: int = None
-        # self.queue_displays: list[PageScroller] = []
 
 
     def setNowPlayingInfo(self, channel_id:int=None, message_id:int=None):
@@ -219,11 +219,17 @@ def track_to_string(track: WavelinkTrack) -> str:
     message = f"{title}  -  {secondsToTime(track.length//1000)}\n"
     return message
 
-def createNowPlayingMessage(track: WavelinkTrack, position: int) -> str:
+def createNowPlayingMessage(track: WavelinkTrack, position: int=None, formatting=True) -> str:
     if track is None:
-        message = f"**`NOW PLAYING ➤ Nothing`**"
+        message = f"NOW PLAYING ➤ Nothing"
     else:
-        message = f"**`NOW PLAYING ➤ {track.title}  -  {secondsToTime(position//1000)} / {secondsToTime(track.duration//1000)}`**"
+        if position:
+            message = f"NOW PLAYING ➤ {track.title}  -  {secondsToTime(position//1000)} / {secondsToTime(track.duration//1000)}"
+        else:
+            message = f"NOW PLAYING ➤ {track.title}  -  {secondsToTime(track.duration//1000)}"
+
+    if formatting:
+        message = f"**`{message}`**"
     return message
 
 
@@ -264,18 +270,17 @@ def getPageTracks(queue: wavelink.Queue, page_index: int) -> list[wavelink] | No
 
     if page_index==0:
         # tracks = [*queue.history[1:6], queue.history[0], *queue[0:5]]
-        history_tracks = history[1:6]
+        history_tracks = history[1:6][::-1]
         upnext_tracks = upnext[0:5]
         selected_track = history[0:1]
-        tracks = history_tracks + selected_track + upnext_tracks
+        # tracks = history_tracks + selected_track + upnext_tracks
+        tracks = history_tracks + upnext_tracks
     elif page_index<0:
-        relative_index = abs(page_index)*10 - 1
-        start = 6 * relative_index*10
-        end = start+10
-        tracks = history[start:end]
+        end = abs(page_index)*10 + 6
+        start = end - 10
+        tracks = history[start:end][::-1]
     else:
-        relative_index = abs(page_index)*10 - 1
-        start = relative_index + 5
+        start = (abs(page_index)-1)*10 + 5
         end = start+10
         tracks = upnext[start:end]
 
@@ -283,6 +288,10 @@ def getPageTracks(queue: wavelink.Queue, page_index: int) -> list[wavelink] | No
         return tracks
     else:
         return None
+
+
+
+
 
 
 def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
@@ -309,12 +318,98 @@ def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
     pg 1
     """
 
+
+
+
     tracks = getPageTracks(queue, page_index)
-    if tracks is None:
-        page = "Nothing Here"
+
+    track_count = len(tracks)
+    h_len = len(queue.history) - 1
+    mid_index = min(5, h_len)
+    data = {}
+    for track in tracks:
+        data.update({
+            track.title: {
+                "duration": secondsToTime(track.duration//1000)
+
+            }
+        })
+
+    """
+          🡅Previous🡅
+──────────────────────────
+    """
+    i_spacing = 6
+
+    """
+    first_index
+    10 tracks per page
+    5 tracks on page 0
+    
+    
+    """
+    iloc: ITL
+    first_index: int
+    if page_index < 0:
+        iloc = ITL.BOTTOM
+        # end = abs(page_index)*10 + 6
+        # first_index = (page_index * 10) - 5 + (10 - track_count) + 1
+        first_index = (page_index*10) - 6 + (10 - track_count)
+    elif page_index == 0:
+        iloc = ITL.MIDDLE
+
+        first_index = -mid_index
     else:
-        page = '\n'.join([track.title for track in tracks])
-    return f"{page}\n page {page_index}"
+        iloc = ITL.TOP
+        first_index = ((page_index-1) * 10) + 6
+
+    left, right = getEdgeIndices(queue)
+
+
+    top_text = f"{'🡅Previous🡅'.rjust(i_spacing)}\n" \
+               f"──────────────────────────"
+
+    bottom_text = f"──────────────────────────\n" \
+                  f"{'🡇Up Next🡇'.rjust(i_spacing)}"
+
+    ignored_indices = None
+    if page_index ==0:
+        ignored_indices=[mid_index]
+        if h_len == 0:
+            top_text = None
+        if len(queue) == 0:
+            bottom_text = None
+
+
+    now_playing = createNowPlayingMessage(queue.history[-1], formatting=False)
+
+
+    info_text = InfoTextElem(text=now_playing,
+                             seperators=InfoSeperators(
+                                 top=top_text,
+                                 bottom=bottom_text),
+                             loc=iloc,
+                             mid_index=mid_index)
+
+    page_behavior = PageBehavior(elem_count=track_count,
+                                 max_key_length=55,
+                                 ignored_indices=ignored_indices,
+                                 index_spacing=i_spacing)
+
+    page = createSinglePage(data,
+                            behavior=page_behavior,
+                            infotext=info_text,
+                            custom_reprs={"duration": CustomRepr("", "")},
+                            first_item_index=first_index,
+                            page_position=PageIndices(left, page_index, right))
+
+    return page
+    #
+    # if tracks is None:
+    #     page = "Nothing Here"
+    # else:
+    #     page = '\n'.join([track.title for track in tracks])
+    # return f"{page}\n page {page_index}"
 
 
 

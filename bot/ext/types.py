@@ -30,5 +30,4 @@ class PagePayload:
     voice_client = None
 
 
-
 EdgeIndices = namedtuple('EdgeIndices', 'left right')

@@ -18,7 +18,8 @@ from discord.app_commands import AppCommandError
 from discord.ext import (commands, tasks)
 from collections import namedtuple
 from bot.utils.music_utils import *
-from bot.utils.utils import (createPageInfoText, createPageList, CustomRepr)
+from bot.utils.utils import (createPageInfoText, createPageList, respond)
+from bot.ext.types import *
 from bot.utils.ui import (MessageScroller, QueueController)
 from bot.ext import (errors, ui)
 
@@ -35,7 +36,6 @@ class Music(commands.GroupCog,
     # music_group = app_commands.Group(name="m", description="commands relating to music playback")
     playlist_group = app_commands.Group(name="playlist", description="commands relating to music playlists")
     music_group = app_commands
-
 
     # Wavelink Handling
     @tasks.loop(seconds=10)
@@ -113,13 +113,15 @@ class Music(commands.GroupCog,
         return voice_client
 
     @staticmethod
-    def requireVoiceclient(begin_session=False):
+    def requireVoiceclient(begin_session=False, defer_response=True):
         async def predicate(interaction: Interaction):
+            if defer_response: await interaction.response.defer()
             voice_client = interaction.guild.voice_client
 
             if voice_client is None:
                 if begin_session:
                     await Music.attemptToJoin(interaction, send_response=False)
+                    return True
                 else:
                     raise errors.NoVoiceClient
             else:
@@ -149,6 +151,7 @@ class Music(commands.GroupCog,
                          description="plays the given song or adds it to the queue")
     async def m_play(self, interaction: Interaction, search: str=None):
         voice_client: Player = interaction.guild.voice_client
+
         # if voice_client is None:
         #     if search:
         #         voice_client = await self.attemptToJoin(interaction, interaction.user.voice.channel, send_response=False)
@@ -158,12 +161,13 @@ class Music(commands.GroupCog,
 
         if not search:
             await voice_client.resume()
-            await interaction.response.send_message("Resumed music playback")
+            await respond(interaction, "Resumed music playback")
+            # await interaction.response.send_message("Resumed music playback")
             return
 
 
 
-        await interaction.response.defer()
+        await respond(interaction)
         tracks, source = await searchForTracks(search, 1)
         await voice_client.waitAddToQueue(tracks)
         data, duration = trackListData(tracks)
@@ -201,11 +205,11 @@ class Music(commands.GroupCog,
         await voice_client.cycleQueue(count)
         await voice_client.stop()
 
-        await interaction.response.send_message(f"Skipped {'back' if count<0 else ''} {abs(count)} tracks")
+        await respond(interaction, message=f"Skiped {'back' if count<0 else ''} {abs(count)} tracks")
 
 
 
-    @requireVoiceclient()
+    @requireVoiceclient(defer_response=False)
     @music_group.command(name="nowplaying",
                          description="shows the current song")
     async def m_nowplaying(self, interaction: Interaction):
@@ -274,7 +278,7 @@ class Music(commands.GroupCog,
         voice_client: Player = interaction.guild.voice_client
 
         # assert isinstance(interaction.response, InteractionResponse)
-        await interaction.response.defer()
+        await respond(interaction)
         og_response = await interaction.original_response()
         message_info = MessageInfo(og_response.id,
                                    og_response.channel.id)
@@ -314,14 +318,17 @@ class Music(commands.GroupCog,
 
         page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
 
+
         view = ui.PageScroller(bot=self.bot,
                                message_info=message_info,
                                page_callbacks=page_callbacks)
         home_text = pageGen(interaction=interaction, page_index=0)
-        voice_client.queue_displays.append(view)
-
 
         await og_response.edit(content=home_text, view=view)
+
+
+
+
 
 
 
@@ -335,6 +342,9 @@ class Music(commands.GroupCog,
             traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
 
 
+    @commands.Cog.listener()
+    async def on_wavelink_track_start(self, payload: TrackEventPayload):
+        player: Player = payload.player
 
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: TrackEventPayload):
@@ -352,14 +362,15 @@ class Music(commands.GroupCog,
 
         await voice_client.beginPlayback()
 
-    @commands.Cog.listener()
-    async def on_wavelink_track_start(self, payload: TrackEventPayload):
-        player: Player = payload.player
+
 
 
 
 
 # Music Related Classes
+
+
+
 
 async def setup(bot):
     music_cog = Music(bot)
