@@ -187,7 +187,7 @@ class Music(commands.GroupCog,
             await interaction.edit_original_response(content=pages[0], view=view)
         else:
             await interaction.edit_original_response(
-                content=f"`{tracks[0].title}  -  {secondsToTime(tracks[0].length)} was added to the queue`")
+                content=f"`{tracks[0].title}  -  {secondsToTime(tracks[0].length//1000)} was added to the queue`")
 
         if voice_client.currentlyPlaying()[0] is None:
             await voice_client.cycleQueue()

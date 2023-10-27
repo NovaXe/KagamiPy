@@ -287,7 +287,7 @@ def getPageTracks(queue: wavelink.Queue, page_index: int) -> list[wavelink] | No
     if len(tracks):
         return tracks
     else:
-        return None
+        return []
 
 
 
@@ -322,8 +322,8 @@ def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
 
 
     tracks = getPageTracks(queue, page_index)
-
     track_count = len(tracks)
+
     h_len = len(queue.history) - 1
     mid_index = min(5, h_len)
     data = {}
