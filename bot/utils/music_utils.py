@@ -16,7 +16,7 @@ from wavelink.ext import spotify
 from enum import (Enum, auto)
 from bot.utils.utils import (secondsToTime, secondsDivMod, createSinglePage)
 from bot.utils.utils import (PageBehavior, PageIndices, InfoSeperators, InfoTextElem, ITL)
-from bot.ext.ui import (PageScroller)
+# from bot.ext.ui import (PageScroller)
 from bot.ext.types import *
 
 WavelinkTrack = wavelink.GenericTrack

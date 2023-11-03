@@ -69,7 +69,7 @@ class PersistantMessage:
     #     The content would be behind by an interval and it would be visibly wonky
 
 
-    def begin(self):
+    async def begin(self):
         await self.persist.start()
         if self.refresh_callback:
             await self.refresh.start()
@@ -97,11 +97,11 @@ class PersistantMessage:
 
 
     @tasks.loop()
-    def refresh(self):
+    async def refresh(self):
         self.message_content = self.get_messsage_content()
 
     @tasks.loop()
-    def persist(self):
+    async def persist(self):
         message = self.get_partial_message()
 
         """
