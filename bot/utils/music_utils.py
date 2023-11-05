@@ -284,18 +284,40 @@ def track_to_string(track: WavelinkTrack) -> str:
     message = f"{title}  -  {secondsToTime(track.length//1000)}\n"
     return message
 
-def createNowPlayingMessage(track: WavelinkTrack, position: int=None, formatting=True) -> str:
+def createNowPlayingMessage(track: WavelinkTrack, position: int=None, formatting=True, descriptor_text="NOW PLAYING") -> str:
     if track is None:
-        message = f"NOW PLAYING ➤ Nothing"
+        message = f"{descriptor_text} ➤ Nothing"
     else:
         if position:
-            message = f"NOW PLAYING ➤ {track.title}  -  {secondsToTime(position//1000)} / {secondsToTime(track.duration//1000)}"
+            message = f"{descriptor_text} ➤ {track.title}  -  {secondsToTime(position//1000)} / {secondsToTime(track.duration//1000)}"
         else:
-            message = f"NOW PLAYING ➤ {track.title}  -  {secondsToTime(track.duration//1000)}"
+            message = f"{descriptor_text} ➤ {track.title}  -  {secondsToTime(track.duration//1000)}"
 
     if formatting:
         message = f"**`{message}`**"
     return message
+
+def createNowPlayingWithDescriptor(voice_client: Player, formatting=True, position: int=False):
+    track, pos = voice_client.currentlyPlaying()
+    descriptor_text = ""
+
+    if voice_client.halted:
+        descriptor_text = "HALTED"
+        if track is None:
+            if voice_client.queue.history.count:
+                track = voice_client.queue.history[-1]
+    else:
+        descriptor_text = "NOW PLAYING"
+    if voice_client.is_paused():
+        descriptor_text = "PAUSED"
+
+    if not position:
+        pos = None
+
+    message = createNowPlayingMessage(track, pos, formatting, descriptor_text)
+    return message
+
+
 
 
 def trackListData(tracks: [WavelinkTrack]) ->(dict, int):
@@ -389,7 +411,7 @@ def createQueuePage(voice_client: Player, page_index: int) -> str:
     tracks = getPageTracks(queue, page_index)
     track_count = len(tracks)
 
-    h_len = len(queue.history) - 1
+    h_len = max(len(queue.history) - 1, 0)
     mid_index = min(5, h_len)
     # if page_index == 0:
     #     mid_index = h_len - 1
@@ -450,10 +472,15 @@ def createQueuePage(voice_client: Player, page_index: int) -> str:
 
 
     track, pos = voice_client.currentlyPlaying()
-    now_playing = createNowPlayingMessage(track, formatting=False)
 
 
-    info_text = InfoTextElem(text=now_playing,
+
+    now_playing_message = createNowPlayingWithDescriptor(voice_client, False, False)
+
+
+
+
+    info_text = InfoTextElem(text=now_playing_message,
                              seperators=InfoSeperators(
                                  top=top_text,
                                  bottom=bottom_text),

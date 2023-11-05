@@ -21,7 +21,7 @@ from bot.utils.music_utils import *
 from bot.utils.utils import (createPageInfoText, createPageList)
 from bot.ext.types import *
 from bot.utils.ui import (MessageScroller, QueueController)
-from bot.ext.smart_functions import (respond)
+from bot.ext.smart_functions import (respond, PersistantMessage)
 from bot.ext import (errors, ui)
 
 
@@ -196,7 +196,14 @@ class Music(commands.GroupCog,
 
         # return
         if voice_client.halted:
-            await voice_client.cyclePlayNext()
+            if voice_client.queue.history.count:
+                await voice_client.beginPlayback()
+            else:
+                await voice_client.cyclePlayNext()
+
+            # left side if selected is NOne
+            # right side if queue empty
+            # else middle and resume current track
             await asyncio.sleep(1)
             # await voice_client.cyclePlayNext()
             # return
@@ -206,9 +213,43 @@ class Music(commands.GroupCog,
 
             # await respond(interaction, f"`Began Playback`")
 
+        if voice_client.halted:
+            if voice_client.queue.history.count:
+                await voice_client.beginPlayback()
+            else:
+                await voice_client.cyclePlayNext()
 
 
-
+        """
+        halting behavior
+        
+        left side outisde of queue
+        len(history) == 0
+        
+        ride side outside of queue
+        len(queue) == 0
+        
+        
+        when to halt
+        when there is no track up next / can't cycle queue anymore
+        when a stopping / halting command is run
+        
+        what happens when halted
+        on play command
+        if halted:
+            if right side:
+                replay selected track aka first track in history
+            elif left side:
+                play next track
+            else in the middle somehwere: 
+                play selected track
+        
+        
+        
+        
+        
+        
+        """
 
 
         #
@@ -244,7 +285,7 @@ class Music(commands.GroupCog,
                 # else:
                 #     await voice_client.cyclePlayNext()
 
-        await respond(interaction, f"Skipped {'back' if count<0 else ''}{skipped_count} tracks")
+        await respond(interaction, f"Skipped {'back ' if count<0 else ''}{skipped_count} tracks")
 
 
 
@@ -252,6 +293,26 @@ class Music(commands.GroupCog,
     @music_group.command(name="nowplaying",
                          description="shows the current song")
     async def m_nowplaying(self, interaction: Interaction):
+        voice_client: Player = interaction.guild.voice_client
+
+        def callback(guild_id:int, channel_id:int, current_content:str)->str:
+            guild = self.bot.get_guild(guild_id)
+            message = createNowPlayingWithDescriptor(voice_client=guild.voice_client,
+                                                     formatting=True,
+                                                     position=True)
+            return message
+
+
+        persistant_nowplaying = PersistantMessage(self.bot,
+                                                  guild_id=interaction.guild_id,
+                                                  channel_id=interaction.channel_id,
+                                                  default_message="Now Playing ???? didnt ask fuck you",
+                                                  refresh_callback=callback,
+                                                  persist_interval=5)
+        await persistant_nowplaying.begin()
+
+        return
+
         voice_client: Player = interaction.guild.voice_client
         # await respond(interaction, ephemeral=True)
 
@@ -278,6 +339,8 @@ class Music(commands.GroupCog,
         # og_response = await interaction.original_response()
         # await og_response.edit(content=response)
         # await og_response.delete(delay=3)
+
+
 
 
 
@@ -309,6 +372,9 @@ class Music(commands.GroupCog,
             )
         else:
             await message.edit(content=np_text)
+
+
+
 
 
     @requireVoiceclient()
