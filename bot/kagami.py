@@ -157,10 +157,17 @@ class Kagami(commands.Bot):
                 await self.load_extension(f"cogs.{name}")
         # await self.tree.sync()
 
+    LOG_CHANNEL = 825529492982333461
+    # TODO change the config system to utilize a dataclass
+    # Add LOG_CHANNEL to the config
 
+    async def logToChannel(self, message:str, channel: discord.TextChannel|int=LOG_CHANNEL):
+        if not isinstance(channel, discord.TextChannel):
+            channel = self.get_channel(channel)
 
-
-
+        await channel.send(f"## `{message}`")
 
     async def on_ready(self):
-        print(f"Logged in as {self.user} (ID: {self.user.id})")
+        login_message = f"Logged in as {self.user} (ID: {self.user.id})"
+        print(login_message)
+        await self.logToChannel(login_message)

@@ -50,6 +50,11 @@ class Player(wavelink.Player):
         self.interrupted = False
         self.np_message_id: int = None
         self.np_channel_id: int = None
+        self.halted = True
+        # halting conditions
+        # playing nothing
+        # skipped past first or last track in entire queue
+        #
         # self.queue_displays: list[PageScroller] = []
 
 
@@ -80,31 +85,89 @@ class Player(wavelink.Player):
 
     def selectedTrack(self) -> WavelinkTrack:
         """Represents the first track in the history queue"""
-        return self.queue.history.pop()
+        if self.queue.history.count:
+            return self.queue.history.pop()
+        else:
+            return None
 
-    def currentlyPlaying(self) -> (WavelinkTrack, int):
+    def currentlyPlaying(self) -> tuple[WavelinkTrack, int]:
         """What the bot is actually playing"""
         return self.current, self.position
 
-    async def cycleQueue(self, count: int = 1):
-        if count == 0:
-            return
 
+    # async def stop(self, halt=False, *, force: bool = True):
+    #     # self.halt(halt)
+    #     await super().stop(force=force)
+
+
+    async def cycleQueue(self, count: int = 1):
         for i in range(abs(count)):
-            if count>0:
-                self.queue.history.put(await self.queue.get_wait())
+            if count > 0:
+                # Skip forward
+                if self.queue.count or self.queue.loop or self.queue.loop_all:
+                    track = await self.queue.get_wait()
+                    # track = self.queue.get()
+                    self.queue.history.put(track)
+                else:
+                    total_skipped = i
+                    # self.halt()
+                    break
             else:
-                self.queue.put_at_front(self.queue.history.pop())
-                # del self.queue.history[0]
+                # Skip Backward
+                if self.queue.history.count:
+                    track = self.queue.history.pop()
+                    self.queue.put_at_front(track)
+                else:
+                    total_skipped = i
+                    # self.halt()
+                    break
+        else:
+            total_skipped = abs(count)
+        return total_skipped
+
+
+
+        # for i in range(abs(count)):
+        #     if count>0:
+        #         self.queue.history.put(await self.queue.get_wait())
+        #     else:
+        #         self.queue.put_at_front(self.queue.history.pop())
+        #         # del self.queue.history[0]
 
     async def waitAddToQueue(self, tracks:[WavelinkTrack]):
         for track in tracks:
             await self.queue.put_wait(track)
+        # for track in tracks:
+        #     self.queue.extend(track)
 
+    async def addToQueue(self, tracks:[WavelinkTrack]):
+        self.queue.extend(tracks)
+
+
+    async def haltPlayback(self):
+        self.halted = True
+        await self.stop()
 
     async def beginPlayback(self):
-        await self.play(self.selectedTrack(),
-                        replace=True)
+        self.halted = False
+        if track:=self.selectedTrack():
+            await self.play(track,
+                            replace=True)
+        else:
+            self.halted=True
+
+
+    async def cyclePlayNext(self):
+        if await self.cycleQueue() !=0:
+            await self.beginPlayback()
+        else:
+            self.halted = True
+
+    # on begin playback
+    # unhalt potentially give a different name
+    #
+
+
 
     async def resumeInteruptedTrack(self):
         """Contninues playback of the currently selected track after an interuption"""
@@ -274,7 +337,7 @@ def getPageTracks(queue: wavelink.Queue, page_index: int) -> list[wavelink] | No
         # tracks = [*queue.history[1:6], queue.history[0], *queue[0:5]]
         history_tracks = history[1:6][::-1]
         upnext_tracks = upnext[0:5]
-        selected_track = history[0:1]
+        # selected_track = history[-1:-2] Probably wrong idf cause I think the correct one is at -1
         # tracks = history_tracks + selected_track + upnext_tracks
         tracks = history_tracks + upnext_tracks
     elif page_index<0:
@@ -296,9 +359,9 @@ def getPageTracks(queue: wavelink.Queue, page_index: int) -> list[wavelink] | No
 
 
 
-def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
+def createQueuePage(voice_client: Player, page_index: int) -> str:
     """
-    :param queue:
+    :param voice_client:
     :param page_index: history < 0 < upnext
     :return:
     """
@@ -320,7 +383,7 @@ def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
     pg 1
     """
 
-
+    queue: wavelink.Queue = voice_client.queue
 
 
     tracks = getPageTracks(queue, page_index)
@@ -328,6 +391,9 @@ def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
 
     h_len = len(queue.history) - 1
     mid_index = min(5, h_len)
+    # if page_index == 0:
+    #     mid_index = h_len - 1
+
     data = {}
     for track in tracks:
         data.update({
@@ -356,7 +422,7 @@ def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
         iloc = ITL.BOTTOM
         # end = abs(page_index)*10 + 6
         # first_index = (page_index * 10) - 5 + (10 - track_count) + 1
-        first_index = (page_index*10) - 6 + (10 - track_count)
+        first_index = (page_index*10) - 5 + (10 - track_count)
     elif page_index == 0:
         iloc = ITL.MIDDLE
 
@@ -383,7 +449,8 @@ def createQueuePage(queue: wavelink.Queue, page_index: int) -> str:
             bottom_text = None
 
 
-    now_playing = createNowPlayingMessage(queue.history[-1], formatting=False)
+    track, pos = voice_client.currentlyPlaying()
+    now_playing = createNowPlayingMessage(track, formatting=False)
 
 
     info_text = InfoTextElem(text=now_playing,
