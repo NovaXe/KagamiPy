@@ -22,32 +22,34 @@ async def respond(interaction: Interaction, content: str=None, ephemeral=False, 
 
 
 class PersistentMessage:
-    def __init__(self, bot: commands.Bot, guild_id, channel_id, default_message: str, message_id=None,
-                 refresh_callback=None, refresh_interval: int = None, persist_interval=60):
+    def __init__(self, bot: commands.Bot, guild_id, channel_id, default_content: str, message_id=None,
+                 refresh_callback=None, refresh_delay: int=0, persist_interval=60):
         self.bot = bot
         self.guild_id = guild_id
         self.channel_id = channel_id
-        self.message_id = None
-        self.message_content = default_message
-
+        self.message_id = message_id
+        self.message_content = default_content
+        self.refresh_delay_counter = 0
         self.refresh_callback: Callable[[int, int, str], str] = refresh_callback
         """
         guild_id, channel_id, current_content\n
         callback(guild_id: int, channel_id: int, current_content: str) -> message_content:...
         """
-        refresh_interval = refresh_interval or persist_interval
         # may modify the refresh sysem to be one and the same with persist and just have a "refresh after n times check"
-
-        self.refresh.change_interval(seconds=refresh_interval)
+        self.refresh_delay = max(refresh_delay, 0)
         self.persist.change_interval(seconds=persist_interval)
 
     #     may be possible that this gets desynced and the persistant message has text from the previous refresh
     #     The content would be behind by an interval and it would be visibly wonky
 
-    async def begin(self):
-        await self.persist.start()
-        if self.refresh_callback:
-            await self.refresh.start()
+    def begin(self):
+        self.persist.start()
+
+    async def halt(self):
+        self.persist.cancel()
+        if message:=self.get_partial_message():
+            await self.attempt_message_delete(message)
+
 
     def get_messsage_content(self):
         if self.refresh_callback:
@@ -58,6 +60,7 @@ class PersistentMessage:
     def get_partial_message(self) -> PartialMessage:
         channel = self.bot.get_channel(self.channel_id)
         message = channel.get_partial_message(self.message_id)
+        return message
 
     async def send_message(self):
         channel = self.bot.get_channel(self.channel_id)
@@ -70,30 +73,34 @@ class PersistentMessage:
         except discord.HTTPException:
             await self.send_message()
 
-    @tasks.loop()
-    async def refresh(self):
-        self.message_content = self.get_messsage_content()
+    async def attempt_message_delete(self, message: PartialMessage):
+        try:
+            await message.delete()
+        except discord.HTTPException:
+            pass
+
+    def refresh(self):
+        if self.refresh_callback:
+            self.message_content = self.get_messsage_content()
 
     @tasks.loop()
     async def persist(self):
         message = self.get_partial_message()
 
-        """
-        if latest id edit message
-        if not delete old send new
+        if self.refresh_delay == 0:
+            self.refresh()
+        else:
+            if self.refresh_delay_counter >= self.refresh_delay:
+                self.refresh_delay_counter = 0
+                self.refresh()
+            else:
+                self.refresh_delay_counter += 1
 
-        if the old messsage doesn't exist for either, just send new
-        """
 
-        async def delete_message():
-            try:
-                await message.delete()
-            except discord.HTTPException:
-                pass
         if message:
             if message.id != message.channel.last_message_id:
                 await asyncio.gather(
-                    delete_message(),
+                    self.attempt_message_delete(message),
                     self.send_message()
                 )
             else:

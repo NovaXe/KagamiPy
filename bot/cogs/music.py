@@ -274,9 +274,24 @@ class Music(commands.GroupCog,
     @requireVoiceclient(defer_response=False)
     @music_group.command(name="nowplaying",
                          description="shows the current song")
-    async def m_nowplaying(self, interaction: Interaction):
+    async def m_nowplaying(self, interaction: Interaction, move_status:bool=True):
         voice_client: Player = interaction.guild.voice_client
-        await respond(interaction)
+        # await respond(interaction, ephemeral=True)
+
+        if voice_client.now_playing_message:
+            msg_channel_id = voice_client.now_playing_message.channel_id
+
+            # kill the fucker
+            await voice_client.now_playing_message.halt()
+            voice_client.now_playing_message = None
+
+            if move_status and interaction.channel.id != msg_channel_id:
+                await respond(interaction, f"`Moved status message to {interaction.channel.name}`", ephemeral=True, delete_after=3)
+            else:
+                await respond(interaction, "`Disabled status message`", ephemeral=True, delete_after=3)
+                return
+        else:
+            await respond(interaction, "`Enabled status message`", ephemeral=True, delete_after=3)
 
         def callback(guild_id: int, channel_id: int, current_content: str) -> str:
             guild = self.bot.get_guild(guild_id)
@@ -285,19 +300,21 @@ class Music(commands.GroupCog,
                                                      position=True)
             return message
 
-        og_response = await interaction.original_response()
+
+        message: Message = await interaction.channel.send(createNowPlayingWithDescriptor(voice_client, True, True))
 
         voice_client.now_playing_message = PersistentMessage(self.bot,
                                                              guild_id=interaction.guild_id,
                                                              channel_id=interaction.channel_id,
-                                                             default_message="Now Playing ???? didnt ask fuck you",
-                                                             message_id=og_response.id,
+                                                             default_content=message.content,
+                                                             message_id=message.id,
                                                              refresh_callback=callback,
                                                              persist_interval=5)
-        await voice_client.now_playing_message.begin()
+        voice_client.now_playing_message.begin()
 
         return
 
+    async def m_nowplaying_old(self, interaction: Interaction):
         voice_client: Player = interaction.guild.voice_client
         # await respond(interaction, ephemeral=True)
 
