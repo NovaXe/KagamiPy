@@ -12,6 +12,7 @@ from wavelink.ext import spotify
 from enum import (
     Enum, auto
 )
+from typing import (Literal, Callable)
 import discord
 from discord import (utils, app_commands, Interaction, InteractionResponse, VoiceChannel, Message, InteractionMessage)
 from discord.app_commands import AppCommandError
@@ -147,16 +148,6 @@ class Music(commands.GroupCog,
         voice_client: Player = interaction.guild.voice_client
         await respond(interaction)
 
-        # if voice_client is None:
-        #     if search:
-        #         voice_client = await self.attemptToJoin(interaction, interaction.user.voice.channel, send_response=False)
-        #     else:
-        #         voice_client = await self.attemptToJoin(interaction, interaction.user.voice.channel)
-        #         return
-
-        # if voice_client.halted:
-        #     voice_client.halt(False)
-
         if not search:
             if voice_client.is_paused():
                 await voice_client.resume()
@@ -184,7 +175,6 @@ class Music(commands.GroupCog,
                 await respond(interaction,
                               content=f"`{tracks[0].title}  -  {secondsToTime(tracks[0].length // 1000)} was added to the queue`")
 
-        # return
         if voice_client.halted:
             if voice_client.queue.history.count:
                 await voice_client.beginPlayback()
@@ -208,45 +198,6 @@ class Music(commands.GroupCog,
                 await voice_client.beginPlayback()
             else:
                 await voice_client.cyclePlayNext()
-
-        """
-        halting behavior
-        
-        left side outisde of queue
-        len(history) == 0
-        
-        ride side outside of queue
-        len(queue) == 0
-        
-        
-        when to halt
-        when there is no track up next / can't cycle queue anymore
-        when a stopping / halting command is run
-        
-        what happens when halted
-        on play command
-        if halted:
-            if right side:
-                replay selected track aka first track in history
-            elif left side:
-                play next track
-            else in the middle somehwere: 
-                play selected track
-        
-        
-        
-        
-        
-        
-        """
-
-        #
-        # if voice_client.currentlyPlaying()[0] is None:
-        #     await voice_client.cycleQueue()
-        #     await voice_client.beginPlayback()
-        #
-        # if voice_client.currentlyPlaying()[0] is None:
-        #     await voice_client.beginNext()
 
     @requireVoiceclient()
     @music_group.command(name="skip",
@@ -371,8 +322,45 @@ class Music(commands.GroupCog,
     @music_group.command(name="loop", description="changes the loop mode, Off->All->Single")
     async def m_loop(self, interaction: Interaction, mode: Player.LoopType = None):
         voice_client: Player = interaction.guild.voice_client
+        # TODO Loop needs to work properly
+
         voice_client.changeLoopMode(mode)
         await respond(interaction, f"Loop Mode:`{mode}`")
+
+
+    async def m_stop(self, interaction: Interaction):
+        # TODO Stop implements stopping via calling the halt function
+        pass
+
+    async def m_seek(self, interaction: Interaction):
+        # TODO Seek calls the voice_client's seek function
+        pass
+
+    async def m_pop(self, interaction: Interaction):
+        # TODO Pop removes a track from the queue in any position, negative for the history
+        pass
+
+    async def m_pause(self, interaction: Interaction):
+        # TODO Pause calls the pause function from the player, functions as a toggle
+        pass
+
+    async def m_resume(self, interaction: Interaction):
+        # TODO Resume which just calls resume on the player, effectively pause toggle alias
+        pass
+
+    async def m_replay(self, interaction: Interaction):
+        # TODO Replay restarts the current track, no different than halting and beginning playback
+        pass
+
+    async def m_clear(self, interaction: Interaction, choice: Literal["queue", "history"]):
+        # TODO Clear for the queue and the history, just does BaseQueue.clear() in the voice client
+        pass
+
+    # TODO Playlist Functionality needs a reimplementation
+    # Reuse as much stuff from the og implementation as it works quite well but try to clean it up
+    # IE replace in function checks with decorator checks for parameters to be correct
+    # New error types such as PlaylistDoesNotExist
+
 
     async def on_app_command_error(self, interaction: Interaction, error: AppCommandError):
         if isinstance(error, errors.CustomCheck):

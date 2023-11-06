@@ -67,6 +67,7 @@ class PersistentMessage:
         messsage = await channel.send(content=self.message_content)
         self.message_id = messsage.id
 
+    # TODO allowing editing messages with views and attachments
     async def attempt_message_edit(self, message: PartialMessage):
         try:
             await message.edit(content=self.message_content)
