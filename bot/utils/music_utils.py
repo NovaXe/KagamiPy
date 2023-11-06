@@ -9,6 +9,8 @@ from math import(ceil, floor)
 import discord
 from discord import(Message, Interaction)
 from discord.ext import commands
+
+from bot.ext.smart_functions import PersistentMessage
 from bot.kagami import Kagami
 from discord.ui import(Button, Select, TextInput, View)
 import wavelink
@@ -48,6 +50,7 @@ class Player(wavelink.Player):
         self.start_pos: int = 0
         self.loop_mode = Player.LoopType.NO_LOOP
         self.interrupted = False
+        self.now_playing_message: PersistentMessage = None
         self.np_message_id: int = None
         self.np_channel_id: int = None
         self.halted = True

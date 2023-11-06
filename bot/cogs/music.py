@@ -21,7 +21,7 @@ from bot.utils.music_utils import *
 from bot.utils.utils import (createPageInfoText, createPageList)
 from bot.ext.types import *
 from bot.utils.ui import (MessageScroller, QueueController)
-from bot.ext.smart_functions import (respond, PersistantMessage)
+from bot.ext.smart_functions import (respond, PersistentMessage)
 from bot.ext import (errors, ui)
 
 
@@ -31,7 +31,7 @@ class Music(commands.GroupCog,
             group_name="m",
             description="commands relating to music playback"):
     def __init__(self, bot):
-        self.bot:Kagami = bot
+        self.bot: Kagami = bot
         self.config = bot.config
 
     # music_group = app_commands.Group(name="m", description="commands relating to music playback")
@@ -54,7 +54,6 @@ class Music(commands.GroupCog,
             spotify=spotify_client
         )
 
-
     @staticmethod
     async def close_nodes() -> None:
         for node in wavelink.NodePool.nodes:
@@ -65,10 +64,7 @@ class Music(commands.GroupCog,
         self._old_tree_error = tree.on_error
         tree.on_error = self.on_app_command_error
 
-
         self.bot.loop.create_task(self.connectNodes())
-
-
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, node: wavelink.Node):
@@ -76,29 +72,25 @@ class Music(commands.GroupCog,
         print(message)
         await self.bot.logToChannel(message)
 
-
-
     # guild.voice_client = player
     # same fucking thing, don't forget it
 
     # Auto Queue Doesn't work for me
     # Make queue automatically cycle
 
-
-
     @staticmethod
-    async def attemptToJoin(interaction: Interaction, voice_channel:VoiceChannel=None, send_response=True):
+    async def attemptToJoin(interaction: Interaction, voice_channel: VoiceChannel = None, send_response=True):
         voice_client: Player = interaction.guild.voice_client
-        user_vc = user_voice.channel if (user_voice:=interaction.user.voice) else None
+        user_vc = user_voice.channel if (user_voice := interaction.user.voice) else None
         voice_channel = voice_channel or user_vc
         if not voice_channel: raise errors.NoVoiceChannel
 
         if voice_client and voice_client.channel == voice_channel:
             raise errors.AlreadyInVC("I'm already in the voice channel")
 
-
-        if voice_client: pass
-            # raise errors.AlreadyInVC
+        if voice_client:
+            pass
+        # raise errors.AlreadyInVC
 
         else:
             voice_client = await Music.joinVoice(interaction, voice_channel)
@@ -106,7 +98,7 @@ class Music(commands.GroupCog,
         return voice_client
 
     @staticmethod
-    async def joinVoice(interaction: Interaction, voice_channel:VoiceChannel):
+    async def joinVoice(interaction: Interaction, voice_channel: VoiceChannel):
         voice_client: Player = interaction.guild.voice_client
         if voice_client:
             await voice_client.move_to(voice_channel)
@@ -129,12 +121,12 @@ class Music(commands.GroupCog,
                     raise errors.NoVoiceClient
             else:
                 return True
-        return app_commands.check(predicate)
 
+        return app_commands.check(predicate)
 
     @music_group.command(name="join",
                          description="joins the voice channel")
-    async def m_join(self, interaction: Interaction, voice_channel: VoiceChannel=None):
+    async def m_join(self, interaction: Interaction, voice_channel: VoiceChannel = None):
         voice_client: Player = await self.attemptToJoin(interaction, voice_channel)
         pass
 
@@ -148,11 +140,10 @@ class Music(commands.GroupCog,
         await voice_client.disconnect()
         await respond(interaction, message)
 
-
     @requireVoiceclient(begin_session=True)
     @music_group.command(name="play",
                          description="plays the given song or adds it to the queue")
-    async def m_play(self, interaction: Interaction, search: str=None):
+    async def m_play(self, interaction: Interaction, search: str = None):
         voice_client: Player = interaction.guild.voice_client
         await respond(interaction)
 
@@ -165,7 +156,6 @@ class Music(commands.GroupCog,
 
         # if voice_client.halted:
         #     voice_client.halt(False)
-
 
         if not search:
             if voice_client.is_paused():
@@ -219,7 +209,6 @@ class Music(commands.GroupCog,
             else:
                 await voice_client.cyclePlayNext()
 
-
         """
         halting behavior
         
@@ -251,7 +240,6 @@ class Music(commands.GroupCog,
         
         """
 
-
         #
         # if voice_client.currentlyPlaying()[0] is None:
         #     await voice_client.cycleQueue()
@@ -260,19 +248,15 @@ class Music(commands.GroupCog,
         # if voice_client.currentlyPlaying()[0] is None:
         #     await voice_client.beginNext()
 
-
-
-
-
     @requireVoiceclient()
     @music_group.command(name="skip",
                          description="skips the current track")
-    async def m_skip(self, interaction: Interaction, count: int=1):
+    async def m_skip(self, interaction: Interaction, count: int = 1):
         voice_client: Player = interaction.guild.voice_client
 
         # if not voice_client: raise errors.NotInVC
         skipped_count = await voice_client.cycleQueue(count)
-        comparison_count = abs(count) if count > 0 else abs(count)+1
+        comparison_count = abs(count) if count > 0 else abs(count) + 1
 
         if skipped_count < comparison_count:
             await voice_client.haltPlayback()
@@ -285,31 +269,32 @@ class Music(commands.GroupCog,
                 # else:
                 #     await voice_client.cyclePlayNext()
 
-        await respond(interaction, f"Skipped {'back ' if count<0 else ''}{skipped_count} tracks")
-
-
+        await respond(interaction, f"Skipped {'back ' if count < 0 else ''}{skipped_count} tracks")
 
     @requireVoiceclient(defer_response=False)
     @music_group.command(name="nowplaying",
                          description="shows the current song")
     async def m_nowplaying(self, interaction: Interaction):
         voice_client: Player = interaction.guild.voice_client
+        await respond(interaction)
 
-        def callback(guild_id:int, channel_id:int, current_content:str)->str:
+        def callback(guild_id: int, channel_id: int, current_content: str) -> str:
             guild = self.bot.get_guild(guild_id)
             message = createNowPlayingWithDescriptor(voice_client=guild.voice_client,
                                                      formatting=True,
                                                      position=True)
             return message
 
+        og_response = await interaction.original_response()
 
-        persistant_nowplaying = PersistantMessage(self.bot,
-                                                  guild_id=interaction.guild_id,
-                                                  channel_id=interaction.channel_id,
-                                                  default_message="Now Playing ???? didnt ask fuck you",
-                                                  refresh_callback=callback,
-                                                  persist_interval=5)
-        await persistant_nowplaying.begin()
+        voice_client.now_playing_message = PersistentMessage(self.bot,
+                                                             guild_id=interaction.guild_id,
+                                                             channel_id=interaction.channel_id,
+                                                             default_message="Now Playing ???? didnt ask fuck you",
+                                                             message_id=og_response.id,
+                                                             refresh_callback=callback,
+                                                             persist_interval=5)
+        await voice_client.now_playing_message.begin()
 
         return
 
@@ -320,7 +305,7 @@ class Music(commands.GroupCog,
             channel = interaction.channel
             response = "`Enabled the NowPlaying message`"
             await respond(interaction, response, ephemeral=True, delete_after=3)
-            msg: InteractionMessage = await channel.send( createNowPlayingMessage(*voice_client.currentlyPlaying()))
+            msg: InteractionMessage = await channel.send(createNowPlayingMessage(*voice_client.currentlyPlaying()))
             voice_client.setNowPlayingInfo(msg.channel.id, msg.id)
             await self.nowplayingMessage.start(voice_client)
         else:
@@ -340,11 +325,6 @@ class Music(commands.GroupCog,
         # await og_response.edit(content=response)
         # await og_response.delete(delay=3)
 
-
-
-
-
-
     @tasks.loop(seconds=5)
     async def nowplayingMessage(self, voice_client: Player):
         np_text = createNowPlayingMessage(*voice_client.currentlyPlaying())
@@ -357,11 +337,9 @@ class Music(commands.GroupCog,
 
         last_message_id = channel.last_message_id
 
-
         async def sendNewMessage(ch):
             msg: InteractionMessage = await ch.send(np_text)
             voice_client.setNowPlayingInfo(msg.channel.id, msg.id)
-
 
         if not message:
             await sendNewMessage(channel)
@@ -372,10 +350,6 @@ class Music(commands.GroupCog,
             )
         else:
             await message.edit(content=np_text)
-
-
-
-
 
     @requireVoiceclient()
     @music_group.command(name="queue", description="shows the previous and upcoming tracks")
@@ -432,12 +406,10 @@ class Music(commands.GroupCog,
 
     @requireVoiceclient()
     @music_group.command(name="loop", description="changes the loop mode, Off->All->Single")
-    async def m_loop(self, interaction: Interaction, mode: Player.LoopType=None):
-        voice_client:Player = interaction.guild.voice_client
+    async def m_loop(self, interaction: Interaction, mode: Player.LoopType = None):
+        voice_client: Player = interaction.guild.voice_client
         voice_client.changeLoopMode(mode)
         await respond(interaction, f"Loop Mode:`{mode}`")
-
-
 
     async def on_app_command_error(self, interaction: Interaction, error: AppCommandError):
         if isinstance(error, errors.CustomCheck):
@@ -447,7 +419,6 @@ class Music(commands.GroupCog,
             await og_response.channel.send(content=f"**Command encountered an error:**\n"
                                                    f"{error}")
             traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
-
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload: TrackEventPayload):
@@ -472,7 +443,6 @@ class Music(commands.GroupCog,
             # if halted do jack shit
             # then handle interruptions
 
-
             if voice_client.interrupted:
                 await voice_client.resumeInteruptedTrack()
                 return
@@ -484,14 +454,7 @@ class Music(commands.GroupCog,
             pass
 
 
-
-
-
-
-
 # Music Related Classes
-
-
 
 
 async def setup(bot):
