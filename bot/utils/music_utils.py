@@ -253,7 +253,7 @@ async def searchForTracks(search: str, count: int=1) -> ([WavelinkTrack], str):
         tracks = (await node.get_tracks(query=search, cls=wavelink.SoundCloudTrack))
     elif is_discord_attachment:
         source = "attachment"
-        modified_track = (await node.get_tracks(query=search, cls=wavelink.GenericTrack))[0:count]
+        modified_track = (await node.get_tracks(query=search, cls=wavelink.GenericTrack))[0]
         modified_track.title = attachment_regex_result.group("filename") + "." + attachment_regex_result.group("mime")
         tracks = [modified_track]
     else:
