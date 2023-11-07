@@ -147,7 +147,7 @@ class Music(commands.GroupCog,
     async def m_play(self, interaction: Interaction, search: str = None):
         voice_client: Player = interaction.guild.voice_client
         await respond(interaction)
-
+        before_queue_length = voice_client.queue.count
         if not search:
             if voice_client.is_paused():
                 await voice_client.resume()
@@ -177,7 +177,10 @@ class Music(commands.GroupCog,
 
         if voice_client.halted:
             if voice_client.queue.history.count:
-                await voice_client.beginPlayback()
+                if before_queue_length==0 and voice_client.queue.count > 0:
+                    await voice_client.cyclePlayNext()
+                else:
+                    await voice_client.beginPlayback()
             else:
                 await voice_client.cyclePlayNext()
 
@@ -193,11 +196,11 @@ class Music(commands.GroupCog,
 
             # await respond(interaction, f"`Began Playback`")
 
-        if voice_client.halted:
-            if voice_client.queue.history.count:
-                await voice_client.beginPlayback()
-            else:
-                await voice_client.cyclePlayNext()
+        # if voice_client.halted:
+        #     if voice_client.queue.history.count:
+        #         await voice_client.beginPlayback()
+        #     else:
+        #         await voice_client.cyclePlayNext()
 
     @requireVoiceclient()
     @music_group.command(name="skip",

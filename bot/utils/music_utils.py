@@ -458,12 +458,11 @@ def createQueuePage(voice_client: Player, page_index: int) -> str:
 
     left, right = getEdgeIndices(queue)
 
-
-    top_text = f"{'🡅Previous🡅'.rjust(i_spacing)}\n" \
+    top_text = f"{' '*i_spacing}{'🡅Previous🡅'}\n" \
                f"──────────────────────────"
 
     bottom_text = f"──────────────────────────\n" \
-                  f"{'🡇Up Next🡇'.rjust(i_spacing)}"
+                  f"{' '*i_spacing}{'🡇Up Next🡇'.ljust(i_spacing)}"
 
     ignored_indices = None
     if page_index ==0:
@@ -491,7 +490,7 @@ def createQueuePage(voice_client: Player, page_index: int) -> str:
                              mid_index=mid_index)
 
     page_behavior = PageBehavior(elem_count=track_count,
-                                 max_key_length=55,
+                                 max_key_length=45,
                                  ignored_indices=ignored_indices,
                                  index_spacing=i_spacing)
 
