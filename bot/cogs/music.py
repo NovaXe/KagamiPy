@@ -19,7 +19,7 @@ from discord.app_commands import AppCommandError
 from discord.ext import (commands, tasks)
 from collections import namedtuple
 from bot.utils.music_utils import *
-from bot.utils.utils import (createPageInfoText, createPageList)
+from bot.utils.utils import (createPageInfoText, createPageList, createPages)
 from bot.ext.types import *
 from bot.utils.ui import (MessageScroller, QueueController)
 from bot.ext.smart_functions import (respond, PersistentMessage)
@@ -125,6 +125,64 @@ class Music(commands.GroupCog,
 
         return app_commands.check(predicate)
 
+    async def searchAndQueue(self, voice_client: Player, search):
+        tracks, source = await searchForTracks(search, 1)
+        await voice_client.waitAddToQueue(tracks)
+        return tracks, source
+
+
+    async def respondWithTracks(self, interaction: Interaction, tracks: list[WavelinkTrack]):
+        data, duration = trackListData(tracks)
+        track_count = len(tracks)
+        if track_count > 1:
+            info_text = InfoTextElem(text=f"{track_count} tracks with a duration of {secondsToTime(duration // 1000)} were added to the queue",
+                                     separators=InfoSeparators(bottom="────────────────────────────────────────"),
+                                     loc=ITL.TOP)
+            # Message information
+            og_response = await interaction.original_response()
+            message_info = MessageInfo(og_response.id,
+                                       og_response.channel.id)
+
+            # New Shit
+            def pageGen(interaction: Interaction, page_index: int) -> str:
+                return "No Page here retard"
+
+            page_count = ceil(track_count / 10)
+
+            def edgeIndices(interaction: Interaction) -> EdgeIndices:
+                return EdgeIndices(left=0,
+                                   right=page_count-1)
+
+            pages = createPages(data=data,
+                                info_text=info_text,
+                                max_pages=page_count,
+                                sort_items=False,
+                                custom_reprs={
+                                    "duration": CustomRepr("", "")
+                                },
+                                zero_index=0,
+                                page_behavior=PageBehavior(max_key_length=50))
+
+            page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
+
+            view = ui.PageScroller(bot=self.bot,
+                                   message_info=message_info,
+                                   page_callbacks=page_callbacks,
+                                   pages=pages,
+                                   timeout=300)
+
+            home_text = pageGen(interaction=interaction, page_index=0)
+
+            await og_response.edit(content=home_text, view=view)
+            # After new shit
+
+
+            await respond(interaction, content=pages[0], view=view)
+        else:
+            await respond(interaction,
+                          content=f"`{tracks[0].title}  -  {secondsToTime(tracks[0].length // 1000)} was added to the queue`")
+
+
     @music_group.command(name="join",
                          description="joins the voice channel")
     async def m_join(self, interaction: Interaction, voice_channel: VoiceChannel = None):
@@ -154,26 +212,9 @@ class Music(commands.GroupCog,
                 await respond(interaction, "Resumed music playback")
                 # await respond(interaction, ("Resumed music playback")
         else:
-            tracks, source = await searchForTracks(search, 1)
-            await voice_client.waitAddToQueue(tracks)
-            data, duration = trackListData(tracks)
-            track_count = len(tracks)
-            if track_count > 1:
-                info_text = f"{track_count} tracks with a duration of {secondsToTime(duration // 1000)} were added to the queue"
-                pages = createPageList(info_text=info_text,
-                                       data=data,
-                                       total_item_count=track_count,
-                                       custom_reprs={
-                                           "duration": CustomRepr("", "")
-                                       },
-                                       max_key_length=50,
-                                       sort_items=False)
-                message = await (await interaction.original_response()).fetch()
-                view = MessageScroller(message=message, pages=pages, home_page=0)
-                await respond(interaction, content=pages[0], view=view)
-            else:
-                await respond(interaction,
-                              content=f"`{tracks[0].title}  -  {secondsToTime(tracks[0].length // 1000)} was added to the queue`")
+            tracks, _ = await self.searchAndQueue(voice_client, search)
+            await self.respondWithTracks(interaction, tracks)
+
 
         if voice_client.halted:
             if voice_client.queue.history.count:
@@ -184,23 +225,6 @@ class Music(commands.GroupCog,
             else:
                 await voice_client.cyclePlayNext()
 
-            # left side if selected is NOne
-            # right side if queue empty
-            # else middle and resume current track
-            await asyncio.sleep(1)
-            # await voice_client.cyclePlayNext()
-            # return
-            track, pos = voice_client.currentlyPlaying()
-            if track is None:
-                await voice_client.beginPlayback()
-
-            # await respond(interaction, f"`Began Playback`")
-
-        # if voice_client.halted:
-        #     if voice_client.queue.history.count:
-        #         await voice_client.beginPlayback()
-        #     else:
-        #         await voice_client.cyclePlayNext()
 
     @requireVoiceclient()
     @music_group.command(name="skip",
@@ -301,7 +325,7 @@ class Music(commands.GroupCog,
         def edgeIndices(interaction: Interaction) -> EdgeIndices:
             voice_client: Player
             if voice_client := interaction.guild.voice_client:
-                return getEdgeIndices(voice_client.queue)
+                return getQueueEdgeIndices(voice_client.queue)
             else:
                 return None
 
@@ -316,7 +340,8 @@ class Music(commands.GroupCog,
 
         view = ui.PageScroller(bot=self.bot,
                                message_info=message_info,
-                               page_callbacks=page_callbacks)
+                               page_callbacks=page_callbacks,
+                               timeout=300)
         home_text = pageGen(interaction=interaction, page_index=0)
 
         await og_response.edit(content=home_text, view=view)

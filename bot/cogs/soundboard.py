@@ -124,7 +124,7 @@ class Soundboard(commands.GroupCog, group_name="soundboard"):
             await interaction.edit_original_response(content="A sound with that name already exists")
             return
 
-        server.soundboard[sound_name] = track.id
+        server.soundboard[sound_name] = track.encoded
         await interaction.edit_original_response(content=f"Added {sound_name} to the soundboard")
 
     @app_commands.autocomplete(sound_name=soundboard_autocomplete)

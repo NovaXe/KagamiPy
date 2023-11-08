@@ -17,7 +17,7 @@ import wavelink
 from wavelink.ext import spotify
 from enum import (Enum, auto)
 from bot.utils.utils import (secondsToTime, secondsDivMod, createSinglePage)
-from bot.utils.utils import (PageBehavior, PageIndices, InfoSeperators, InfoTextElem, ITL)
+from bot.utils.utils import (PageBehavior, PageIndices, InfoSeparators, InfoTextElem, ITL)
 # from bot.ext.ui import (PageScroller)
 from bot.ext.types import *
 
@@ -323,7 +323,7 @@ def createNowPlayingWithDescriptor(voice_client: Player, formatting=True, positi
 
 
 
-def trackListData(tracks: [WavelinkTrack]) ->(dict, int):
+def trackListData(tracks: [WavelinkTrack]) ->tuple[dict, int]:
     data: collections.OrderedDict = {}
     total_duration = 0
     for track in tracks:
@@ -339,7 +339,7 @@ def queueSlice(queue: wavelink.Queue, start, end):
 
 
 
-def getEdgeIndices(queue: wavelink.Queue):
+def getQueueEdgeIndices(queue: wavelink.Queue):
     history_page_count = 0
     upnext_page_count = 0
     if (h_len := len(queue.history) - 6) > 0:
@@ -456,7 +456,7 @@ def createQueuePage(voice_client: Player, page_index: int) -> str:
         iloc = ITL.TOP
         first_index = ((page_index-1) * 10) + 6
 
-    left, right = getEdgeIndices(queue)
+    left, right = getQueueEdgeIndices(queue)
 
     top_text = f"{' '*i_spacing}{'🡅Previous🡅'}\n" \
                f"──────────────────────────"
@@ -483,7 +483,7 @@ def createQueuePage(voice_client: Player, page_index: int) -> str:
 
 
     info_text = InfoTextElem(text=now_playing_message,
-                             seperators=InfoSeperators(
+                             separators=InfoSeparators(
                                  top=top_text,
                                  bottom=bottom_text),
                              loc=iloc,

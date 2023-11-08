@@ -1,5 +1,5 @@
 import asyncio
-
+import itertools
 import aiohttp
 from io import BytesIO
 from dataclasses import dataclass
@@ -21,6 +21,7 @@ from discord.ext import tasks
 import discord.utils
 from discord.ext import commands
 from discord import app_commands
+from bot.ext.types import *
 
 async def respond(interaction: Interaction, message: str=None):
     if message:
@@ -121,73 +122,8 @@ def createPageInfoText(total_item_count, scope: str, source: Literal['search', '
     return info_text
 
 
-@dataclass
-class CustomRepr:
-    alias: str = ""
-    delim: str = ":"
-    ignored: bool = False
 
 
-class Position(Enum):
-    UP = auto()
-    DOWN = auto()
-    LEFT = auto()
-    RIGHT = auto()
-
-    TOP = auto()
-    MIDDLE = auto()
-    BOTTOM = auto()
-
-    START = auto()
-    END = auto()
-
-
-# Info Text Location
-class ITL(Enum):
-    """
-    Info Text Location Enum\n
-    Values:
-    TOP, MIDDLE, BOTTOM
-    """
-    TOP = auto()
-    MIDDLE = auto()
-    BOTTOM = auto()
-
-
-@dataclass
-class PageVariations:
-    max_key_length: int = 20
-    sort_items: bool = True
-    info_text_loc: ITL = ITL.TOP
-    start_index: int = 0
-    ignored_indices: list[int] = None
-
-@dataclass
-class PageBehavior:
-    # page_index:int
-    # infotext_loc: ITL = ITL.TOP
-    elem_count: int=10
-    max_key_length: int=20
-    ignored_indices: list[int]=None
-    index_spacing:int = 6
-
-@dataclass
-class PageIndices:
-    first: int
-    current: int
-    last: int
-
-@dataclass
-class InfoSeperators:
-    top: str=None
-    bottom: str=None
-
-@dataclass
-class InfoTextElem:
-    text: str
-    seperators: InfoSeperators
-    loc: ITL
-    mid_index: int=None
 
 
 PageIndexBounds = namedtuple("IndexBounds", "start end")
@@ -301,7 +237,7 @@ def createSinglePage(data: [dict, list],
             page_text = "\n".join(lines)
             page = f"```swift\n" \
                    f"{infotext.text}\n" \
-                   f"{infotext.seperators.bottom}\n" \
+                   f"{infotext.separators.bottom}\n" \
                    f"{page_text}\n" \
                    f"{page_progress}\n" \
                    f"```"
@@ -313,13 +249,13 @@ def createSinglePage(data: [dict, list],
                 second_half += "\n"
             if len(first_half):
                 first_half += "\n"
-            if infotext.seperators.top:
-                sep_top = f"{infotext.seperators.top}\n"
+            if infotext.separators.top:
+                sep_top = f"{infotext.separators.top}\n"
             else:
                 sep_top = ""
 
-            if infotext.seperators.bottom:
-                sep_bottom = f"{infotext.seperators.bottom}\n"
+            if infotext.separators.bottom:
+                sep_bottom = f"{infotext.separators.bottom}\n"
             else:
                 sep_bottom = ""
 
@@ -337,7 +273,7 @@ def createSinglePage(data: [dict, list],
             page_text = "\n".join(lines)
             page = f"```swift\n" \
                    f"{page_text}\n" \
-                   f"{infotext.seperators.top}\n" \
+                   f"{infotext.separators.top}\n" \
                    f"{infotext.text}\n" \
                    f"{page_progress}\n" \
                    f"```"
@@ -362,31 +298,36 @@ def createSinglePage(data: [dict, list],
 
 
 
-def createPages(data: [dict, list],
+def createPages(data: dict | list,
                 info_text: InfoTextElem=None,
-                max_pages: int=None,
+                max_pages: int=1,
                 max_elems: int=None,
                 sort_items: bool=True,
                 custom_reprs: dict[str, CustomRepr]=None,
                 zero_index: int=None,
                 zero_offset: int=0,
-                page_behavior: dict[int, PageBehavior]=None,
+                page_behavior: dict[int, PageBehavior] | PageBehavior=PageBehavior,
                 starting_index: int=0):
 
     if sort_items:
         data = sorted(data)
 
-
-    ending_index = starting_index + (max_pages-1)
+    ending_index = starting_index + max_pages - 1
     pages = [""] * max_pages
-    page_interator = enumerate(zip(pages, range(starting_index, ending_index)))
+    page_interator = enumerate(range(starting_index, ending_index+1))
     page_first_elem = 0
-    for loop_index, (page, page_index) in page_interator:
-        pb = page_behavior[page_index]
+    for loop_index, page_index in page_interator:
+        if isinstance(page_behavior, dict) and page_index in page_behavior:
+            pb = page_behavior[page_index]
+        else:
+            pb = page_behavior
+
         page_max_elems = pb.elem_count
 
-        page_data = data[page_first_elem: page_first_elem + page_max_elems]
-        page = createSinglePage(page_data,
+        # page_data = data[page_first_elem: page_first_elem + page_max_elems]
+        # page_data = dict(data.items()[page_first_elem: page_first_elem + page_max_elems])
+        page_data = dict(itertools.islice(data.items(), page_first_elem, page_first_elem + page_max_elems))
+        pages[page_index] = createSinglePage(page_data,
                                 behavior=pb,
                                 infotext=info_text,
                                 custom_reprs=custom_reprs,
@@ -404,7 +345,7 @@ def createPages(data: [dict, list],
 
 
 def createPageList(info_text: str,
-                   data: [dict, list],
+                   data: dict | list,
                    total_item_count: int,
                    custom_reprs: dict[str, CustomRepr] = None,
                    max_key_length:int=20,

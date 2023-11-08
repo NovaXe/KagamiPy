@@ -12,7 +12,7 @@ from bot.ext.types import *
 
 
 class CustomView(View):
-    def __init__(self, *args, timeout: float | None = 180,
+    def __init__(self, *args, timeout: float | None = 120,
                  bot: Kagami, message_info: MessageInfo,
                  stop_behavior: StopBehavior = StopBehavior(disable_items=True),
                  **kwargs):
@@ -27,13 +27,17 @@ class CustomView(View):
         return self.bot.getPartialMessage(m_id, ch_id)
 
     async def onStop(self):
-        if self.stop_behavior.remove_view:
+        if self.stop_behavior.delete_message:
+            if p_message := self.partialMessage():
+                await p_message.delete()
+        elif self.stop_behavior.remove_view:
             if p_message := self.partialMessage():
                 await p_message.edit(view=None)
         elif self.stop_behavior.disable_items:
             item: Button | Select | TextInput
             for item in self.children:
                 item.disabled = True
+
 
     async def stop(self):
         await self.onStop()
@@ -59,10 +63,12 @@ class CustomView(View):
 
 class PageScroller(CustomView):
     def __init__(self, *args, bot: Kagami,
-                 message_info: MessageInfo, page_callbacks: PageGenCallbacks, **kwargs):
+                 message_info: MessageInfo, page_callbacks: PageGenCallbacks, pages: list[str]=None,
+                 timeout: int=180, **kwargs):
         super().__init__(*args, bot=bot, message_info=message_info,
+                         timeout=timeout, stop_behavior=StopBehavior(delete_message=True),
                          **kwargs)
-        self.pages: list[str] = []
+        self.pages: list[str] = pages
         self.page_callbacks = page_callbacks
         self.page_index = 0
 
@@ -70,7 +76,13 @@ class PageScroller(CustomView):
 
     async def changePage(self, interaction: Interaction, page_index):
         p_message = self.partialMessage()
-        page = self.page_callbacks.genPage(interaction=interaction, page_index=page_index)
+        if self.pages:
+            left_edge, _ = self.lastPageIndices(interaction)
+            adjusted_index = abs(left_edge) + page_index
+            page = self.pages[adjusted_index] if adjusted_index < len(self.pages) else None
+        else:
+            page = self.page_callbacks.genPage(interaction=interaction, page_index=page_index)
+
         if page:
             await p_message.edit(content=page)
 
@@ -93,14 +105,14 @@ class PageScroller(CustomView):
         await interaction.response.edit_message()
         # get first page index
         # generate at index
-        first, last = self.lastPageIndices(interaction)
+        first, _ = self.lastPageIndices(interaction)
         self.page_index = first
         await self.changePage(interaction, first)
 
     @ui.button(emoji="🔼", style=ButtonStyle.gray, custom_id="MessageScroller:prev", row=0)
     async def page_prev(self, interaction: Interaction, button: Button):
         await interaction.response.edit_message()
-        first, last = self.lastPageIndices(interaction)
+        first, _ = self.lastPageIndices(interaction)
 
         if (index:=self.page_index-1) >= first:
             self.page_index = index
@@ -116,7 +128,7 @@ class PageScroller(CustomView):
     @ui.button(emoji="🔽", style=ButtonStyle.gray, custom_id="MessageScroller:next", row=0)
     async def page_next(self, interaction: Interaction, button: Button):
         await interaction.response.edit_message()
-        first, last = self.lastPageIndices(interaction)
+        _, last = self.lastPageIndices(interaction)
 
         if (index := self.page_index + 1) <= last:
             self.page_index = index
@@ -125,7 +137,7 @@ class PageScroller(CustomView):
     @ui.button(emoji="⬇", style=ButtonStyle.gray, custom_id="MessageScroller:last", row=0)
     async def page_last(self, interaction: Interaction, button: Button):
         await interaction.response.edit_message()
-        first, last = self.lastPageIndices(interaction)
+        _, last = self.lastPageIndices(interaction)
         self.page_index = last
         await self.changePage(interaction, last)
 
