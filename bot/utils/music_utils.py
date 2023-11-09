@@ -84,7 +84,9 @@ class Player(wavelink.Player):
             self.queue.loop_all = False
 
 
-
+    async def stop(self, *, halt: bool=False, force: bool = True) -> None:
+        if halt: self.halted=True
+        await super().stop(force=force)
 
     def selectedTrack(self) -> WavelinkTrack:
         """Represents the first track in the history queue"""
@@ -94,7 +96,9 @@ class Player(wavelink.Player):
             return None
 
     def currentlyPlaying(self) -> tuple[WavelinkTrack, int]:
-        """What the bot is actually playing"""
+        """What the bot is actually playing\n
+        :returns (current track, position in milliseconds)
+        """
         return self.current, self.position
 
 
@@ -287,14 +291,15 @@ def track_to_string(track: WavelinkTrack) -> str:
     message = f"{title}  -  {secondsToTime(track.length//1000)}\n"
     return message
 
-def createNowPlayingMessage(track: WavelinkTrack, position: int=None, formatting=True, descriptor_text="NOW PLAYING") -> str:
+def createNowPlayingMessage(track: WavelinkTrack, position: int=None,
+                            formatting=True, show_arrow=True, descriptor_text: str="NOW PLAYING") -> str:
     if track is None:
         message = f"{descriptor_text} ➤ Nothing"
     else:
         if position:
-            message = f"{descriptor_text} ➤ {track.title}  -  {secondsToTime(position//1000)} / {secondsToTime(track.duration//1000)}"
+            message = f"{descriptor_text} {'➤ ' if show_arrow else ''}{track.title}  -  {secondsToTime(position//1000)} / {secondsToTime(track.duration//1000)}"
         else:
-            message = f"{descriptor_text} ➤ {track.title}  -  {secondsToTime(track.duration//1000)}"
+            message = f"{descriptor_text} {'➤ ' if show_arrow else ''}{track.title}  -  {secondsToTime(track.duration//1000)}"
 
     if formatting:
         message = f"**`{message}`**"
@@ -317,7 +322,7 @@ def createNowPlayingWithDescriptor(voice_client: Player, formatting=True, positi
     if not position:
         pos = None
 
-    message = createNowPlayingMessage(track, pos, formatting, descriptor_text)
+    message = createNowPlayingMessage(track, position=pos, formatting=formatting, descriptor_text=descriptor_text)
     return message
 
 

@@ -95,7 +95,7 @@ class Music(commands.GroupCog,
 
         else:
             voice_client = await Music.joinVoice(interaction, voice_channel)
-            if send_response: await respond(interaction, f"I have joined {voice_client.channel.name}")
+            if send_response: await send_response(interaction, f"I have joined {voice_client.channel.name}")
         return voice_client
 
     @staticmethod
@@ -125,7 +125,8 @@ class Music(commands.GroupCog,
 
         return app_commands.check(predicate)
 
-    async def searchAndQueue(self, voice_client: Player, search):
+    @staticmethod
+    async def searchAndQueue(voice_client: Player, search):
         tracks, source = await searchForTracks(search, 1)
         await voice_client.waitAddToQueue(tracks)
         return tracks, source
@@ -182,6 +183,26 @@ class Music(commands.GroupCog,
             await respond(interaction,
                           content=f"`{tracks[0].title}  -  {secondsToTime(tracks[0].length // 1000)} was added to the queue`")
 
+    @staticmethod
+    async def attemptHaltResume(interaction: Interaction, send_response=False):
+        voice_client = interaction.guild.voice_client
+        before_queue_length = voice_client.queue.count
+        response = "default response"
+        if voice_client.halted:
+            if voice_client.queue.history.count:
+                if before_queue_length==0 and voice_client.queue.count > 0:
+                    await voice_client.cyclePlayNext()
+                else:
+                    await voice_client.beginPlayback()
+            else:
+                await voice_client.cyclePlayNext()
+            response = "Let the playa be playin"
+        else:
+            response = "The playa be playin"
+        if send_response: await respond(interaction, f"`{response}`")
+
+
+
 
     @music_group.command(name="join",
                          description="joins the voice channel")
@@ -205,25 +226,18 @@ class Music(commands.GroupCog,
     async def m_play(self, interaction: Interaction, search: str = None):
         voice_client: Player = interaction.guild.voice_client
         await respond(interaction)
-        before_queue_length = voice_client.queue.count
         if not search:
             if voice_client.is_paused():
                 await voice_client.resume()
                 await respond(interaction, "Resumed music playback")
                 # await respond(interaction, ("Resumed music playback")
+            else:
+                await self.attemptHaltResume(interaction, send_response=True)
         else:
             tracks, _ = await self.searchAndQueue(voice_client, search)
             await self.respondWithTracks(interaction, tracks)
+            await self.attemptHaltResume(interaction)
 
-
-        if voice_client.halted:
-            if voice_client.queue.history.count:
-                if before_queue_length==0 and voice_client.queue.count > 0:
-                    await voice_client.cyclePlayNext()
-                else:
-                    await voice_client.beginPlayback()
-            else:
-                await voice_client.cyclePlayNext()
 
 
     @requireVoiceclient()
@@ -355,34 +369,104 @@ class Music(commands.GroupCog,
         voice_client.changeLoopMode(mode)
         await respond(interaction, f"Loop Mode:`{mode}`")
 
-
+    @music_group.command(name="stop", description="Halts the playback of the current track, resuming restarts")
     async def m_stop(self, interaction: Interaction):
+        await respond(interaction)
         # TODO Stop implements stopping via calling the halt function
-        pass
+        voice_client: Player = interaction.guild.voice_client
+        await voice_client.stop(halt=True)
+        await respond(interaction, "Stopped the Player")
 
-    async def m_seek(self, interaction: Interaction):
-        # TODO Seek calls the voice_client's seek function
-        pass
+    @music_group.command(name="seek", description="Seeks to the specified position in the track in seconds")
+    async def m_seek(self, interaction: Interaction, position: float):
+        await respond(interaction)
+        voice_client: Player = interaction.guild.voice_client
+        pos_milliseconds = position * 1000
+        await voice_client.seek(pos_milliseconds)
+        np, _ = voice_client.currentlyPlaying()
+        duration_text = secondsToTime(np.length)
+        if pos_milliseconds > np.length:
+            new_pos = duration_text
+        else:
+            new_pos = secondsToTime(position)
 
-    async def m_pop(self, interaction: Interaction):
-        # TODO Pop removes a track from the queue in any position, negative for the history
-        pass
+        await respond(interaction, f"**Jumped to `{new_pos} / {duration_text}`**")
 
+    @music_group.command(name="pop", description="Removes a track from the queue")
+    async def m_pop(self, interaction: Interaction, position: int, source: Literal["history", "queue"]=None):
+        await respond(interaction)
+        # TODO Extend support for alternate queues, ie next up queue and soundboard queue
+        voice_client: Player = interaction.guild.voice_client
+        index = position - 1
+
+        queue_source = "unknown queue"
+
+        if position <= 0:
+            queue_source = "history"
+            track = voice_client.queue.history[index]
+            del voice_client.queue.history[index]
+        else:
+            queue_source = "queue"
+            track = voice_client.queue[index]
+            del voice_client.queue[index]
+
+        track_text =createNowPlayingMessage(track, position=None, formatting=False, show_arrow=False, descriptor_text='')
+        reply = f"Removed `{track_text}` from `{queue_source}`"
+        await respond(interaction, reply)
+
+    @music_group.command(name="pause", description="Pauses the music player")
     async def m_pause(self, interaction: Interaction):
-        # TODO Pause calls the pause function from the player, functions as a toggle
-        pass
+        # Pause calls the pause function from the player, functions as a toggle
+        # This never needs to do anything fancy ever
+        voice_client: Player = interaction.guild.voice_client
+        if voice_client.is_paused():
+            await voice_client.resume()
+            await respond(interaction, "Resumed the player")
+        else:
+            await voice_client.pause()
+            await respond(interaction, "Paused the player")
 
+    @music_group.command(name="resume", description="Resumes the music player")
     async def m_resume(self, interaction: Interaction):
-        # TODO Resume which just calls resume on the player, effectively pause toggle alias
-        pass
+        # Resume which just calls resume on the player, effectively pause toggle alias
+        voice_client: Player = interaction.guild.voice_client
+        if voice_client.is_paused():
+            await voice_client.resume()
+            await respond(interaction, "Resumed playback")
+        else:
+            await self.attemptHaltResume(voice_client, send_response=True)
 
+    @music_group.command(name="replay", description="Restarts the current song")
     async def m_replay(self, interaction: Interaction):
-        # TODO Replay restarts the current track, no different than halting and beginning playback
+        # Contextually handles replaying based off of the current track progress
+        # Tweak the replay vs restart cutoff based off feedback
+        await respond(interaction)
+        voice_client: Player = interaction.guild.voice_client
+        np, pos = voice_client.currentlyPlaying()
+
+        cutoff_pos = 15  # seconds
+        if pos//1000 < cutoff_pos:
+            await voice_client.cycleQueue(-1)
+            await voice_client.beginPlayback()
+            response = await respond(interaction, "Replaying the previous track")
+        else:
+            await voice_client.seek(0)
+            response = await respond(interaction, "Restarted the current track")
+        await response.delete(delay=3)
+
         pass
 
+    @music_group.command(name="clear", description="Clears the selected queue")
     async def m_clear(self, interaction: Interaction, choice: Literal["queue", "history"]):
-        # TODO Clear for the queue and the history, just does BaseQueue.clear() in the voice client
-        pass
+        # TODO Support multiple queue types, up next queue and soundboard queue for example
+        await respond(interaction)
+        voice_client: Player = interaction.guild.voice_client
+        if choice == "queue":
+            voice_client.queue.clear()
+        elif choice == "history":
+            voice_client.queue.history.clear()
+
+        await respond(interaction, f"Cleared {choice}")
 
     # TODO Playlist Functionality needs a reimplementation
     # Reuse as much stuff from the og implementation as it works quite well but try to clean it up
