@@ -20,6 +20,7 @@ from bot.utils.utils import (secondsToTime, secondsDivMod, createSinglePage)
 from bot.utils.utils import (PageBehavior, PageIndices, InfoSeparators, InfoTextElem, ITL)
 # from bot.ext.ui import (PageScroller)
 from bot.ext.types import *
+from bot.ext.smart_functions import (respond)
 
 WavelinkTrack = wavelink.GenericTrack
 
@@ -168,7 +169,13 @@ class Player(wavelink.Player):
         if await self.cycleQueue() !=0:
             await self.beginPlayback()
         else:
-            self.halted = True
+            await self.stop(halt=True)
+
+    async def cyclePlayPrevious(self):
+        if await self.cycleQueue(-1) !=0:
+            await self.beginPlayback()
+        else:
+            await self.stop(halt=True)
 
     # on begin playback
     # unhalt potentially give a different name
@@ -265,6 +272,24 @@ async def searchForTracks(search: str, count: int=1) -> ([WavelinkTrack], str):
         tracks = (await wavelink.YouTubeTrack.search(search))[0:count]
 
     return tracks, source
+
+
+async def attemptHaltResume(interaction: Interaction, send_response=False):
+    voice_client: Player = interaction.guild.voice_client
+    before_queue_length = voice_client.queue.count
+    response = "default response"
+    if voice_client.halted:
+        if voice_client.queue.history.count:
+            if before_queue_length==0 and voice_client.queue.count > 0:
+                await voice_client.cyclePlayNext()
+            else:
+                await voice_client.beginPlayback()
+        else:
+            await voice_client.cyclePlayNext()
+        response = "Let the playa be playin"
+    else:
+        response = "The playa be playin"
+    if send_response: await respond(interaction, f"`{response}`")
 
 
 async def buildTracks(tracks):

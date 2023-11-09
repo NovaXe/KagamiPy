@@ -21,7 +21,7 @@ from collections import namedtuple
 from bot.utils.music_utils import *
 from bot.utils.utils import (createPageInfoText, createPageList, createPages)
 from bot.ext.types import *
-from bot.utils.ui import (MessageScroller, QueueController)
+from bot.ext.ui import (PageScroller, PlayerController)
 from bot.ext.smart_functions import (respond, PersistentMessage)
 from bot.ext import (errors, ui)
 
@@ -95,7 +95,7 @@ class Music(commands.GroupCog,
 
         else:
             voice_client = await Music.joinVoice(interaction, voice_channel)
-            if send_response: await send_response(interaction, f"I have joined {voice_client.channel.name}")
+            if send_response: await respond(interaction, f"I have joined {voice_client.channel.name}")
         return voice_client
 
     @staticmethod
@@ -183,23 +183,7 @@ class Music(commands.GroupCog,
             await respond(interaction,
                           content=f"`{tracks[0].title}  -  {secondsToTime(tracks[0].length // 1000)} was added to the queue`")
 
-    @staticmethod
-    async def attemptHaltResume(interaction: Interaction, send_response=False):
-        voice_client = interaction.guild.voice_client
-        before_queue_length = voice_client.queue.count
-        response = "default response"
-        if voice_client.halted:
-            if voice_client.queue.history.count:
-                if before_queue_length==0 and voice_client.queue.count > 0:
-                    await voice_client.cyclePlayNext()
-                else:
-                    await voice_client.beginPlayback()
-            else:
-                await voice_client.cyclePlayNext()
-            response = "Let the playa be playin"
-        else:
-            response = "The playa be playin"
-        if send_response: await respond(interaction, f"`{response}`")
+
 
 
 
@@ -232,11 +216,11 @@ class Music(commands.GroupCog,
                 await respond(interaction, "Resumed music playback")
                 # await respond(interaction, ("Resumed music playback")
             else:
-                await self.attemptHaltResume(interaction, send_response=True)
+                await attemptHaltResume(interaction, send_response=True)
         else:
             tracks, _ = await self.searchAndQueue(voice_client, search)
             await self.respondWithTracks(interaction, tracks)
-            await self.attemptHaltResume(interaction)
+            await attemptHaltResume(interaction)
 
 
 
@@ -251,7 +235,7 @@ class Music(commands.GroupCog,
         comparison_count = abs(count) if count > 0 else abs(count) + 1
 
         if skipped_count < comparison_count:
-            await voice_client.haltPlayback()
+            await voice_client.stop(halt=True)
         else:
             if voice_client.halted:
                 await voice_client.stop()
@@ -295,11 +279,17 @@ class Music(commands.GroupCog,
 
         message: Message = await interaction.channel.send(createNowPlayingWithDescriptor(voice_client, True, True))
 
+        view = PlayerController(bot=self.bot,
+                                message_info=MessageInfo(message.id,
+                                                         interaction.channel_id))
+        message_elems = MessageElements(content=message.content,
+                                        view=view)
+
         voice_client.now_playing_message = PersistentMessage(self.bot,
                                                              guild_id=interaction.guild_id,
-                                                             channel_id=interaction.channel_id,
-                                                             default_content=message.content,
-                                                             message_id=message.id,
+                                                             message_info=MessageInfo(message.id,
+                                                                                      interaction.channel_id),
+                                                             message_elems=message_elems,
                                                              refresh_callback=callback,
                                                              persist_interval=5)
         voice_client.now_playing_message.begin()
@@ -434,7 +424,7 @@ class Music(commands.GroupCog,
             await voice_client.resume()
             await respond(interaction, "Resumed playback")
         else:
-            await self.attemptHaltResume(voice_client, send_response=True)
+            await attemptHaltResume(voice_client, send_response=True)
 
     @music_group.command(name="replay", description="Restarts the current song")
     async def m_replay(self, interaction: Interaction):

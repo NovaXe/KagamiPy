@@ -4,7 +4,7 @@ from discord import ui
 from discord.ui import (View, Button, Select, TextInput)
 from discord import (ButtonStyle, Interaction)
 from typing import (Callable)
-from bot.utils.music_utils import (createQueuePage, Player)
+from bot.utils.music_utils import (createQueuePage, Player, attemptHaltResume)
 from bot.ext.types import *
 
 
@@ -154,4 +154,83 @@ class PageScroller(CustomView):
     History: #1
     Up Next: #5
     """
+
+
+class PlayerController(CustomView):
+    def __init__(self, *args, bot: Kagami,
+                 message_info: MessageInfo, timeout: int=None, **kwargs):
+        super().__init__(*args, bot=bot, message_info=message_info, timeout=timeout, **kwargs)
+
+
+    async def refreshButtonState(self):
+        p_message = self.partialMessage()
+        voice_client: Player = p_message.guild.voice_client
+        for item in self.children:
+            assert isinstance(item, Button)
+
+            if item.custom_id == "PlayerControls:pause_play":
+                if voice_client.is_paused():
+                    item.emoji = "▶"
+                else:
+                    item.emoji = "⏸"
+            elif item.custom_id == "PlayerControls:loop":
+                loop_mode = voice_client.loop_mode
+                NO_LOOP = loop_mode.NO_LOOP
+                LOOP_ALL = loop_mode.LOOP_ALL
+                LOOP_TRACK = loop_mode.LOOP_TRACK
+                if loop_mode == NO_LOOP:
+                    item.emoji = "🔁"
+                    item.style = ButtonStyle.gray
+                elif loop_mode == LOOP_ALL:
+                    item.emoji = "🔁"
+                    item.style = ButtonStyle.blurple
+                elif loop_mode == LOOP_TRACK:
+                    item.emoji = "🔂"
+                    item.style = ButtonStyle.blurple
+
+        await p_message.edit(view=self)
+
+
+
+
+    @ui.button(emoji="⏮", style=ButtonStyle.green, custom_id="PlayerControls:skip_back")
+    async def skip_back(self, interaction: Interaction, button: Button):
+        voice_client: Player = interaction.guild.voice_client
+        await interaction.response.edit()
+        await voice_client.cyclePlayPrevious()
+        await self.refreshButtonState()
+
+    @ui.button(emoji="⏹", style=ButtonStyle.green, custom_id="PlayerControls:stop")
+    async def stop_playback(self, interaction: Interaction, button: Button):
+        voice_client: Player = interaction.guild.voice_client
+        await interaction.response.edit()
+        await voice_client.stop(halt=True)
+        await self.refreshButtonState()
+
+    @ui.button(emoji="⏯", style=ButtonStyle.green, custom_id="PlayerControls:pause_play")
+    async def pause_play(self, interaction: Interaction, button: Button):
+        voice_client: Player = interaction.guild.voice_client
+        await interaction.response.edit()
+        await attemptHaltResume(interaction)
+        if voice_client.is_paused():
+            await voice_client.resume()
+        else:
+            await voice_client.pause()
+        await self.refreshButtonState()
+
+    @ui.button(emoji="⏭", style=ButtonStyle.green, custom_id="PlayerControls:skip")
+    async def skip(self, interaction: Interaction, button: Button):
+        voice_client: Player = interaction.guild.voice_client
+        await interaction.response.edit()
+        await voice_client.cyclePlayNext()
+        await self.refreshButtonState()
+
+    @ui.button(emoji="🔁", style=ButtonStyle.gray, custom_id="PlayerControls:loop")
+    async def loop(self, interaction: Interaction, button: Button):
+        voice_client: Player = interaction.guild.voice_client
+        await interaction.response.edit()
+        loop_mode = voice_client.loop_mode
+        loop_mode = loop_mode.next()
+        await self.refreshButtonState()
+
 
