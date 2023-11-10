@@ -3,11 +3,25 @@ from collections import namedtuple
 from typing import (Callable)
 from enum import Enum, auto
 
+import discord.utils
+from discord.ui import View
+from discord import Attachment, Embed, File
+from discord.utils import MISSING
+
 @dataclass
 class MessageInfo:
     id: int
     channel_id: int
     # guild_id: int
+
+@dataclass
+class MessageElements:
+    content: str="No Content"
+    view: View=MISSING
+    attachments: list[Attachment]=MISSING
+    files: list[File]=MISSING
+    embeds: list[Embed] = MISSING
+
 
 @dataclass
 class StopBehavior:

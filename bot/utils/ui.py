@@ -9,6 +9,7 @@ from discord import app_commands
 from typing import Optional
 
 from bot.utils.music_helpers import *
+from bot.ext.smart_functions import (respond)
 from discord.ext import tasks
 
 
@@ -49,7 +50,8 @@ class MessageReply(discord.ui.Modal, title="Message Reply"):
 
     async def on_submit(self, interaction: discord.Interaction):
         await self.message.reply(f"{self.response}")
-        await interaction.response.defer(ephemeral=True)
+        await respond(interaction, f"Replied to {self.message.author}", ephemeral=True, delete_after=3)
+        await interaction.response.send_message(ephemeral=True, )
 
 
 class PlayerControls(CustomUIView):

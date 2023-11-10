@@ -16,7 +16,7 @@ from discord.ui import(Button, Select, TextInput, View)
 import wavelink
 from wavelink.ext import spotify
 from enum import (Enum, auto)
-from bot.utils.utils import (secondsToTime, secondsDivMod, createSinglePage)
+from bot.utils.utils import (secondsToTime, secondsDivMod, createSinglePage, createPages)
 from bot.utils.utils import (PageBehavior, PageIndices, InfoSeparators, InfoTextElem, ITL)
 # from bot.ext.ui import (PageScroller)
 from bot.ext.types import *
@@ -35,14 +35,14 @@ class Player(wavelink.Player):
 
         def next(self):
             next_value = self.value + 1
-            if next_value > self.LOOP_TRACK:
-                next_value = self.NO_LOOP
+            if next_value > self.LOOP_TRACK.value:
+                next_value = self.NO_LOOP.value
             return Player.LoopType(next_value)
 
         def prev(self):
             prev_value = self.value - 1
-            if prev_value < self.NO_LOOP:
-                prev_value = self.LOOP_TRACK
+            if prev_value < self.NO_LOOP.value:
+                prev_value = self.LOOP_TRACK.value
             return Player.LoopType(prev_value)
 
 
@@ -233,7 +233,7 @@ YT_URL_REG = re.compile(r"(?:https://)(?:www\.)?(?:youtube|youtu\.be)(?:\.com)?\
 DISCORD_ATTACHMENT_REG = re.compile(r"(https://|http://)?(cdn\.|media\.)discord(app)?\.(com|net)/attachments/[0-9]{17,19}/[0-9]{17,19}/(?P<filename>.{1,256})\.(?P<mime>[0-9a-zA-Z]{2,4})(\?size=[0-9]{1,4})?")
 SOUNDCLOUD_REG = re.compile("^https?:\/\/(www\.|m\.)?soundcloud\.com\/[a-z0-9](?!.*?(-|_){2})[\w-]{1,23}[a-z0-9](?:\/.+)?$")
 
-async def searchForTracks(search: str, count: int=1) -> ([WavelinkTrack], str):
+async def searchForTracks(search: str, count: int=1) -> tuple[list[WavelinkTrack], str]:
     is_yt_url = bool(YT_URL_REG.search(search))
     is_spotify_url = bool(spotify.decode_url(search))
     is_soundcloud_url = bool(SOUNDCLOUD_REG.search(search))
@@ -274,6 +274,8 @@ async def searchForTracks(search: str, count: int=1) -> ([WavelinkTrack], str):
     return tracks, source
 
 
+
+
 async def attemptHaltResume(interaction: Interaction, send_response=False):
     voice_client: Player = interaction.guild.voice_client
     before_queue_length = voice_client.queue.count
@@ -286,6 +288,7 @@ async def attemptHaltResume(interaction: Interaction, send_response=False):
                 await voice_client.beginPlayback()
         else:
             await voice_client.cyclePlayNext()
+        await voice_client.resume()
         response = "Let the playa be playin"
     else:
         response = "The playa be playin"

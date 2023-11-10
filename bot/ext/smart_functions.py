@@ -1,8 +1,12 @@
 import asyncio
+import dataclasses
+from dataclasses import asdict
 from typing import(Callable)
 import discord
 from discord import (Interaction, TextChannel, Message, PartialMessage, InteractionResponse, InteractionMessage)
 from discord.ext import (commands, tasks)
+
+from bot.ext.types import MessageElements, MessageInfo
 
 
 async def respond(interaction: Interaction, content: str=None, ephemeral=False, **kwargs):
@@ -22,15 +26,17 @@ async def respond(interaction: Interaction, content: str=None, ephemeral=False, 
 
 
 class PersistentMessage:
-    def __init__(self, bot: commands.Bot, guild_id, channel_id, default_content: str, message_id=None,
-                 refresh_callback=None, refresh_delay: int=0, persist_interval=60):
+    def __init__(self, bot: commands.Bot, guild_id, message_info: MessageInfo, message_elems: MessageElements=MessageElements,
+                 refresh_callback: Callable=None, seperator:bool=False, refresh_delay: int = 0, persist_interval=60):
         self.bot = bot
         self.guild_id = guild_id
-        self.channel_id = channel_id
-        self.message_id = message_id
-        self.message_content = default_content
+        self.channel_id = message_info.channel_id
+        self.message_id = message_info.id
+        self.message_elems: MessageElements = message_elems
+        self.message_content = self.message_elems.content
         self.refresh_delay_counter = 0
-        self.refresh_callback: Callable[[int, int, str], str] = refresh_callback
+        self.refresh_callback: Callable[[int, int, MessageElements], str] = refresh_callback
+        self.seperator=seperator
         """
         guild_id, channel_id, current_content\n
         callback(guild_id: int, channel_id: int, current_content: str) -> message_content:...
@@ -53,24 +59,54 @@ class PersistentMessage:
 
     def get_messsage_content(self):
         if self.refresh_callback:
-            return self.refresh_callback(self.guild_id, self.channel_id, self.message_content)
+            return self.refresh_callback(self.guild_id, self.channel_id, self.message_elems.content)
         else:
             return "No Content"
 
+    def getMessageElems(self):
+        if self.refresh_callback:
+            return self.refresh_callback(self.guild_id, self.channel_id, self.message_elems)
+        else:
+            return MessageElements
+
+    def messageContent(self):
+        content = self.message_elems.content
+        if self.seperator:
+            new_content = f"**`{'═'*max(len(content), 47)}`\n`{content}`**"
+        else:
+            new_content = f"**`{content}`**"
+        return new_content
+
+
     def get_partial_message(self) -> PartialMessage:
         channel = self.bot.get_channel(self.channel_id)
-        message = channel.get_partial_message(self.message_id)
+        if channel is not None:
+            message = channel.get_partial_message(self.message_id)
+        else:
+            message = None
         return message
 
     async def send_message(self):
         channel = self.bot.get_channel(self.channel_id)
-        messsage = await channel.send(content=self.message_content)
-        self.message_id = messsage.id
+        # messsage = await channel.send(content=self.message_elems.content)
+        elems = self.message_elems
+        text = self.messageContent()
+        message = await channel.send(content=text,
+                                     view=elems.view,
+                                     files=elems.files,
+                                     embeds=elems.embeds)
+        self.message_id = message.id
 
     # TODO allowing editing messages with views and attachments
     async def attempt_message_edit(self, message: PartialMessage):
         try:
-            await message.edit(content=self.message_content)
+            # await message.edit(content=self.message_elems.content, )
+            elems = self.message_elems
+            text = self.messageContent()
+            await message.edit(content=text,
+                               view=elems.view,
+                               attachments=elems.attachments,
+                               embeds=elems.embeds)
         except discord.HTTPException:
             await self.send_message()
 
@@ -82,7 +118,11 @@ class PersistentMessage:
 
     def refresh(self):
         if self.refresh_callback:
-            self.message_content = self.get_messsage_content()
+            # self.message_elems.content = self.get_messsage_content()
+            self.message_elems = self.getMessageElems()
+
+
+
 
     @tasks.loop()
     async def persist(self):

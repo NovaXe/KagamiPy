@@ -1,27 +1,26 @@
-import asyncio
-import copy
-import functools
-import math
 import sys
 import traceback
-from functools import partial
 
 import wavelink
 from wavelink import TrackEventPayload
 from wavelink.ext import spotify
-from enum import (
-    Enum, auto
-)
-from typing import (Literal, Callable)
-import discord
-from discord import (utils, app_commands, Interaction, InteractionResponse, VoiceChannel, Message, InteractionMessage)
+from typing import (Literal)
+from discord import (app_commands, Interaction, VoiceChannel, Message)
 from discord.app_commands import AppCommandError
 from discord.ext import (commands, tasks)
-from collections import namedtuple
-from bot.utils.music_utils import *
-from bot.utils.utils import (createPageInfoText, createPageList, createPages)
+from discord.utils import MISSING
+
+from bot.ext.ui.views import PageScroller
+from bot.utils.music_utils import (
+    searchForTracks,
+    Player, attemptHaltResume,
+    createNowPlayingWithDescriptor, createNowPlayingMessage,
+    createQueuePage,getQueueEdgeIndices,
+    secondsToTime)
+from bot.ext.responses import respondWithTracks
+from bot.kagami import Kagami
 from bot.ext.types import *
-from bot.ext.ui import (PageScroller, PlayerController)
+from bot.ext.ui.music import PlayerController
 from bot.ext.smart_functions import (respond, PersistentMessage)
 from bot.ext import (errors, ui)
 
@@ -132,60 +131,6 @@ class Music(commands.GroupCog,
         return tracks, source
 
 
-    async def respondWithTracks(self, interaction: Interaction, tracks: list[WavelinkTrack]):
-        data, duration = trackListData(tracks)
-        track_count = len(tracks)
-        if track_count > 1:
-            info_text = InfoTextElem(text=f"{track_count} tracks with a duration of {secondsToTime(duration // 1000)} were added to the queue",
-                                     separators=InfoSeparators(bottom="────────────────────────────────────────"),
-                                     loc=ITL.TOP)
-            # Message information
-            og_response = await interaction.original_response()
-            message_info = MessageInfo(og_response.id,
-                                       og_response.channel.id)
-
-            # New Shit
-            def pageGen(interaction: Interaction, page_index: int) -> str:
-                return "No Page here retard"
-
-            page_count = ceil(track_count / 10)
-
-            def edgeIndices(interaction: Interaction) -> EdgeIndices:
-                return EdgeIndices(left=0,
-                                   right=page_count-1)
-
-            pages = createPages(data=data,
-                                info_text=info_text,
-                                max_pages=page_count,
-                                sort_items=False,
-                                custom_reprs={
-                                    "duration": CustomRepr("", "")
-                                },
-                                zero_index=0,
-                                page_behavior=PageBehavior(max_key_length=50))
-
-            page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
-
-            view = ui.PageScroller(bot=self.bot,
-                                   message_info=message_info,
-                                   page_callbacks=page_callbacks,
-                                   pages=pages,
-                                   timeout=300)
-
-            home_text = pageGen(interaction=interaction, page_index=0)
-
-            await og_response.edit(content=home_text, view=view)
-            # After new shit
-
-
-            await respond(interaction, content=pages[0], view=view)
-        else:
-            await respond(interaction,
-                          content=f"`{tracks[0].title}  -  {secondsToTime(tracks[0].length // 1000)} was added to the queue`")
-
-
-
-
 
 
     @music_group.command(name="join",
@@ -219,7 +164,7 @@ class Music(commands.GroupCog,
                 await attemptHaltResume(interaction, send_response=True)
         else:
             tracks, _ = await self.searchAndQueue(voice_client, search)
-            await self.respondWithTracks(interaction, tracks)
+            await respondWithTracks(self.bot, interaction, tracks)
             await attemptHaltResume(interaction)
 
 
@@ -250,9 +195,11 @@ class Music(commands.GroupCog,
     @requireVoiceclient(defer_response=False)
     @music_group.command(name="nowplaying",
                          description="shows the current song")
-    async def m_nowplaying(self, interaction: Interaction, move_status:bool=True):
+    async def m_nowplaying(self, interaction: Interaction, minimal:bool=None, move_status:bool=True):
         voice_client: Player = interaction.guild.voice_client
         # await respond(interaction, ephemeral=True)
+
+
 
         if voice_client.now_playing_message:
             msg_channel_id = voice_client.now_playing_message.channel_id
@@ -261,35 +208,55 @@ class Music(commands.GroupCog,
             await voice_client.now_playing_message.halt()
             voice_client.now_playing_message = None
 
-            if move_status and interaction.channel.id != msg_channel_id:
-                await respond(interaction, f"`Moved status message to {interaction.channel.name}`", ephemeral=True, delete_after=3)
+            async def disableRespond(): await respond(interaction, "`Disabled status message`", ephemeral=True, delete_after=3)
+
+            if move_status:
+                if interaction.channel.id != msg_channel_id:
+                    await respond(interaction, f"`Moved status message to {interaction.channel.name}`", ephemeral=True, delete_after=3)
+                elif minimal is not None:
+                    await respond(interaction, f"`{'Enabled' if minimal else 'Disabled'} minimal mode`", ephemeral=True, delete_after=3)
+                else:
+                    await disableRespond()
+                    return
             else:
-                await respond(interaction, "`Disabled status message`", ephemeral=True, delete_after=3)
+                await disableRespond()
                 return
         else:
             await respond(interaction, "`Enabled status message`", ephemeral=True, delete_after=3)
 
-        def callback(guild_id: int, channel_id: int, current_content: str) -> str:
-            guild = self.bot.get_guild(guild_id)
-            message = createNowPlayingWithDescriptor(voice_client=guild.voice_client,
-                                                     formatting=True,
-                                                     position=True)
-            return message
+
 
 
         message: Message = await interaction.channel.send(createNowPlayingWithDescriptor(voice_client, True, True))
 
-        view = PlayerController(bot=self.bot,
-                                message_info=MessageInfo(message.id,
-                                                         interaction.channel_id))
+        message_info = MessageInfo(id=message.id,
+                                   channel_id=message.channel.id)
+        if minimal:
+            sep = False
+            view=MISSING
+        else:
+            sep = True
+            view = PlayerController(bot=self.bot,
+                                    message_info=message_info,
+                                    timeout=None)
+
         message_elems = MessageElements(content=message.content,
                                         view=view)
 
+        def callback(guild_id: int, channel_id: int, message_elems: MessageElements) -> str:
+            guild = self.bot.get_guild(guild_id)
+            message = createNowPlayingWithDescriptor(voice_client=guild.voice_client,
+                                                     formatting=False,
+                                                     position=True)
+            message_elems.content = message
+            return message_elems
+
+
         voice_client.now_playing_message = PersistentMessage(self.bot,
                                                              guild_id=interaction.guild_id,
-                                                             message_info=MessageInfo(message.id,
-                                                                                      interaction.channel_id),
+                                                             message_info=message_info,
                                                              message_elems=message_elems,
+                                                             seperator=sep,
                                                              refresh_callback=callback,
                                                              persist_interval=5)
         voice_client.now_playing_message.begin()
@@ -342,10 +309,10 @@ class Music(commands.GroupCog,
 
         page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
 
-        view = ui.PageScroller(bot=self.bot,
-                               message_info=message_info,
-                               page_callbacks=page_callbacks,
-                               timeout=300)
+        view = PageScroller(bot=self.bot,
+                            message_info=message_info,
+                            page_callbacks=page_callbacks,
+                            timeout=300)
         home_text = pageGen(interaction=interaction, page_index=0)
 
         await og_response.edit(content=home_text, view=view)
@@ -472,6 +439,8 @@ class Music(commands.GroupCog,
             await og_response.channel.send(content=f"**Command encountered an error:**\n"
                                                    f"{error}")
             traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
+
+
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload: TrackEventPayload):
