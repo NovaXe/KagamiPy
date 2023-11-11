@@ -1,12 +1,9 @@
-from bot.kagami import Kagami
 from discord import ui
-from discord.ui import (Button, TextInput, Modal)
+from discord.ui import (Modal)
 from discord import (ButtonStyle, Interaction)
-from bot.utils.music_utils import (Player, attemptHaltResume, searchForTracks)
-from bot.ext.responses import respondWithTracks
-from bot.ext.smart_functions import respond
-from bot.ext.ui.views import *
-from bot.ext.types import *
+from bot.utils.music_utils import (Player, attemptHaltResume, searchForTracks, respondWithTracks)
+from bot.ext.ui.custom_view import *
+
 
 class PlayerController(CustomView):
     def __init__(self, *args, bot: Kagami,

@@ -16,7 +16,7 @@ from discord.ext import commands
 from discord import app_commands
 from bot.utils.ui import MessageReply
 from bot.utils.bot_data import Server
-from bot.ext.smart_functions import (respond)
+from bot.ext.responses import (respond)
 
 class Fun(commands.Cog):
     def __init__(self, bot):

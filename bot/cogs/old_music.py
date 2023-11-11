@@ -18,16 +18,15 @@ from wavelink import YouTubeTrack
 from collections import deque
 import atexit
 import math
+
 from bot.utils.ui import MessageScroller
 from bot.utils.ui import QueueController
 from bot.utils.bot_data import Server
 from bot.utils.music_helpers import *
 from bot.utils.utils import (
-    secondsDivMod,
-    createPageList,
-    CustomRepr
+    secondsDivMod
 )
-
+from bot.utils.pages import createPageList, CustomRepr
 
 from bot.utils import ui
 from wavelink.ext import spotify
@@ -782,7 +781,6 @@ class OldMusic(commands.Cog):
             return
 
         if current_player is None:
-            server.player = None
             # print("no voice client")
             return
         else:
@@ -793,7 +791,6 @@ class OldMusic(commands.Cog):
                         # print("leaving")
                         await current_player.dj_channel.send(f"Everyone left `{before.channel.name}` so I left too")
                         await current_player.disconnect()
-                        server.player = None
                     # else:
                     #     print("members remain")
                 # else:

@@ -10,19 +10,19 @@ from discord.app_commands import AppCommandError
 from discord.ext import (commands, tasks)
 from discord.utils import MISSING
 
-from bot.ext.ui.views import PageScroller
+from bot.ext.ui.custom_view import MessageInfo
+from bot.ext.ui.page_scroller import PageScroller, MessageElements, PageGenCallbacks
 from bot.utils.music_utils import (
     searchForTracks,
     Player, attemptHaltResume,
     createNowPlayingWithDescriptor, createNowPlayingMessage,
-    createQueuePage,getQueueEdgeIndices,
-    secondsToTime)
-from bot.ext.responses import respondWithTracks
+    createQueuePage, getQueueEdgeIndices,
+    secondsToTime, respondWithTracks)
 from bot.kagami import Kagami
-from bot.ext.types import *
 from bot.ext.ui.music import PlayerController
-from bot.ext.smart_functions import (respond, PersistentMessage)
-from bot.ext import (errors, ui)
+from bot.ext.responses import (respond, PersistentMessage)
+from bot.ext import (errors)
+from bot.utils.pages import EdgeIndices
 
 
 # assert type(Interaction.response) is InteractionResponse

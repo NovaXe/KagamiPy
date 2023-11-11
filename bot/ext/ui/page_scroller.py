@@ -1,60 +1,39 @@
 from dataclasses import dataclass
+from enum import Enum, auto
+from typing import Callable
+
+from discord import Interaction, ui, ButtonStyle, Attachment, File, Embed
+from discord.ui import Button
+from discord.utils import MISSING
+
+from bot.ext.ui.custom_view import CustomView, StopBehavior, MessageInfo
 from bot.kagami import Kagami
-from discord import ui
-from discord.ui import (View, Button, Select, TextInput, Modal)
-from discord import (ButtonStyle, Interaction, Message)
-from typing import (Callable)
-from bot.utils.music_utils import (Player, attemptHaltResume, searchForTracks)
-from bot.ext.types import *
+
+@dataclass
+class MessageElements:
+    content: str="No Content"
+    view: CustomView=MISSING
+    attachments: list[Attachment]=MISSING
+    files: list[File]=MISSING
+    embeds: list[Embed] = MISSING
 
 
-class CustomView(View):
-    def __init__(self, *args, timeout: float | None = 120,
-                 bot: Kagami, message_info: MessageInfo,
-                 stop_behavior: StopBehavior = StopBehavior(disable_items=True),
-                 **kwargs):
-        super().__init__(timeout=timeout)
-        self.bot: Kagami = bot
-        self.m_info: MessageInfo = message_info
-        self.stop_behavior = stop_behavior
-
-    def partialMessage(self):
-        m_id = self.m_info.id
-        ch_id = self.m_info.channel_id
-        return self.bot.getPartialMessage(m_id, ch_id)
-
-    async def onStop(self):
-        if self.stop_behavior.delete_message:
-            if p_message := self.partialMessage():
-                await p_message.delete()
-        elif self.stop_behavior.remove_view:
-            if p_message := self.partialMessage():
-                await p_message.edit(view=None)
-        elif self.stop_behavior.disable_items:
-            item: Button | Select | TextInput
-            for item in self.children:
-                item.disabled = True
+@dataclass
+class PageGenCallbacks:
+    genPage: Callable
+    getEdgeIndices: Callable
 
 
-    async def stop(self):
-        await self.onStop()
+class ITL(Enum):
+    """
+    Info Text Location Enum\n
+    Values:
+    TOP, MIDDLE, BOTTOM
+    """
+    TOP = auto()
+    MIDDLE = auto()
+    BOTTOM = auto()
 
-    async def on_timeout(self) -> None:
-        await self.stop()
-
-    async def deleteMessage(self):
-        if p_message := self.partialMessage():
-            await p_message.delete()
-
-
-
-# TODO potential idea for PageScroller page refresh method
-# Bundle the interaction into a payload datatype that contains other data too
-# The Scroller doesn't need to know about those other bits of data
-# The payload would be passed along to the callback for usage
-# This would bypass the callback needing to know specific data
-# Instead the payload simply holds a slew of info that may be useful for a callback
-# This is so smart
 
 class PageScroller(CustomView):
     def __init__(self, *args, bot: Kagami,
@@ -66,10 +45,17 @@ class PageScroller(CustomView):
         self.pages: list[str] = pages
         self.page_callbacks = page_callbacks
         self.page_index = 0
+        self.prev_interaction = None
 
 
 
-    async def changePage(self, interaction: Interaction, page_index):
+    async def changePage(self, interaction: Interaction=None, page_index=0):
+        if interaction:
+            self.prev_interaction = interaction
+        else:
+            interaction = self.prev_interaction
+            # Probably a stupid idea
+
         p_message = self.partialMessage()
         if self.pages:
             left_edge, _ = self.lastPageIndices(interaction)
@@ -151,8 +137,11 @@ class PageScroller(CustomView):
     """
 
 
-
-
-
-
+# TODO potential idea for PageScroller page refresh method
+# Bundle the interaction into a payload datatype that contains other data too
+# The Scroller doesn't need to know about those other bits of data
+# The payload would be passed along to the callback for usage
+# This would bypass the callback needing to know specific data
+# Instead the payload simply holds a slew of info that may be useful for a callback
+# This is so smart
 

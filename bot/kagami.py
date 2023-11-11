@@ -15,7 +15,7 @@ from typing import (
     Dict,
     Union,
     Optional,
-    List,
+    List, Any,
 )
 from bot.utils.bot_data import Server
 from bot.utils.music_helpers import Playlist
@@ -161,11 +161,23 @@ class Kagami(commands.Bot):
     # TODO change the config system to utilize a dataclass
     # Add LOG_CHANNEL to the config
 
-    async def logToChannel(self, message:str, channel: discord.TextChannel|int=LOG_CHANNEL):
+    async def logToChannel(self, message:str, channel: discord.TextChannel|int=LOG_CHANNEL, big_bold=True, code_block=True):
         if not isinstance(channel, discord.TextChannel):
             channel = self.get_channel(channel)
 
-        await channel.send(f"## `{message}`")
+        if code_block:
+            message = f"`{message}`"
+        if big_bold:
+            message = f"## {message}"
+
+
+        await channel.send(message)
+
+    async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:
+        await super().on_error(event_method, *args, **kwargs)
+        await self.logToChannel(event_method, False, False)
+
+
 
     async def on_ready(self):
         login_message = f"Logged in as {self.user} (ID: {self.user.id})"

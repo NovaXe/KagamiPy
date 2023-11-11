@@ -6,7 +6,6 @@ from typing import (
     List,
 )
 
-from bot.utils.music_helpers import OldPlayer
 from bot.utils.music_helpers import Playlist
 
 
@@ -14,7 +13,6 @@ class Server:
     def __init__(self, guild_id: [int, str], player=None, json_data=None):
         self.id = str(guild_id)
         self.playlists: dict[str, Playlist] = {}     # name : Playlist
-        self.player: OldPlayer = player
         self.has_player: bool = False
         self.views = {}
         self.soundboard: dict[str, str] = {}

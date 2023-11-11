@@ -1,68 +1,152 @@
-from math import ceil
-from discord import(Interaction)
-from bot.ext.types import InfoTextElem, InfoSeparators, ITL, MessageInfo, EdgeIndices, CustomRepr, PageGenCallbacks, \
-    PageBehavior
-from bot.ext.ui.views import PageScroller
-from bot.ext.smart_functions import respond
-from bot.kagami import  Kagami
-from bot.utils.music_utils import trackListData, WavelinkTrack
-from bot.utils.utils import secondsToTime, createPages, secondsDivMod
+import asyncio
+from typing import(Callable)
+import discord
+from discord import (Interaction, PartialMessage)
+from discord.ext import (commands, tasks)
+
+from bot.ext.ui.custom_view import MessageInfo
+from bot.ext.ui.page_scroller import MessageElements
 
 
-async def respondWithTracks(bot:Kagami, interaction: Interaction, tracks: list[WavelinkTrack, ], followup=False, timeout=60):
-    data, duration = trackListData(tracks)
-    track_count = len(tracks)
-    # Message information
-    if followup:
-        og_response = await interaction.followup.send(content="...")
+async def respond(interaction: Interaction, content: str=None, ephemeral=False, **kwargs):
+    kwargs.update({"content": content})
+    if content:
+        try:
+            response=await interaction.response.send_message(ephemeral=ephemeral, **kwargs)
+        except discord.InteractionResponded:
+            response=await interaction.edit_original_response(**kwargs)
     else:
-        og_response = await interaction.original_response()
-    if track_count > 1:
-        info_text = InfoTextElem(text=f"{track_count} tracks with a duration of {secondsToTime(duration // 1000)} were added to the queue",
-                                 separators=InfoSeparators(bottom="────────────────────────────────────────"),
-                                 loc=ITL.TOP)
+        try:
+            response=await interaction.response.defer(ephemeral=ephemeral)
+        except discord.InteractionResponded:
+            response = None
+            pass
+    return response
 
-        message_info = MessageInfo(og_response.id,
-                                   og_response.channel.id)
 
-        # New Shit
-        def pageGen(interaction: Interaction, page_index: int) -> str:
+class PersistentMessage:
+    def __init__(self, bot: commands.Bot, guild_id, message_info: MessageInfo, message_elems: MessageElements=MessageElements,
+                 refresh_callback: Callable=None, seperator:bool=False, refresh_delay: int = 0, persist_interval=60):
+        self.bot = bot
+        self.guild_id = guild_id
+        self.channel_id = message_info.channel_id
+        self.message_id = message_info.id
+        self.message_elems: MessageElements = message_elems
+        self.message_content = self.message_elems.content
+        self.refresh_delay_counter = 0
+        self.refresh_callback: Callable[[int, int, MessageElements], str] = refresh_callback
+        self.seperator=seperator
+        """
+        guild_id, channel_id, current_content\n
+        callback(guild_id: int, channel_id: int, current_content: str) -> message_content:...
+        """
+        # may modify the refresh sysem to be one and the same with persist and just have a "refresh after n times check"
+        self.refresh_delay = max(refresh_delay, 0)
+        self.persist.change_interval(seconds=persist_interval)
+
+    #     may be possible that this gets desynced and the persistant message has text from the previous refresh
+    #     The content would be behind by an interval and it would be visibly wonky
+
+    def begin(self):
+        self.persist.start()
+
+    async def halt(self):
+        self.persist.cancel()
+        if message:=self.get_partial_message():
+            await self.attempt_message_delete(message)
+
+
+    def get_messsage_content(self):
+        if self.refresh_callback:
+            return self.refresh_callback(self.guild_id, self.channel_id, self.message_elems.content)
+        else:
             return "No Content"
 
-        page_count = ceil(track_count / 10)
+    def getMessageElems(self):
+        if self.refresh_callback:
+            return self.refresh_callback(self.guild_id, self.channel_id, self.message_elems)
+        else:
+            return MessageElements
 
-        left_edge = 0
-        home_index = 0
+    def messageContent(self):
+        content = self.message_elems.content
+        if self.seperator:
+            new_content = f"**`{'═'*max(len(content), 47)}`\n`{content}`**"
+        else:
+            new_content = f"**`{content}`**"
+        return new_content
 
-        def edgeIndices(interaction: Interaction) -> EdgeIndices:
-            return EdgeIndices(left=left_edge,
-                               right=page_count-1)
+
+    def get_partial_message(self) -> PartialMessage:
+        channel = self.bot.get_channel(self.channel_id)
+        if channel is not None:
+            message = channel.get_partial_message(self.message_id)
+        else:
+            message = None
+        return message
+
+    async def send_message(self):
+        channel = self.bot.get_channel(self.channel_id)
+        # messsage = await channel.send(content=self.message_elems.content)
+        elems = self.message_elems
+        text = self.messageContent()
+        message = await channel.send(content=text,
+                                     view=elems.view,
+                                     files=elems.files,
+                                     embeds=elems.embeds)
+        self.message_id = message.id
+
+    # TODO allowing editing messages with views and attachments
+    async def attempt_message_edit(self, message: PartialMessage):
+        try:
+            # await message.edit(content=self.message_elems.content, )
+            elems = self.message_elems
+            text = self.messageContent()
+            await message.edit(content=text,
+                               view=elems.view,
+                               attachments=elems.attachments,
+                               embeds=elems.embeds)
+        except discord.HTTPException:
+            await self.send_message()
+
+    async def attempt_message_delete(self, message: PartialMessage):
+        try:
+            await message.delete()
+        except discord.HTTPException:
+            pass
+
+    async def refresh(self):
+        if self.refresh_callback:
+            # self.message_elems.content = self.get_messsage_content()
+            self.message_elems = self.getMessageElems()
+            await self.message_elems.view.refreshButtonState()
 
 
-        pages = createPages(data=data,
-                            info_text=info_text,
-                            max_pages=page_count,
-                            sort_items=False,
-                            custom_reprs={
-                                "duration": CustomRepr("", "")
-                            },
-                            zero_index=home_index,
-                            page_behavior=PageBehavior(max_key_length=50))
 
-        page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
 
-        view = PageScroller(bot=bot,
-                            message_info=message_info,
-                            page_callbacks=page_callbacks,
-                            pages=pages,
-                            timeout=timeout)
+    @tasks.loop()
+    async def persist(self):
+        message = self.get_partial_message()
 
-        home_text = pages[abs(left_edge) + home_index]
-        # Let it have arbitary home pages that aren't just the first page
+        if self.refresh_delay == 0:
+            await self.refresh()
+        else:
+            if self.refresh_delay_counter >= self.refresh_delay:
+                self.refresh_delay_counter = 0
+                await self.refresh()
+            else:
+                self.refresh_delay_counter += 1
 
-        await og_response.edit(content=home_text, view=view)
-    else:
-        hours, minutes, seconds = secondsDivMod(tracks[0].duration//1000)
-        await og_response.edit(
-            content=f"`{tracks[0].title}  -  {f'{hours}:02' + ':' if hours > 0 else ''}{minutes:02}:{seconds:02} was added to the queue`")
+
+        if message:
+            if message.id != message.channel.last_message_id:
+                await asyncio.gather(
+                    self.attempt_message_delete(message),
+                    self.send_message()
+                )
+            else:
+                await self.attempt_message_edit(message)
+        else:
+            await self.send_message()
+
 

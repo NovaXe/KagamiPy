@@ -6,15 +6,12 @@ import discord
 import discord.ui
 from discord.ext import commands
 from discord import app_commands
+
 from bot.kagami import Kagami
 from bot.utils.bot_data import Server
 from bot.utils.ui import MessageScroller
-from bot.utils.utils import (
-    createPageInfoText,
-    createPageList,
-    CustomRepr
-)
-from bot.ext.types import *
+
+from bot.utils.pages import createPageList, createPageInfoText, CustomRepr
 from typing import (
     Literal
 )
