@@ -1,22 +1,13 @@
 import json
 import os
+
 import discord
 import discord.utils
-import asyncio
 from discord.ext import commands
-import wavelink
-import subprocess
-import threading
-import multiprocessing
-import atexit
-import logging
 from typing import (
-    Literal,
-    Dict,
-    Union,
-    Optional,
-    List, Any,
+    Any,
 )
+
 from bot.utils.bot_data import Server
 from bot.utils.music_helpers import Playlist
 
@@ -177,9 +168,9 @@ class Kagami(commands.Bot):
         await super().on_error(event_method, *args, **kwargs)
         await self.logToChannel(event_method, False, False)
 
-
-
     async def on_ready(self):
         login_message = f"Logged in as {self.user} (ID: {self.user.id})"
         print(login_message)
         await self.logToChannel(login_message)
+
+

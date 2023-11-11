@@ -1,15 +1,13 @@
-import sys
-import traceback
-
 import wavelink
 from wavelink import TrackEventPayload
 from wavelink.ext import spotify
 from typing import (Literal)
 from discord import (app_commands, Interaction, VoiceChannel, Message)
-from discord.app_commands import AppCommandError
+from discord.ext.commands import GroupCog
 from discord.ext import (commands, tasks)
 from discord.utils import MISSING
 
+from bot.ext.errors import on_app_command_error
 from bot.ext.ui.custom_view import MessageInfo
 from bot.ext.ui.page_scroller import PageScroller, MessageElements, PageGenCallbacks
 from bot.utils.music_utils import (
@@ -25,9 +23,60 @@ from bot.ext import (errors)
 from bot.utils.pages import EdgeIndices
 
 
-# assert type(Interaction.response) is InteractionResponse
+# General functions for music and playlist use
+async def searchAndQueue(voice_client: Player, search):
+    tracks, source = await searchForTracks(search, 1)
+    await voice_client.waitAddToQueue(tracks)
+    return tracks, source
 
-class Music(commands.GroupCog,
+
+async def joinVoice(interaction: Interaction, voice_channel: VoiceChannel):
+    voice_client: Player = interaction.guild.voice_client
+    if voice_client:
+        await voice_client.move_to(voice_channel)
+        voice_client = interaction.guild.voice_client
+    else:
+        voice_client = await voice_channel.connect(cls=Player())
+    return voice_client
+
+
+async def attemptToJoin(interaction: Interaction, voice_channel: VoiceChannel = None, send_response=True):
+    voice_client: Player = interaction.guild.voice_client
+    user_vc = user_voice.channel if (user_voice := interaction.user.voice) else None
+    voice_channel = voice_channel or user_vc
+    if not voice_channel: raise errors.NoVoiceChannel
+
+    if voice_client and voice_client.channel == voice_channel:
+        raise errors.AlreadyInVC("I'm already in the voice channel")
+
+    if voice_client:
+        pass
+    # raise errors.AlreadyInVC
+
+    else:
+        voice_client = await joinVoice(interaction, voice_channel)
+        if send_response: await respond(interaction, f"I have joined {voice_client.channel.name}")
+    return voice_client
+
+
+def requireVoiceclient(begin_session=False, defer_response=True):
+    async def predicate(interaction: Interaction):
+        if defer_response: await respond(interaction)
+        voice_client = interaction.guild.voice_client
+
+        if voice_client is None:
+            if begin_session:
+                await attemptToJoin(interaction, send_response=False)
+                return True
+            else:
+                raise errors.NoVoiceClient
+        else:
+            return True
+
+    return app_commands.check(predicate)
+
+
+class Music(GroupCog,
             group_name="m",
             description="commands relating to music playback"):
     def __init__(self, bot):
@@ -35,8 +84,8 @@ class Music(commands.GroupCog,
         self.config = bot.config
 
     # music_group = app_commands.Group(name="m", description="commands relating to music playback")
-    playlist_group = app_commands.Group(name="playlist", description="commands relating to music playlists")
     music_group = app_commands
+    # music_group = Group(name="m", description="commands relating to the music player")
 
     # Wavelink Handling
     @tasks.loop(seconds=10)
@@ -62,7 +111,7 @@ class Music(commands.GroupCog,
     def cog_load(self):
         tree = self.bot.tree
         self._old_tree_error = tree.on_error
-        tree.on_error = self.on_app_command_error
+        tree.on_error = on_app_command_error
 
         self.bot.loop.create_task(self.connectNodes())
 
@@ -78,65 +127,10 @@ class Music(commands.GroupCog,
     # Auto Queue Doesn't work for me
     # Make queue automatically cycle
 
-    @staticmethod
-    async def attemptToJoin(interaction: Interaction, voice_channel: VoiceChannel = None, send_response=True):
-        voice_client: Player = interaction.guild.voice_client
-        user_vc = user_voice.channel if (user_voice := interaction.user.voice) else None
-        voice_channel = voice_channel or user_vc
-        if not voice_channel: raise errors.NoVoiceChannel
-
-        if voice_client and voice_client.channel == voice_channel:
-            raise errors.AlreadyInVC("I'm already in the voice channel")
-
-        if voice_client:
-            pass
-        # raise errors.AlreadyInVC
-
-        else:
-            voice_client = await Music.joinVoice(interaction, voice_channel)
-            if send_response: await respond(interaction, f"I have joined {voice_client.channel.name}")
-        return voice_client
-
-    @staticmethod
-    async def joinVoice(interaction: Interaction, voice_channel: VoiceChannel):
-        voice_client: Player = interaction.guild.voice_client
-        if voice_client:
-            await voice_client.move_to(voice_channel)
-            voice_client = interaction.guild.voice_client
-        else:
-            voice_client = await voice_channel.connect(cls=Player())
-        return voice_client
-
-    @staticmethod
-    def requireVoiceclient(begin_session=False, defer_response=True):
-        async def predicate(interaction: Interaction):
-            if defer_response: await respond(interaction)
-            voice_client = interaction.guild.voice_client
-
-            if voice_client is None:
-                if begin_session:
-                    await Music.attemptToJoin(interaction, send_response=False)
-                    return True
-                else:
-                    raise errors.NoVoiceClient
-            else:
-                return True
-
-        return app_commands.check(predicate)
-
-    @staticmethod
-    async def searchAndQueue(voice_client: Player, search):
-        tracks, source = await searchForTracks(search, 1)
-        await voice_client.waitAddToQueue(tracks)
-        return tracks, source
-
-
-
-
     @music_group.command(name="join",
                          description="joins the voice channel")
     async def m_join(self, interaction: Interaction, voice_channel: VoiceChannel = None):
-        voice_client: Player = await self.attemptToJoin(interaction, voice_channel)
+        voice_client: Player = await attemptToJoin(interaction, voice_channel)
         pass
 
     @music_group.command(name="leave",
@@ -163,7 +157,7 @@ class Music(commands.GroupCog,
             else:
                 await attemptHaltResume(interaction, send_response=True)
         else:
-            tracks, _ = await self.searchAndQueue(voice_client, search)
+            tracks, _ = await searchAndQueue(voice_client, search)
             await respondWithTracks(self.bot, interaction, tracks)
             await attemptHaltResume(interaction)
 
@@ -431,16 +425,25 @@ class Music(commands.GroupCog,
     # New error types such as PlaylistDoesNotExist
 
 
-    async def on_app_command_error(self, interaction: Interaction, error: AppCommandError):
-        if isinstance(error, errors.CustomCheck):
-            og_response = await respond(interaction, f"**{error}**")
-        else:
-            og_response = await interaction.original_response()
-            await og_response.channel.send(content=f"**Command encountered an error:**\n"
-                                                   f"{error}")
-            traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
 
 
+    # playlist commands
+    # create: Creates a new playlist
+    # create new: empty playlist
+    # create from_queue
+
+    # delete: deletes the playlist
+    # rename: change the playlist name
+    # edit tracks, order, add / remove
+    # add \/
+    # add queue: puts the entire queue at the end of the playlist
+    # add search: whatever search string is a passed is added
+    # pop: remove a track at a specific index
+
+    # play / queue: use priority param or something
+    # show \/
+    # show all
+    # show tracks
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload: TrackEventPayload):
@@ -474,6 +477,19 @@ class Music(commands.GroupCog,
             # triggers on a typical skip where the track is stopped
             # via Player.stop()
             pass
+
+
+
+
+class Playlist(GroupCog,
+               group_name="playlist",
+               description="commands relating to music playlists"):
+    def __init__(self, bot):
+        self.bot: Kagami = bot
+        self.config = bot.config
+
+
+
 
 
 # Music Related Classes
