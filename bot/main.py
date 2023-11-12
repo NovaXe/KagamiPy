@@ -18,7 +18,7 @@ from typing import (
     List,
 )
 from bot.utils.bot_data import Server
-from bot.utils.music_helpers import Playlist
+from bot.utils.music_helpers import OldPlaylist
 from kagami import Kagami
 
 

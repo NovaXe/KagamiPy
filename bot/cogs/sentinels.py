@@ -29,7 +29,7 @@ class SentinelTransformer(app_commands.Transformer, ABC):
             server: Server = self.cog.bot.fetch_server(interaction.guild_id)
             source = server.sentinels
         elif self.mode == 'global':
-            source = self.cog.bot.global_data['clean_sentinels']
+            source = self.cog.bot.global_data['sentinels']
 
         return source[value]
 
@@ -39,14 +39,14 @@ class SentinelTransformer(app_commands.Transformer, ABC):
             server: Server = self.cog.bot.fetch_server(interaction.guild_id)
             source = server.sentinels
         elif self.mode == 'global':
-            source = self.cog.bot.global_data['clean_sentinels']
+            source = self.cog.bot.global_data['sentinels']
 
         options = [app_commands.Choice(name=sentinel_phrase, value=sentinel_phrase)
-                   for sentinel_phrase, sentinel_data in source['clean_sentinels']
+                   for sentinel_phrase, sentinel_data in source['sentinels']
                    if current.lower() in sentinel_phrase.lower()][:25]
 
 
-def createSentinelData(response: str, reactions: str) -> dict:
+def createSentinelData(response: str, reactions: list[str]) -> dict:
     return {
             'response': response,
             'reactions': reactions,
@@ -75,7 +75,7 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
     add_group = app_commands.Group(name="add", description="Create a new sentinel")
     remove_group = app_commands.Group(name="remove", description="Remove a sentinel")
     edit_group = app_commands.Group(name="edit", description="Edit an existing sentinel")
-    list_group = app_commands.Group(name="list", description="Lists all clean_sentinels")
+    list_group = app_commands.Group(name="list", description="Lists all sentinels")
     info_group = app_commands.Group(name="info", description="Gets sentinel info")
     toggle_group = app_commands.Group(name="toggle", description="Toggle a sentinel")
 

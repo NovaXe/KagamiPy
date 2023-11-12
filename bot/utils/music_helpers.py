@@ -23,7 +23,7 @@ from bot.utils.utils import (
 )
 
 
-class Playlist:
+class OldPlaylist:
     def __init__(self, name: str, track_list: list[str] = None):
         self.tracks: list[str] = [] if track_list is None else track_list
         self.name = name

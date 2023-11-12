@@ -42,28 +42,28 @@ class Player(wavelink.Player):
                 prev_value = self.LOOP_TRACK.value
             return Player.LoopType(prev_value)
 
-
     def __init__(self, *args, **kwargs):
         super().__init__(args, kwargs)
         self.start_pos: int = 0
         self.loop_mode = Player.LoopType.NO_LOOP
         self.interrupted = False
         self.now_playing_message: PersistentMessage = None
-        self.np_message_id: int = None
-        self.np_channel_id: int = None
         self.halted = True
+        self.priority_queue = wavelink.Queue
+        self.playlist_queue = wavelink.Queue
+        self.soundboard_queue = wavelink.Queue
+
+        """
+        queue order
+        Soundboard > Priority > Playlist > Queue
+        
+        """
+
         # halting conditions
         # playing nothing
         # skipped past first or last track in entire queue
         #
         # self.queue_displays: list[PageScroller] = []
-
-
-    def setNowPlayingInfo(self, channel_id:int=None, message_id:int=None):
-        self.np_channel_id = channel_id
-        self.np_message_id = message_id
-
-
 
     def changeLoopMode(self, mode: LoopType=None):
         if not mode:
@@ -81,7 +81,6 @@ class Player(wavelink.Player):
             self.queue.loop = True
             self.queue.loop_all = False
 
-
     async def stop(self, *, halt: bool=False, force: bool = True) -> None:
         if halt: self.halted=True
         await super().stop(force=force)
@@ -98,12 +97,6 @@ class Player(wavelink.Player):
         :returns (current track, position in milliseconds)
         """
         return self.current, self.position
-
-
-    # async def stop(self, halt=False, *, force: bool = True):
-    #     # self.halt(halt)
-    #     await super().stop(force=force)
-
 
     async def cycleQueue(self, count: int = 1):
         for i in range(abs(count)):
@@ -148,7 +141,6 @@ class Player(wavelink.Player):
     async def addToQueue(self, tracks:[WavelinkTrack]):
         self.queue.extend(tracks)
 
-
     async def haltPlayback(self):
         self.halted = True
         await self.stop()
@@ -160,7 +152,6 @@ class Player(wavelink.Player):
                             replace=True)
         else:
             self.halted=True
-
 
     async def cyclePlayNext(self):
         if await self.cycleQueue() !=0:
