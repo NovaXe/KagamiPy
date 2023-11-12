@@ -3,6 +3,7 @@ from wavelink import TrackEventPayload
 from wavelink.ext import spotify
 from typing import (Literal)
 from discord import (app_commands, Interaction, VoiceChannel, Message)
+from discord.app_commands import Group
 from discord.ext.commands import GroupCog
 from discord.ext import (commands, tasks)
 from discord.utils import MISSING
@@ -109,9 +110,9 @@ class Music(GroupCog,
             await node.disconnect()
 
     def cog_load(self):
-        tree = self.bot.tree
-        self._old_tree_error = tree.on_error
-        tree.on_error = on_app_command_error
+        # tree = self.bot.tree
+        # self._old_tree_error = tree.on_error
+        # tree.on_error = on_app_command_error
 
         self.bot.loop.create_task(self.connectNodes())
 
@@ -320,6 +321,7 @@ class Music(GroupCog,
         voice_client.changeLoopMode(mode)
         await respond(interaction, f"Loop Mode:`{mode}`")
 
+    @requireVoiceclient()
     @music_group.command(name="stop", description="Halts the playback of the current track, resuming restarts")
     async def m_stop(self, interaction: Interaction):
         await respond(interaction)
@@ -328,6 +330,7 @@ class Music(GroupCog,
         await voice_client.stop(halt=True)
         await respond(interaction, "Stopped the Player")
 
+    @requireVoiceclient()
     @music_group.command(name="seek", description="Seeks to the specified position in the track in seconds")
     async def m_seek(self, interaction: Interaction, position: float):
         await respond(interaction)
@@ -343,6 +346,7 @@ class Music(GroupCog,
 
         await respond(interaction, f"**Jumped to `{new_pos} / {duration_text}`**")
 
+    @requireVoiceclient()
     @music_group.command(name="pop", description="Removes a track from the queue")
     async def m_pop(self, interaction: Interaction, position: int, source: Literal["history", "queue"]=None):
         await respond(interaction)
@@ -365,6 +369,7 @@ class Music(GroupCog,
         reply = f"Removed `{track_text}` from `{queue_source}`"
         await respond(interaction, reply)
 
+    @requireVoiceclient()
     @music_group.command(name="pause", description="Pauses the music player")
     async def m_pause(self, interaction: Interaction):
         # Pause calls the pause function from the player, functions as a toggle
@@ -377,6 +382,7 @@ class Music(GroupCog,
             await voice_client.pause()
             await respond(interaction, "Paused the player")
 
+    @requireVoiceclient()
     @music_group.command(name="resume", description="Resumes the music player")
     async def m_resume(self, interaction: Interaction):
         # Resume which just calls resume on the player, effectively pause toggle alias
@@ -387,6 +393,7 @@ class Music(GroupCog,
         else:
             await attemptHaltResume(voice_client, send_response=True)
 
+    @requireVoiceclient()
     @music_group.command(name="replay", description="Restarts the current song")
     async def m_replay(self, interaction: Interaction):
         # Contextually handles replaying based off of the current track progress
@@ -405,8 +412,8 @@ class Music(GroupCog,
             response = await respond(interaction, "Restarted the current track")
         await response.delete(delay=3)
 
-        pass
 
+    @requireVoiceclient()
     @music_group.command(name="clear", description="Clears the selected queue")
     async def m_clear(self, interaction: Interaction, choice: Literal["queue", "history"]):
         # TODO Support multiple queue types, up next queue and soundboard queue for example
@@ -419,31 +426,7 @@ class Music(GroupCog,
 
         await respond(interaction, f"Cleared {choice}")
 
-    # TODO Playlist Functionality needs a reimplementation
-    # Reuse as much stuff from the og implementation as it works quite well but try to clean it up
-    # IE replace in function checks with decorator checks for parameters to be correct
-    # New error types such as PlaylistDoesNotExist
 
-
-
-
-    # playlist commands
-    # create: Creates a new playlist
-    # create new: empty playlist
-    # create from_queue
-
-    # delete: deletes the playlist
-    # rename: change the playlist name
-    # edit tracks, order, add / remove
-    # add \/
-    # add queue: puts the entire queue at the end of the playlist
-    # add search: whatever search string is a passed is added
-    # pop: remove a track at a specific index
-
-    # play / queue: use priority param or something
-    # show \/
-    # show all
-    # show tracks
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload: TrackEventPayload):
@@ -479,6 +462,31 @@ class Music(GroupCog,
             pass
 
 
+# TODO Playlist Functionality needs a reimplementation
+# Reuse as much stuff from the og implementation as it works quite well but try to clean it up
+# IE replace in function checks with decorator checks for parameters to be correct
+# New error types such as PlaylistDoesNotExist
+
+
+
+
+# playlist commands
+# create: Creates a new playlist
+# create new: empty playlist
+# create from_queue
+
+# delete: deletes the playlist
+# rename: change the playlist name
+# edit tracks, order, add / remove
+# add \/
+# add queue: puts the entire queue at the end of the playlist
+# add search: whatever search string is a passed is added
+# pop: remove a track at a specific index
+
+# play / queue: use priority param or something
+# show \/
+# show all
+# show tracks
 
 
 class Playlist(GroupCog,
@@ -487,6 +495,27 @@ class Playlist(GroupCog,
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
+
+
+    create = Group(name="create", description="creating playlists")
+    add = Group(name="add", description="adding tracks to playlists")
+
+
+    @create.command(name="new", description="create a new empty playlist")
+    async def p_create_new(self, interaction: Interaction, name: str):
+        await respond(interaction, "create new")
+
+    @create.command(name="queue", description="creates a new playlist using the current queue as a base")
+    async def p_create_qeuue(self, interaction: Interaction, name: str):
+        await respond(interaction, "create queue")
+
+    async def p_delete(self, interaction: Interaction, playlist: str):
+        pass
+
+    # this shit needs an autocomplete for the playlist parameter
+    async def p_play(self, interaction: Interaction, playlist: str):
+        pass
+
 
 
 
