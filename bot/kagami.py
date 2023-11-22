@@ -39,7 +39,6 @@ class Kagami(commands.Bot):
 
         self.load_data()
         self.newLoadData()
-        pass
 
 
     def changeCmdError(self):
@@ -48,23 +47,27 @@ class Kagami(commands.Bot):
         tree.on_error = errors.on_app_command_error
 
 
+    DATA_PATH = "bot/data/data.json"
     def newLoadData(self):
-        DSDS = dict[str, dict[str, (str | list[str]) ] ]
-
-        data_path = "bot/data/data.json"
-        with open(data_path) as f:
+        with open(self.DATA_PATH) as f:
             self.raw_data = json.load(f)
 
-        _globals = self.raw_data["global"]
-        g_tags: DSDS = _globals['tags']
-        g_sentinels = _globals['sentinels']
+        self.loadGlobals()
+        self.loadServers()
 
-        _servers = self.raw_data["servers"]
+
+    def loadGlobals(self):
+        _globals = self.raw_data["globals"]
+        g_tags = _globals['tags']
+        g_sentinels = _globals['sentinels']
 
         self.data.globals.tags = {name: Tag(**data) for name, data in g_tags.items()}
         self.data.globals.sentinels = {name: Sentinel(**data) for name, data in g_sentinels.items()}
+        pass # eof
 
-        for name, data in _servers.items():
+    def loadServers(self):
+        _servers = self.raw_data["servers"]
+        for s_id, data in _servers.items():
             s_playlists = data["playlists"]
             s_soundboard = data["soundboard"]
             s_tags = data["tags"]
@@ -75,6 +78,7 @@ class Kagami(commands.Bot):
             # playlist : duration, tracks
             # track: duration, name, encoded_id
 
+            # intiializing playlist data
             playlists = {}
             for p_name, p_data in s_playlists.items():
                 if "tracks" in p_data:
@@ -93,7 +97,7 @@ class Kagami(commands.Bot):
             sentinels = {name: Sentinel(**data) for name, data in s_sentinels.items()}
 
             self.data.servers.update({
-                name: ServerData(
+                s_id: ServerData(
                     playlists=playlists,
                     soundboard=soundboard,
                     tags=tags,
@@ -101,19 +105,7 @@ class Kagami(commands.Bot):
                     fish_mode=s_fish_mode
                 )
             })
-
-
-
-
-
-        # _globals: GlobalData = GlobalData(
-        #     playlists=playlists,
-        #     tags=tags
-        # )
-        #
-        #
-        # self.newData = BotData(servers, globals)
-
+        pass # eol
 
     def getPartialMessage(self, message_id, channel_id) -> discord.PartialMessage | None:
         channel = self.get_channel(channel_id)
@@ -123,6 +115,12 @@ class Kagami(commands.Bot):
             return None
 
 
+
+    def getServerData(self, server_id: int | str) ->ServerData:
+        server_id = str(server_id)
+        if server_id not in self.data.servers.keys():
+            self.data.servers[server_id] = ServerData()
+        return self.data.servers[server_id]
 
     def fetch_server(self, server_id: [int, str]):
         if str(server_id) not in self.servers:
@@ -156,12 +154,12 @@ class Kagami(commands.Bot):
     def update_data(self):
         # print(self.data)
         data: dict[str, dict[str, dict[str, dict[str, str]]]] = {
-            "global": {},
+            "globals": {},
             "servers": {}
         }
 
 
-        data["global"].update(self.global_data)
+        data["globals"].update(self.global_data)
 
         for server_id, server in self.servers.items():
             data["servers"][server_id] = {"playlists": {},
@@ -206,8 +204,8 @@ class Kagami(commands.Bot):
 
         self.create_server_list()
 
-        if "global" in self.old_data.keys():
-            self.global_data: dict[str, dict] = self.old_data["global"]
+        if "globals" in self.old_data.keys():
+            self.global_data: dict[str, dict] = self.old_data["globals"]
         else:
             self.global_data = {}
 

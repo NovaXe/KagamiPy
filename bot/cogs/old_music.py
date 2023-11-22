@@ -771,7 +771,7 @@ class OldMusic(commands.Cog):
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
-        server: Server = self.bot.fetch_server(member.guild.encoded)
+        server: Server = self.bot.fetch_server(member.guild.id)
         current_player: OldPlayer = member.guild.voice_client
 
 

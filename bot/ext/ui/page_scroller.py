@@ -8,6 +8,8 @@ from discord.utils import MISSING
 
 from bot.ext.ui.custom_view import CustomView, StopBehavior, MessageInfo
 from bot.kagami import Kagami
+from bot.utils.interactions import respond
+
 
 @dataclass
 class MessageElements:
@@ -37,7 +39,7 @@ class ITL(Enum):
 
 class PageScroller(CustomView):
     def __init__(self, *args, bot: Kagami,
-                 message_info: MessageInfo, page_callbacks: PageGenCallbacks, pages: list[str]=None,
+                 message_info: MessageInfo, page_callbacks: PageGenCallbacks, pages: list[str]=None, home_index:str=0,
                  timeout: int=180, **kwargs):
         super().__init__(*args, bot=bot, message_info=message_info,
                          timeout=timeout, stop_behavior=StopBehavior(delete_message=True),
@@ -45,30 +47,31 @@ class PageScroller(CustomView):
         self.pages: list[str] = pages
         self.page_callbacks = page_callbacks
         self.page_index = 0
-        self.prev_interaction = None
+        self.home_index = home_index
+        self.last_interaction = None
 
 
 
-    async def changePage(self, interaction: Interaction=None, page_index=0):
+    async def updatePage(self, interaction: Interaction=None):
         if interaction:
-            self.prev_interaction = interaction
+            self.last_interaction = interaction
         else:
-            interaction = self.prev_interaction
+            interaction = self.last_interaction
             # Probably a stupid idea
 
         p_message = self.partialMessage()
         if self.pages:
             left_edge, _ = self.lastPageIndices(interaction)
-            adjusted_index = abs(left_edge) + page_index
+            adjusted_index = abs(left_edge) + self.page_index
             page = self.pages[adjusted_index] if adjusted_index < len(self.pages) else None
         else:
-            page = self.page_callbacks.genPage(interaction=interaction, page_index=page_index)
+            page = self.page_callbacks.genPage(interaction=interaction, page_index=self.page_index)
 
         if page:
             await p_message.edit(content=page)
 
     async def refresh(self, interaction: Interaction):
-        await self.changePage(interaction, self.page_index)
+        await self.updatePage(interaction)
 
     def lastPageIndices(self, interaction: Interaction):
         return self.page_callbacks.getEdgeIndices(interaction=interaction)
@@ -83,44 +86,44 @@ class PageScroller(CustomView):
 
     @ui.button(emoji="⬆", style=ButtonStyle.gray, custom_id="MessageScroller:first", row=0)
     async def page_first(self, interaction: Interaction, button: Button):
-        await interaction.response.edit_message()
+        await respond(interaction)
         # get first page index
         # generate at index
         first, _ = self.lastPageIndices(interaction)
         self.page_index = first
-        await self.changePage(interaction, first)
+        await self.updatePage(interaction)
 
     @ui.button(emoji="🔼", style=ButtonStyle.gray, custom_id="MessageScroller:prev", row=0)
     async def page_prev(self, interaction: Interaction, button: Button):
-        await interaction.response.edit_message()
+        await respond(interaction)
         first, _ = self.lastPageIndices(interaction)
 
         if (index:=self.page_index-1) >= first:
             self.page_index = index
-            await self.changePage(interaction, index)
+            await self.updatePage(interaction)
 
 
     @ui.button(emoji="*️⃣", style=ButtonStyle.gray, custom_id="MessageScroller:home", row=0)
     async def page_home(self, interaction: Interaction, button: Button):
-        await interaction.response.edit_message()
-        self.page_index = 0
-        await self.changePage(interaction, 0)
+        await respond(interaction)
+        self.page_index = self.home_index
+        await self.updatePage(interaction)
 
     @ui.button(emoji="🔽", style=ButtonStyle.gray, custom_id="MessageScroller:next", row=0)
     async def page_next(self, interaction: Interaction, button: Button):
-        await interaction.response.edit_message()
+        await respond(interaction)
         _, last = self.lastPageIndices(interaction)
 
         if (index := self.page_index + 1) <= last:
             self.page_index = index
-            await self.changePage(interaction, index)
+            await self.updatePage(interaction)
 
     @ui.button(emoji="⬇", style=ButtonStyle.gray, custom_id="MessageScroller:last", row=0)
     async def page_last(self, interaction: Interaction, button: Button):
-        await interaction.response.edit_message()
+        await respond(interaction)
         _, last = self.lastPageIndices(interaction)
         self.page_index = last
-        await self.changePage(interaction, last)
+        await self.updatePage(interaction)
 
     """
     page_counts:

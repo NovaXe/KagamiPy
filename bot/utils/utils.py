@@ -8,28 +8,7 @@ from discord import (Interaction)
 import discord.utils
 
 
-# from bot.ext.types import *
 
-async def respond(interaction: Interaction, message: str=None):
-    if message:
-        try:
-            await interaction.response.send_message(content=message)
-        except discord.InteractionResponded:
-            await interaction.edit_original_response(content=message)
-    else:
-        try:
-            await interaction.response.defer()
-        except discord.InteractionResponded:
-            pass
-
-
-
-"""
-channel to send message too
-message content
-
-
-"""
 
 def clamp(num, min_value, max_value):
     num = max(min(num, max_value), min_value)

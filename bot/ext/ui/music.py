@@ -1,6 +1,8 @@
 from discord import ui
 from discord.ui import (Modal)
 from discord import (ButtonStyle, Interaction)
+
+from bot.utils.interactions import respond
 from bot.utils.music_utils import (Player, attemptHaltResume, searchForTracks, respondWithTracks)
 from bot.ext.ui.custom_view import *
 
@@ -45,21 +47,22 @@ class PlayerController(CustomView):
     @ui.button(emoji="⏮", style=ButtonStyle.green, custom_id="PlayerControls:skip_back")
     async def skip_back(self, interaction: Interaction, button: Button):
         voice_client: Player = interaction.guild.voice_client
-        await interaction.response.edit_message()
+        await respond(interaction)
         await voice_client.cyclePlayPrevious()
         await self.refreshButtonState()
 
     @ui.button(emoji="⏹", style=ButtonStyle.green, custom_id="PlayerControls:stop")
     async def stop_playback(self, interaction: Interaction, button: Button):
         voice_client: Player = interaction.guild.voice_client
-        await interaction.response.edit_message()
+        await respond(interaction)
         await voice_client.stop(halt=True)
         await self.refreshButtonState()
 
     @ui.button(emoji="⏯", style=ButtonStyle.green, custom_id="PlayerControls:pause_play")
     async def pause_play(self, interaction: Interaction, button: Button):
         voice_client: Player = interaction.guild.voice_client
-        await interaction.response.edit_message()
+        await respond(interaction)
+
         if voice_client.halted:
             await attemptHaltResume(interaction)
         elif voice_client.is_paused():
@@ -71,14 +74,14 @@ class PlayerController(CustomView):
     @ui.button(emoji="⏭", style=ButtonStyle.green, custom_id="PlayerControls:skip")
     async def skip(self, interaction: Interaction, button: Button):
         voice_client: Player = interaction.guild.voice_client
-        await interaction.response.edit_message()
+        await respond(interaction)
         await voice_client.cyclePlayNext()
         await self.refreshButtonState()
 
     @ui.button(emoji="🔁", style=ButtonStyle.gray, custom_id="PlayerControls:loop")
     async def loop(self, interaction: Interaction, button: Button):
         voice_client: Player = interaction.guild.voice_client
-        await interaction.response.edit_message()
+        await respond(interaction)
         voice_client.loop_mode = voice_client.loop_mode.next()
         await self.refreshButtonState()
 
@@ -97,7 +100,7 @@ class SearchModal(Modal, title="Search Prompt"):
 
     async def on_submit(self, interaction: Interaction, /) -> None:
         voice_client: Player = interaction.guild.voice_client
-        await interaction.response.edit_message()
+        await respond(interaction)
         tracks, _ = await searchForTracks(self.search.value)
         await voice_client.waitAddToQueue(tracks)
         await respondWithTracks(self.bot, interaction, tracks, followup=True, timeout=30)

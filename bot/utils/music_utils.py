@@ -17,7 +17,7 @@ from bot.utils.utils import (secondsToTime, secondsDivMod)
 from bot.utils.pages import createSinglePage, CustomRepr, PageBehavior, PageIndices, InfoSeparators, InfoTextElem, \
     EdgeIndices, createPages
 # from bot.ext.ui import (PageScroller)
-from bot.ext.responses import (respond)
+from bot.utils.interactions import respond
 
 WavelinkTrack = wavelink.GenericTrack
 
@@ -584,7 +584,7 @@ async def respondWithTracks(bot:Kagami, interaction: Interaction, tracks: list[W
                             custom_reprs={
                                 "duration": CustomRepr("", "")
                             },
-                            zero_index=home_index,
+                            first_item_index=1,
                             page_behavior=PageBehavior(max_key_length=50))
 
         page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)

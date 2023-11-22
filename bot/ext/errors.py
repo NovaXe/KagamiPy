@@ -5,7 +5,7 @@ import discord
 from discord import app_commands, Interaction
 from discord.app_commands import CheckFailure, AppCommandError
 
-from bot.ext.responses import respond
+from bot.utils.interactions import respond
 
 
 class CustomCheck(CheckFailure):

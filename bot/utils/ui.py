@@ -9,7 +9,7 @@ from discord import app_commands
 from typing import Optional
 
 from bot.utils.music_helpers import *
-from bot.ext.responses import (respond)
+from bot.utils.interactions import respond
 from discord.ext import tasks
 
 

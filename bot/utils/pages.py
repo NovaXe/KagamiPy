@@ -162,8 +162,7 @@ def createPages(data: dict | list,
                 max_elems: int=None,
                 sort_items: bool=True,
                 custom_reprs: dict[str, CustomRepr]=None,
-                zero_index: int=None,
-                zero_offset: int=0,
+                first_item_index: int=0,
                 page_behavior: dict[int, PageBehavior] | PageBehavior=PageBehavior,
                 starting_index: int=0):
 
@@ -173,7 +172,6 @@ def createPages(data: dict | list,
     ending_index = starting_index + max_pages - 1
     pages = [""] * max_pages
     page_interator = enumerate(range(starting_index, ending_index+1))
-    page_first_elem = 0
     for loop_index, page_index in page_interator:
         if isinstance(page_behavior, dict) and page_index in page_behavior:
             pb = page_behavior[page_index]
@@ -184,14 +182,14 @@ def createPages(data: dict | list,
 
         # page_data = data[page_first_elem: page_first_elem + page_max_elems]
         # page_data = dict(data.items()[page_first_elem: page_first_elem + page_max_elems])
-        page_data = dict(itertools.islice(data.items(), page_first_elem, page_first_elem + page_max_elems))
+        page_data = dict(itertools.islice(data.items(), first_item_index, first_item_index + page_max_elems))
         pages[page_index] = createSinglePage(page_data,
-                                behavior=pb,
-                                infotext=info_text,
-                                custom_reprs=custom_reprs,
-                                first_item_index=page_first_elem,
-                                page_position=PageIndices(starting_index, page_index, ending_index))
-        page_first_elem += page_max_elems
+                                             behavior=pb,
+                                             infotext=info_text,
+                                             custom_reprs=custom_reprs,
+                                             first_item_index=first_item_index,
+                                             page_position=PageIndices(starting_index, page_index, ending_index))
+        first_item_index += page_max_elems
     return pages
 
 

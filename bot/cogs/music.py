@@ -1,9 +1,11 @@
+from abc import ABC
+
 import wavelink
 from wavelink import TrackEventPayload
 from wavelink.ext import spotify
 from typing import (Literal)
 from discord import (app_commands, Interaction, VoiceChannel, Message)
-from discord.app_commands import Group
+from discord.app_commands import Group, Transformer, Transform
 from discord.ext.commands import GroupCog
 from discord.ext import (commands, tasks)
 from discord.utils import MISSING
@@ -11,6 +13,7 @@ from discord.utils import MISSING
 from bot.ext.errors import on_app_command_error
 from bot.ext.ui.custom_view import MessageInfo
 from bot.ext.ui.page_scroller import PageScroller, MessageElements, PageGenCallbacks
+from bot.utils.bot_data import ServerData
 from bot.utils.music_utils import (
     searchForTracks,
     Player, attemptHaltResume,
@@ -19,7 +22,8 @@ from bot.utils.music_utils import (
     secondsToTime, respondWithTracks)
 from bot.kagami import Kagami
 from bot.ext.ui.music import PlayerController
-from bot.ext.responses import (respond, PersistentMessage)
+from bot.ext.responses import (PersistentMessage)
+from bot.utils.interactions import respond
 from bot.ext import (errors)
 from bot.utils.pages import EdgeIndices
 
@@ -489,8 +493,19 @@ class Music(GroupCog,
 # show tracks
 
 
+
+class InteractionTransformer(Transformer, ABC):
+    def __int__(self, bot: Kagami):
+        self.bot: Kagami = bot
+
+    async def transform(self, interaction: Interaction, value: str) -> tuple[Interaction, ServerData]:
+        server_data = self.bot.getServerData(interaction.guild_id)
+        return interaction, server_data
+
+
+
 class Playlist(GroupCog,
-               group_name="playlist",
+               group_name="p",
                description="commands relating to music playlists"):
     def __init__(self, bot):
         self.bot: Kagami = bot
@@ -501,12 +516,17 @@ class Playlist(GroupCog,
     add = Group(name="add", description="adding tracks to playlists")
 
 
+
     @create.command(name="new", description="create a new empty playlist")
     async def p_create_new(self, interaction: Interaction, name: str):
-        await respond(interaction, "create new")
+        await respond(interaction)
+
+
+
+
 
     @create.command(name="queue", description="creates a new playlist using the current queue as a base")
-    async def p_create_qeuue(self, interaction: Interaction, name: str):
+    async def p_create_queue(self, interaction: Interaction, name: str):
         await respond(interaction, "create queue")
 
     async def p_delete(self, interaction: Interaction, playlist: str):
@@ -526,4 +546,6 @@ class Playlist(GroupCog,
 
 async def setup(bot):
     music_cog = Music(bot)
+    playlist_cog = Playlist(bot)
     await bot.add_cog(music_cog)
+    await bot.add_cog(playlist_cog)
