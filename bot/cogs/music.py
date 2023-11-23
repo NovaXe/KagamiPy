@@ -1,31 +1,37 @@
 from abc import ABC
+from functools import wraps
 
 import wavelink
 from wavelink import TrackEventPayload
 from wavelink.ext import spotify
-from typing import (Literal)
+from typing import (Literal, Any, Union, List)
 from discord import (app_commands, Interaction, VoiceChannel, Message)
-from discord.app_commands import Group, Transformer, Transform
+from discord.app_commands import Group, Transformer, Transform, Choice
 from discord.ext.commands import GroupCog
 from discord.ext import (commands, tasks)
 from discord.utils import MISSING
 
 from bot.ext.errors import on_app_command_error
 from bot.ext.ui.custom_view import MessageInfo
-from bot.ext.ui.page_scroller import PageScroller, MessageElements, PageGenCallbacks
-from bot.utils.bot_data import ServerData
+from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks
+from bot.utils.bot_data import ServerData, Playlist
+
+# context vars
+from bot.utils.context_vars import server_data
+
 from bot.utils.music_utils import (
-    searchForTracks,
-    Player, attemptHaltResume,
-    createNowPlayingWithDescriptor, createNowPlayingMessage,
-    createQueuePage, getQueueEdgeIndices,
-    secondsToTime, respondWithTracks)
+    attemptHaltResume,
+    createNowPlayingWithDescriptor, createQueuePage, secondsToTime, respondWithTracks)
+from bot.utils.wavelink_utils import createNowPlayingMessage, searchForTracks
+from bot.utils.player import Player
+from bot.utils.wavelink_utils import WavelinkTrack
 from bot.kagami import Kagami
 from bot.ext.ui.music import PlayerController
-from bot.ext.responses import (PersistentMessage)
+from bot.ext.responses import (PersistentMessage, MessageElements)
 from bot.utils.interactions import respond
 from bot.ext import (errors)
-from bot.utils.pages import EdgeIndices
+from bot.utils.pages import EdgeIndices, getQueueEdgeIndices
+from bot.utils.utils import find_closely_matching_dict_keys, find_closely_matching_list_elems
 
 
 # General functions for music and playlist use
@@ -79,7 +85,6 @@ def requireVoiceclient(begin_session=False, defer_response=True):
             return True
 
     return app_commands.check(predicate)
-
 
 class Music(GroupCog,
             group_name="m",
@@ -492,16 +497,60 @@ class Music(GroupCog,
 # show all
 # show tracks
 
+# def playlistExists(create_new=False):
+#     async def predicate(inteaction: Interaction):
+
+# assert isinstance(server_data, ServerData)
+
+class PlaylistTransformer(Transformer):
+    # def __init__(self, create_new: bool=False):
+    #     self.create_new: bool = create_new
+    async def autocomplete(self,
+                           interaction: Interaction,
+                           value: Union[int, float, str], /) -> List[Choice[str]]:
+
+        # close_matches: dict[str, Playlist] = find_closely_matching_dict_keys(value, server_data.playlists, 25)
+        data = server_data
+        keys = list(server_data.playlists.keys())
+        close_matches = find_closely_matching_list_elems(keys, value, 25)
+
+        return [
+            Choice(name=key, value=key)
+            for key in close_matches
+        ]
+
+    # async def transform(self, interaction: Interaction, value: Any, /) -> tuple[str, Playlist]:
+    #     if value in server_data.playlists.keys():
+    #         return value, server_data.playlists[value]
+    #     else:
+    #         return value, None
+
+    async def transform(self, interaction: Interaction, value: Any, /) -> Playlist:
+        if value in server_data.playlists.keys():
+            return server_data.playlists[value]
+        else:
+            return None
+            # if self.create_new:
+            #     server_data.playlists[value] = ServerData
+            #     createNewPlaylist(interaction, value)
+            #     await respond(interaction, f"Created Playlist `{value}`")
+            # else:
+            #     raise errors.PlaylistNotFound
 
 
-class InteractionTransformer(Transformer, ABC):
-    def __int__(self, bot: Kagami):
-        self.bot: Kagami = bot
 
-    async def transform(self, interaction: Interaction, value: str) -> tuple[Interaction, ServerData]:
-        server_data = self.bot.getServerData(interaction.guild_id)
-        return interaction, server_data
 
+def createNewPlaylist(name: str, tracks:list[WavelinkTrack]=None):
+    # Future functionality have a YES / NO choice for overwriting the old one
+    # Send as an ephemeral followup to the original response with a view attached
+    # Wait for a view respons and timeout default to No after a little bit
+    if name in server_data.playlists.keys():
+        raise errors.PlaylistAlreadyExists
+    else:
+        if tracks:
+            server_data.playlists[name] = Playlist.init_from_tracks(tracks)
+        else:
+            server_data.playlists[name] = Playlist
 
 
 class Playlist(GroupCog,
@@ -512,14 +561,23 @@ class Playlist(GroupCog,
         self.config = bot.config
 
 
+
+
     create = Group(name="create", description="creating playlists")
     add = Group(name="add", description="adding tracks to playlists")
 
 
 
     @create.command(name="new", description="create a new empty playlist")
-    async def p_create_new(self, interaction: Interaction, name: str):
+    @app_commands.rename(playlist_tuple="playlist")
+    async def p_create_new(self, interaction: Interaction,
+                           playlist_tuple: Transform[ Playlist, PlaylistTransformer]):
+
         await respond(interaction)
+        pass
+
+
+
 
 
 
@@ -536,7 +594,13 @@ class Playlist(GroupCog,
     async def p_play(self, interaction: Interaction, playlist: str):
         pass
 
+    def setServerDataVar(self, interaction: Interaction):
+        server_data = self.bot.getServerData(interaction.guild_id)
+        self.server_data = server_data
 
+    async def interaction_check(self, interaction: Interaction):
+        self.setServerDataVar(interaction)
+        return True
 
 
 

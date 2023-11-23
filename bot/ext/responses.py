@@ -1,11 +1,20 @@
 import asyncio
+from dataclasses import dataclass
 from typing import(Callable)
 import discord
-from discord import (PartialMessage)
+from discord import (PartialMessage, Attachment, File, Embed)
 from discord.ext import (commands, tasks)
+from discord.utils import MISSING
 
-from bot.ext.ui.custom_view import MessageInfo
-from bot.ext.ui.page_scroller import MessageElements
+from bot.ext.ui.custom_view import MessageInfo, CustomView
+
+@dataclass
+class MessageElements:
+    content: str="No Content"
+    view: CustomView=MISSING
+    attachments: list[Attachment]=MISSING
+    files: list[File]=MISSING
+    embeds: list[Embed] = MISSING
 
 
 class PersistentMessage:

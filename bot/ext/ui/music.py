@@ -3,7 +3,9 @@ from discord.ui import (Modal)
 from discord import (ButtonStyle, Interaction)
 
 from bot.utils.interactions import respond
-from bot.utils.music_utils import (Player, attemptHaltResume, searchForTracks, respondWithTracks)
+from bot.utils.music_utils import (attemptHaltResume, respondWithTracks)
+from bot.utils.wavelink_utils import searchForTracks
+from bot.utils.player import Player
 from bot.ext.ui.custom_view import *
 
 

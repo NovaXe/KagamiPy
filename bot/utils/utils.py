@@ -44,8 +44,8 @@ async def link_to_attachment(link: str, file_name: str) -> discord.File:
 
 
 
-def find_closely_matching_dict_keys(search: str, tags: dict, n, cutoff=0.45):
-    input_list = tags.items()
+def find_closely_matching_dict_keys(search: str, data: dict, n, cutoff=0.45):
+    input_list = data.items()
     matches = list()
     for key, value in input_list:
         if len(matches) > n:
@@ -54,6 +54,14 @@ def find_closely_matching_dict_keys(search: str, tags: dict, n, cutoff=0.45):
             matches.append([key, value])
     return dict(matches)
 
+def find_closely_matching_list_elems(search: str, data: list[str], n, cutoff=0.45) -> list[str]:
+    matches = []
+    for item in data:
+        if len(matches) > n:
+            break
+        if SequenceMatcher(None, search, item).ratio() >= cutoff:
+            matches.append(item)
+    return matches
 
 # title at top
 # page data: 1...10

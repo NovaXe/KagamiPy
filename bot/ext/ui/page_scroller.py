@@ -2,22 +2,12 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Callable
 
-from discord import Interaction, ui, ButtonStyle, Attachment, File, Embed
+from discord import Interaction, ui, ButtonStyle
 from discord.ui import Button
-from discord.utils import MISSING
 
 from bot.ext.ui.custom_view import CustomView, StopBehavior, MessageInfo
 from bot.kagami import Kagami
 from bot.utils.interactions import respond
-
-
-@dataclass
-class MessageElements:
-    content: str="No Content"
-    view: CustomView=MISSING
-    attachments: list[Attachment]=MISSING
-    files: list[File]=MISSING
-    embeds: list[Embed] = MISSING
 
 
 @dataclass

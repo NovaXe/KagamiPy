@@ -26,6 +26,11 @@ class NotInVC(CustomCheck):
 class NoVoiceClient(CustomCheck):
     MESSAGE = "There is currently no voice session"
 
+class PlaylistNotFound(CustomCheck):
+    MESSAGE = "There is no playlist with that name"
+
+class PlaylistAlreadyExists(CustomCheck):
+    MESSAGE = "There is already a playlist with that name"
 
 async def on_app_command_error(interaction: Interaction, error: AppCommandError):
     if isinstance(error, CustomCheck):

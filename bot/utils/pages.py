@@ -1,7 +1,10 @@
 import itertools
 from collections import namedtuple
 from dataclasses import dataclass
+from math import ceil
 from typing import Literal
+
+import wavelink
 
 from bot.ext.ui.page_scroller import ITL
 
@@ -371,3 +374,12 @@ def createPageInfoText(total_item_count, scope: str, source: Literal['search', '
     return info_text
 
 
+def getQueueEdgeIndices(queue: wavelink.Queue):
+    history_page_count = 0
+    upnext_page_count = 0
+    if (h_len := len(queue.history) - 6) > 0:
+        history_page_count = ceil(h_len / 10)
+    if (u_len := len(queue) - 5) > 0:
+        upnext_page_count = ceil(u_len / 10)
+
+    return EdgeIndices(-1*history_page_count, upnext_page_count)

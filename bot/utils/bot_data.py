@@ -1,13 +1,7 @@
-from typing import (
-    Literal,
-    Dict,
-    Union,
-    Optional,
-    List,
-)
 from dataclasses import dataclass, field
 
 from bot.utils.music_helpers import OldPlaylist
+from bot.utils.wavelink_utils import WavelinkTrack
 
 
 class Server:
@@ -46,6 +40,16 @@ class Playlist:
     tracks: list[Track]
     duration: int=0
 
+    @classmethod
+    def init_from_tracks(cls, tracks: list[WavelinkTrack]):
+        new_tracks = []
+        duration = 0
+        for track in tracks:
+            new_tracks.append(Track(encoded=track.encoded, name=track.title, duration=track.duration))
+            duration += track.duration
+
+        return cls(tracks=new_tracks, duration=duration)
+
 @dataclass
 class Tag:
     content: str="No Content"
@@ -80,6 +84,10 @@ class GlobalData:
 class BotData:
     servers: dict[str, ServerData] = default_factory(dict)
     globals: GlobalData = GlobalData
+
+
+
+# server_data_context_var: ContextVar[ServerData] = ContextVar('server_data', default=ServerData)
 
 
 """
