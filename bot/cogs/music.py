@@ -544,7 +544,7 @@ class PlaylistTransformer(Transformer):
     async def transform(self, interaction: Interaction, value: Any, /) -> Playlist:
         playlists = server_data.value.playlists
         if playlists and value in playlists.keys():
-            return server_data.playlists[value]
+            return playlists[value]
         else:
             return None
             # if self.create_new:
@@ -561,13 +561,14 @@ def createNewPlaylist(name: str, tracks:list[WavelinkTrack]=None):
     # Future functionality have a YES / NO choice for overwriting the old one
     # Send as an ephemeral followup to the original response with a view attached
     # Wait for a view respons and timeout default to No after a little bit
-    if name in server_data.playlists.keys():
+    playlists = server_data.value.playlists
+    if name in playlists.keys():
         raise errors.PlaylistAlreadyExists
     else:
         if tracks:
-            server_data.playlists[name] = Playlist.init_from_tracks(tracks)
+            playlists[name] = Playlist.init_from_tracks(tracks)
         else:
-            server_data.playlists[name] = Playlist
+            playlists[name] = Playlist
 
 
 class Playlist(GroupCog,
