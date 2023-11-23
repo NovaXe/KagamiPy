@@ -17,7 +17,7 @@ from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks
 from bot.utils.bot_data import ServerData, Playlist
 
 # context vars
-from bot.utils.context_vars import server_data
+from bot.utils.context_vars import server_data, bot_var
 
 from bot.utils.music_utils import (
     attemptHaltResume,
@@ -31,7 +31,7 @@ from bot.ext.responses import (PersistentMessage, MessageElements)
 from bot.utils.interactions import respond
 from bot.ext import (errors)
 from bot.utils.pages import EdgeIndices, getQueueEdgeIndices
-from bot.utils.utils import find_closely_matching_dict_keys, find_closely_matching_list_elems
+from bot.utils.utils import find_closely_matching_dict_keys, find_closely_matching_list_elems, similaritySort
 
 
 # General functions for music and playlist use
@@ -505,19 +505,35 @@ class Music(GroupCog,
 class PlaylistTransformer(Transformer):
     # def __init__(self, create_new: bool=False):
     #     self.create_new: bool = create_new
+    # def __init__(self, bot: Kagami):
+    #     self.bot: Kagami = bot
+
     async def autocomplete(self,
                            interaction: Interaction,
                            value: Union[int, float, str], /) -> List[Choice[str]]:
 
         # close_matches: dict[str, Playlist] = find_closely_matching_dict_keys(value, server_data.playlists, 25)
-        data = server_data
-        keys = list(server_data.playlists.keys())
-        close_matches = find_closely_matching_list_elems(keys, value, 25)
+        server_data.value = bot_var.value.getServerData(interaction.guild_id)
+        playlists = server_data.value.playlists
+        keys = list(playlists.keys()) if len(playlists) else []
+        # close_matches = find_closely_matching_list_elems(value, keys, 25)
+        #
+        # def match_to_split(key:str):
+        #     words = key.split(' ')
+        #     for word in words:
+        #         if word.startswith(value):
+        #             return key
+        #
+        #
+        # starts_with = [match_to_split(key) for key in keys if match_to_split(key)]
+        # in_lower = [key for key in keys if value.lower() in key.lower()]
+        #
+        # options = list(set(starts_with + close_matches + in_lower))
 
-        return [
-            Choice(name=key, value=key)
-            for key in close_matches
-        ]
+        options = similaritySort(keys, value)
+
+        choices = [Choice(name=key, value=key) for key in options][:25]
+        return choices
 
     # async def transform(self, interaction: Interaction, value: Any, /) -> tuple[str, Playlist]:
     #     if value in server_data.playlists.keys():
@@ -526,7 +542,8 @@ class PlaylistTransformer(Transformer):
     #         return value, None
 
     async def transform(self, interaction: Interaction, value: Any, /) -> Playlist:
-        if value in server_data.playlists.keys():
+        playlists = server_data.value.playlists
+        if playlists and value in playlists.keys():
             return server_data.playlists[value]
         else:
             return None
@@ -559,33 +576,23 @@ class Playlist(GroupCog,
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
-
-
-
+        # self.playlist_transform = Transform[Playlist, PlaylistTransformer(bot=bot)]
 
     create = Group(name="create", description="creating playlists")
     add = Group(name="add", description="adding tracks to playlists")
 
-
-
     @create.command(name="new", description="create a new empty playlist")
-    @app_commands.rename(playlist_tuple="playlist")
+    # @app_commands.rename(playlist_tuple="playlist")
     async def p_create_new(self, interaction: Interaction,
-                           playlist_tuple: Transform[ Playlist, PlaylistTransformer]):
-
+                           playlist: Transform[Playlist, PlaylistTransformer]):
+        playlist_name = interaction.namespace.playlist
         await respond(interaction)
         pass
-
-
-
-
-
-
-
 
     @create.command(name="queue", description="creates a new playlist using the current queue as a base")
     async def p_create_queue(self, interaction: Interaction, name: str):
         await respond(interaction, "create queue")
+        pass
 
     async def p_delete(self, interaction: Interaction, playlist: str):
         pass
@@ -595,14 +602,12 @@ class Playlist(GroupCog,
         pass
 
     def setServerDataVar(self, interaction: Interaction):
-        server_data = self.bot.getServerData(interaction.guild_id)
-        self.server_data = server_data
+        server_data.value = self.bot.getServerData(interaction.guild_id)
 
     async def interaction_check(self, interaction: Interaction):
         self.setServerDataVar(interaction)
         return True
-
-
+    # async def autocomplete_check
 
 
 # Music Related Classes

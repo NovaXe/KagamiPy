@@ -11,6 +11,7 @@ from typing import (
 from bot.ext import errors
 from bot.utils.bot_data import Server, BotData, GlobalData, Tag, Sentinel, Track, Playlist, ServerData
 from bot.utils.music_helpers import OldPlaylist
+from bot.utils.context_vars import *
 
 intents = discord.Intents.all()
 # intents.message = True
@@ -39,6 +40,7 @@ class Kagami(commands.Bot):
 
         self.load_data()
         self.newLoadData()
+        bot_var.value = self
 
 
     def changeCmdError(self):

@@ -63,6 +63,18 @@ def find_closely_matching_list_elems(search: str, data: list[str], n, cutoff=0.4
             matches.append(item)
     return matches
 
+def similaritySort(data: list, key):
+    ratio_data = [
+        (SequenceMatcher(None, key.lower(), item.lower()).ratio(), item)
+        for item in data
+    ]
+    ratio_data.sort(reverse=True)
+    ratios, values = list(zip(*ratio_data))
+    return values
+
+
+
+
 # title at top
 # page data: 1...10
 # page number: #: pg/total
