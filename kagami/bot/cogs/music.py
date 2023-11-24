@@ -1,6 +1,3 @@
-from abc import ABC
-from functools import wraps
-
 import wavelink
 from wavelink import TrackEventPayload
 from wavelink.ext import spotify
@@ -11,13 +8,12 @@ from discord.ext.commands import GroupCog
 from discord.ext import (commands, tasks)
 from discord.utils import MISSING
 
-from bot.ext.errors import on_app_command_error
 from bot.ext.ui.custom_view import MessageInfo
 from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks
-from bot.utils.bot_data import ServerData, Playlist
+from bot.utils.bot_data import Playlist, server_data
 
 # context vars
-from bot.utils.context_vars import server_data, bot_var
+from bot.kagami_bot import bot_var
 
 from bot.utils.music_utils import (
     attemptHaltResume,
@@ -25,13 +21,13 @@ from bot.utils.music_utils import (
 from bot.utils.wavelink_utils import createNowPlayingMessage, searchForTracks
 from bot.utils.player import Player
 from bot.utils.wavelink_utils import WavelinkTrack
-from bot.kagami import Kagami
+from bot.kagami_bot import Kagami
 from bot.ext.ui.music import PlayerController
 from bot.ext.responses import (PersistentMessage, MessageElements)
 from bot.utils.interactions import respond
-from bot.ext import (errors)
+from bot.ext import errors
 from bot.utils.pages import EdgeIndices, getQueueEdgeIndices
-from bot.utils.utils import find_closely_matching_dict_keys, find_closely_matching_list_elems, similaritySort
+from bot.utils.utils import similaritySort
 
 
 # General functions for music and playlist use

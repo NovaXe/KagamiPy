@@ -13,7 +13,7 @@ from io import BytesIO
 import discord
 import discord.utils
 from discord.ext import commands
-from discord import app_commands
+from discord import app_commands, Interaction
 from bot.utils.ui import MessageReply
 from bot.utils.bot_data import Server
 from bot.utils.interactions import respond

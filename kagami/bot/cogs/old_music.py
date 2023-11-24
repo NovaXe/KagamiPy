@@ -1,23 +1,11 @@
-import asyncio
-import datetime
-import re
 from typing import (
     Literal,
-    Dict,
-    Union,
-    Optional,
     List,
 )
-import discord
 import discord.utils
-import wavelink
 from discord.ext import commands
-from discord import app_commands, VoiceChannel, StageChannel, interactions
+from discord import app_commands
 from discord.ext import tasks
-from wavelink import YouTubeTrack
-from collections import deque
-import atexit
-import math
 
 from bot.utils.ui import MessageScroller
 from bot.utils.ui import QueueController
@@ -28,7 +16,6 @@ from bot.utils.utils import (
 )
 from bot.utils.pages import createPageList, CustomRepr
 
-from bot.utils import ui
 from wavelink.ext import spotify
 
 

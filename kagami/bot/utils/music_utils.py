@@ -7,7 +7,7 @@ from enum import (Enum, auto)
 
 from bot.ext.ui.custom_view import MessageInfo
 from bot.ext.ui.page_scroller import ITL, PageGenCallbacks, PageScroller
-from bot.kagami import Kagami
+from bot.kagami_bot import Kagami
 from bot.utils.player import Player
 from bot.utils.wavelink_utils import WavelinkTrack
 from bot.utils.utils import (secondsToTime, secondsDivMod)

@@ -1,25 +1,12 @@
-import asyncio
-import enum
 import math
 import re
 
-from typing import (
-    Literal,
-    Dict,
-    Union,
-    Optional,
-    List,
-)
-
 import wavelink
 from wavelink.ext import spotify
-from wavelink import YouTubeTrack
 import discord
 from enum import Enum
-from typing import List
 from bot.utils.utils import (
-    secondsDivMod,
-    secondsToTime
+    secondsDivMod
 )
 
 

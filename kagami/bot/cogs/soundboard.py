@@ -1,25 +1,7 @@
-import asyncio
-import datetime
-import re
-from typing import (
-    Literal,
-    Dict,
-    Union,
-    Optional,
-    List,
-)
-import discord
 import discord.utils
-import wavelink
 from discord.ext import commands
-from discord import app_commands, VoiceChannel, StageChannel
-from discord.ext import tasks
-from wavelink import YouTubeTrack
-from collections import deque
-import atexit
+from discord import app_commands
 from bot.utils.ui import MessageScroller
-from bot.utils.ui import QueueController
-from bot.utils.utils import secondsDivMod
 from bot.utils.bot_data import Server
 from bot.utils.music_helpers import *
 from bot.utils.utils import find_closely_matching_dict_keys

@@ -1,5 +1,3 @@
-import re
-import typing
 from abc import ABC
 from copy import deepcopy
 import discord
@@ -7,7 +5,7 @@ import discord.ui
 from discord.ext import commands
 from discord import app_commands
 
-from bot.kagami import Kagami
+from bot.kagami_bot import Kagami
 from bot.utils.bot_data import Server
 from bot.utils.ui import MessageScroller
 

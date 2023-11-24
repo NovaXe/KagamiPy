@@ -9,19 +9,22 @@ from typing import (
 )
 
 from bot.ext import errors
-from bot.utils.bot_data import Server, BotData, GlobalData, Tag, Sentinel, Track, Playlist, ServerData
+from bot.utils.bot_data import Server, BotData, Tag, Sentinel, Track, Playlist, ServerData
 from bot.utils.music_helpers import OldPlaylist
-from bot.utils.context_vars import *
+from bot.utils.context_vars import CVar
 
 intents = discord.Intents.all()
 # intents.message = True
 # intents.voice_states = True
 # intents.
 
+BOT_CONFIG_PATH = "bot/data/config.json"
+BOT_DATA_PATH = "bot/data/data.json"
+
 
 class Kagami(commands.Bot):
     def __init__(self):
-        with open("bot/data/config.json") as f:
+        with open(BOT_CONFIG_PATH) as f:
             self.config = json.load(f)
 
         super(Kagami, self).__init__(command_prefix=self.config["prefix"],
@@ -49,9 +52,9 @@ class Kagami(commands.Bot):
         tree.on_error = errors.on_app_command_error
 
 
-    DATA_PATH = "bot/data/data.json"
+    # DATA_PATH = "bot/data/data.json"
     def newLoadData(self):
-        with open(self.DATA_PATH) as f:
+        with open(BOT_DATA_PATH) as f:
             self.raw_data = json.load(f)
 
         self.loadGlobals()
@@ -196,11 +199,11 @@ class Kagami(commands.Bot):
 
     def save_data(self):
         self.update_data()
-        with open("bot/data/data.json", "w") as f:
+        with open(BOT_DATA_PATH, "w") as f:
             json.dump(self.old_data, f, indent=4)
 
     def load_data(self):
-        with open("bot/data/data.json", "r") as f:
+        with open(BOT_DATA_PATH, "r") as f:
             self.old_data = json.load(f)
 
 
@@ -229,7 +232,8 @@ class Kagami(commands.Bot):
         for file in os.listdir("bot/cogs"):
             if file.endswith(".py"):
                 name = file[:-3]
-                await self.load_extension(f"cogs.{name}")
+                path = f"bot.cogs.{name}"
+                await self.load_extension(path)
         # await self.tree.sync()
 
     LOG_CHANNEL = 825529492982333461
@@ -258,3 +262,4 @@ class Kagami(commands.Bot):
         await self.logToChannel(login_message)
 
 
+bot_var = CVar[Kagami]('kagami')

@@ -1,5 +1,3 @@
-import datetime
-
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -7,21 +5,13 @@ from discord.ext import commands
 from bot.utils.bot_data import Server
 from bot.utils.ui import MessageScroller
 from typing import Literal
-from bot.kagami import Kagami
+from bot.kagami_bot import Kagami
 from datetime import date
-import re
-from difflib import (
-    get_close_matches,
-    SequenceMatcher
-)
-from functools import partial
 from bot.utils.utils import (
     find_closely_matching_dict_keys,
     link_to_attachment
 )
 from bot.utils.pages import createPageList, createPageInfoText, CustomRepr
-
-from io import BytesIO
 
 
 class Tags(commands.GroupCog, group_name="tag"):

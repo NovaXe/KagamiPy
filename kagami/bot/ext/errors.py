@@ -1,8 +1,7 @@
 import sys
 import traceback
 
-import discord
-from discord import app_commands, Interaction
+from discord import Interaction
 from discord.app_commands import CheckFailure, AppCommandError
 
 from bot.utils.interactions import respond

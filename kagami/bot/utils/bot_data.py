@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 
 from bot.utils.music_helpers import OldPlaylist
 from bot.utils.wavelink_utils import WavelinkTrack
+from bot.utils.context_vars import CVar
 
 
 class Server:
@@ -97,3 +98,4 @@ bot.data
 
 
 """
+server_data = CVar[ServerData]('server_data', default=ServerData())

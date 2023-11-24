@@ -1,10 +1,7 @@
 from contextvars import ContextVar
 from typing import TypeVar, Generic
 
-from bot.utils.bot_data import ServerData
-from bot.kagami import Kagami
 T = TypeVar("T")
-
 
 class CVar(Generic[T]):
     def __init__(self, name: str, default=...):
@@ -17,12 +14,6 @@ class CVar(Generic[T]):
     @value.setter
     def value(self, value: T):
         self.var.set(value)
-
-
-
-
-server_data = CVar[ServerData]('server_data', default=ServerData())
-bot_var = CVar[Kagami]('kagami')
 
 # _server_data = ContextVar('server_data', default=ServerData)
 # @property

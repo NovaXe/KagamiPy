@@ -1,11 +1,5 @@
-import json
-import os
-import discord
 import discord.utils
-from bot.utils.utils import ClampedValue
 from bot.utils.utils import clamp
-from discord.ext import commands
-from discord import app_commands
 from typing import Optional
 
 from bot.utils.music_helpers import *
