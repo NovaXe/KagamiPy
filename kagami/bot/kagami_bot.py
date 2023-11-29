@@ -254,7 +254,7 @@ class Kagami(commands.Bot):
 
     async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:
         await super().on_error(event_method, *args, **kwargs)
-        await self.logToChannel(event_method, self.get_channel(LOG_CHANNEL),False, False)
+        await self.logToChannel(f"{event_method} : {args} : *{kwargs}", self.get_channel(self.LOG_CHANNEL),False, False)
 
     async def on_ready(self):
         login_message = f"Logged in as {self.user} (ID: {self.user.id})"

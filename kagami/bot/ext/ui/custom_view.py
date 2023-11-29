@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+import discord
+
 from bot.kagami_bot import Kagami
 from discord.ui import (View, Button, Select, TextInput)
 
@@ -16,6 +18,9 @@ class MessageInfo:
     id: int
     channel_id: int
     # guild_id: int
+    @classmethod
+    def init_from_message(cls, message: discord.Message):
+        return cls(id=message.id, channel_id=message.channel.id)
 
 class CustomView(View):
     def __init__(self, *args, timeout: float | None = 120,
@@ -31,6 +36,9 @@ class CustomView(View):
         m_id = self.m_info.id
         ch_id = self.m_info.channel_id
         return self.bot.getPartialMessage(m_id, ch_id)
+
+    def setMessageInfo(self, message_info: MessageInfo):
+        self.m_info = message_info
 
     async def onStop(self):
         if self.stop_behavior.delete_message:

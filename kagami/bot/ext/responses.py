@@ -80,14 +80,18 @@ class PersistentMessage:
 
     async def send_message(self):
         channel = self.bot.get_channel(self.channel_id)
-        # messsage = await channel.send(content=self.message_elems.content)
+        # message = await channel.send(content=self.message_elems.content)
         elems = self.message_elems
         text = self.messageContent()
         message = await channel.send(content=text,
                                      view=elems.view,
                                      files=elems.files,
                                      embeds=elems.embeds)
+
+        message_info = MessageInfo.init_from_message(message)
+        elems.view.setMessageInfo(message_info=message_info)
         self.message_id = message.id
+        self.channel_id = message.channel.id
 
     # TODO allowing editing messages with views and attachments
     async def attempt_message_edit(self, message: PartialMessage):
