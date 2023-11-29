@@ -32,6 +32,7 @@ class Player(wavelink.Player):
         self.interrupted = False
         self.now_playing_message: PersistentMessage = None
         self.halted = True
+        self.halted_queue_count = 0
         self.priority_queue = wavelink.Queue
         self.playlist_queue = wavelink.Queue
         self.soundboard_queue = wavelink.Queue
@@ -64,8 +65,12 @@ class Player(wavelink.Player):
             self.queue.loop = True
             self.queue.loop_all = False
 
+
+    def halt(self):
+        self.halted_queue_count = self.queue.count
+        self.halted = True
     async def stop(self, *, halt: bool=False, force: bool = True) -> None:
-        if halt: self.halted=True
+        if halt: self.halt()
         await super().stop(force=force)
 
     def selectedTrack(self) -> WavelinkTrack:

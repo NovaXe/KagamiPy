@@ -49,7 +49,7 @@ class PersistentMessage:
             await self.attempt_message_delete(message)
 
 
-    def get_messsage_content(self):
+    def get_message_content(self):
         if self.refresh_callback:
             return self.refresh_callback(self.guild_id, self.channel_id, self.message_elems.content)
         else:

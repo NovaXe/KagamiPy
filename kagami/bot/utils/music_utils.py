@@ -24,13 +24,21 @@ class TrackType(Enum):
     SOUNDCLOUD = auto()
 
 
-async def attemptHaltResume(interaction: Interaction, send_response=False):
+async def attemptHaltResume(interaction: Interaction, send_response=False, before_queue_length=0):
+    """
+    :param interaction: the discord command interaction
+    :param send_response: whether to respond to the interaction or not
+    :param before_queue_length: only input if you have put new track
+    :return:
+    """
+
     voice_client: Player = interaction.guild.voice_client
-    before_queue_length = voice_client.queue.count
+    # before_queue_length = voice_client.queue.count
+
     response = "default response"
     if voice_client.halted:
         if voice_client.queue.history.count:
-            if before_queue_length==0 and voice_client.queue.count > 0:
+            if voice_client.halted_queue_count==0 and voice_client.queue.count > 0:
                 await voice_client.cyclePlayNext()
             else:
                 await voice_client.beginPlayback()
