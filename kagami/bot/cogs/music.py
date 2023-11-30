@@ -559,6 +559,7 @@ class PlaylistTransformer(Transformer):
 
 
 def createNewPlaylist(name: str, tracks: list[WavelinkTrack]=None):
+    # TODO add a overwrite confirmation if a playlist already exists
     # Future functionality have a YES / NO choice for overwriting the old one
     # Send as an ephemeral followup to the original response with a view attached
     # Wait for a view response and timeout default to No after a little bit
@@ -589,12 +590,8 @@ class PlaylistCog(GroupCog,
     async def p_create_new(self, interaction: Interaction,
                            playlist: Transform[Playlist, PlaylistTransformer]):
         playlist_name = interaction.namespace.playlist
-
-
-
-
-        await respond(interaction)
-        pass
+        createNewPlaylist(playlist_name)
+        await respond(interaction, f"Created playlist `{playlist_name}`")
 
     @create.command(name="queue", description="creates a new playlist using the current queue as a base")
     async def p_create_queue(self, interaction: Interaction, name: str):

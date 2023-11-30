@@ -19,8 +19,8 @@ intents = discord.Intents.all()
 # intents.
 
 BOT_CONFIG_PATH = "bot/data/config.json"
-BOT_DATA_PATH = "bot/data/data.json"
-
+BOT_DATA_PATH = "bot/data/old_data.json"
+BOT_NEW_DATA_PATH = "bot/data/data.json"
 
 class Kagami(commands.Bot):
     def __init__(self):
@@ -52,14 +52,19 @@ class Kagami(commands.Bot):
         tree.on_error = errors.on_app_command_error
 
 
-    # DATA_PATH = "bot/data/data.json"
+    # DATA_PATH = "bot/data/old_data.json"
     def newLoadData(self):
         with open(BOT_DATA_PATH) as f:
             self.raw_data = json.load(f)
+        self.data = BotData.fromDict(self.raw_data)
 
-        self.loadGlobals()
-        self.loadServers()
+        # self.loadGlobals()
+        # self.loadServers()
 
+    def newSaveData(self):
+        self.raw_data = self.data.toDict()
+        with open(BOT_NEW_DATA_PATH, "w") as f:
+            json.dump(self.raw_data, f, indent=4)
 
     def loadGlobals(self):
         _globals = self.raw_data["globals"]
