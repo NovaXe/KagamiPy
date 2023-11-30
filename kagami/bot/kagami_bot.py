@@ -249,12 +249,16 @@ class Kagami(commands.Bot):
         if big_bold:
             message = f"## {message}"
 
-
         await channel.send(message)
 
     async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:
         await super().on_error(event_method, *args, **kwargs)
-        await self.logToChannel(f"{event_method} : {args} : *{kwargs}", self.get_channel(self.LOG_CHANNEL),False, False)
+        # await self.logToChannel(
+        #     message=f"**{event_method}** \n **args:**\n{args}\n **kwargs:**\n{kwargs}",
+        #     channel=self.get_channel(self.LOG_CHANNEL),
+        #     big_bold=False,
+        #     code_block=False)
+
 
     async def on_ready(self):
         login_message = f"Logged in as {self.user} (ID: {self.user.id})"

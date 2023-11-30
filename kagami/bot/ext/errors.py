@@ -31,6 +31,9 @@ class PlaylistNotFound(CustomCheck):
 class PlaylistAlreadyExists(CustomCheck):
     MESSAGE = "There is already a playlist with that name"
 
+class WrongVoiceClient(CustomCheck):
+    MESSAGE = "Wrong command, try the other play command"
+
 async def on_app_command_error(interaction: Interaction, error: AppCommandError):
     if isinstance(error, CustomCheck):
         og_response = await respond(interaction, f"**{error}**")

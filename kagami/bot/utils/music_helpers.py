@@ -73,6 +73,7 @@ class OldPlayer(wavelink.Player):
         self.is_stopped = False
         self.now_playing_message: discord.Message = None
 
+
         self.interrupt_position = 0
         self.interrupted_by_sound = False
 

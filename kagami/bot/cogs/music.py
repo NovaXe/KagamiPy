@@ -195,7 +195,7 @@ class Music(GroupCog,
     @requireVoiceclient(defer_response=False)
     @music_group.command(name="nowplaying",
                          description="shows the current song")
-    async def m_nowplaying(self, interaction: Interaction, minimal:bool=None, move_status:bool=True):
+    async def m_nowplaying(self, interaction: Interaction, minimal: bool=None, move_status: bool=True):
         voice_client: Player = interaction.guild.voice_client
         # await respond(interaction, ephemeral=True)
 
@@ -466,6 +466,11 @@ class Music(GroupCog,
             # via Player.stop()
             pass
 
+    async def interaction_check(self, interaction: Interaction, /) -> bool:
+        if interaction.guild.voice_client and not isinstance(interaction.guild.voice_client, Player):
+            raise errors.WrongVoiceClient("`Incorrect command for Player, Try /<command> instead`")
+        return True
+
 
 # TODO Playlist Functionality needs a reimplementation
 # Reuse as much stuff from the og implementation as it works quite well but try to clean it up
@@ -553,23 +558,24 @@ class PlaylistTransformer(Transformer):
 
 
 
-def createNewPlaylist(name: str, tracks:list[WavelinkTrack]=None):
+def createNewPlaylist(name: str, tracks: list[WavelinkTrack]=None):
     # Future functionality have a YES / NO choice for overwriting the old one
     # Send as an ephemeral followup to the original response with a view attached
-    # Wait for a view respons and timeout default to No after a little bit
+    # Wait for a view response and timeout default to No after a little bit
     playlists = server_data.value.playlists
     if name in playlists.keys():
         raise errors.PlaylistAlreadyExists
     else:
         if tracks:
-            playlists[name] = Playlist.init_from_tracks(tracks)
+            new_playlist = Playlist.initFromTracks(tracks)
         else:
-            playlists[name] = Playlist
+            new_playlist = Playlist
+    playlists[name] = new_playlist
+    return new_playlist
 
-
-class Playlist(GroupCog,
-               group_name="p",
-               description="commands relating to music playlists"):
+class PlaylistCog(GroupCog,
+                  group_name="p",
+                  description="commands relating to music playlists"):
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
@@ -583,6 +589,10 @@ class Playlist(GroupCog,
     async def p_create_new(self, interaction: Interaction,
                            playlist: Transform[Playlist, PlaylistTransformer]):
         playlist_name = interaction.namespace.playlist
+
+
+
+
         await respond(interaction)
         pass
 
@@ -612,6 +622,6 @@ class Playlist(GroupCog,
 
 async def setup(bot):
     music_cog = Music(bot)
-    playlist_cog = Playlist(bot)
+    playlist_cog = PlaylistCog(bot)
     await bot.add_cog(music_cog)
     await bot.add_cog(playlist_cog)

@@ -3,6 +3,7 @@ from typing import (
     List,
 )
 import discord.utils
+from discord._types import ClientT
 from discord.ext import commands
 from discord import app_commands
 from discord.ext import tasks
@@ -14,6 +15,7 @@ from bot.utils.music_helpers import *
 from bot.utils.utils import (
     secondsDivMod
 )
+from bot.ext import errors
 from bot.utils.pages import createPageList, CustomRepr
 
 from wavelink.ext import spotify
@@ -674,6 +676,8 @@ class OldMusic(commands.Cog):
 
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: wavelink.TrackEventPayload):
+        if not isinstance(member.guild.voice_client, OldPlayer):
+            return
         player: OldPlayer = payload.player
         reason = payload.reason
 
@@ -715,18 +719,24 @@ class OldMusic(commands.Cog):
     @commands.Cog.listener()
     async def on_wavelink_track_exception(self, payload: wavelink.TrackEventPayload):
         player: OldPlayer = payload.player
+        if not isinstance(member.guild.voice_client, OldPlayer):
+            return
         await player.play_next_track()
         # print("track exception\n")
 
     @commands.Cog.listener()
     async def on_wavelink_track_stuck(self, payload: wavelink.TrackEventPayload):
         player: OldPlayer = payload.player
+        if not isinstance(member.guild.voice_client, OldPlayer):
+            return
         await player.play_next_track()
         # print("track stuck\n")
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload: wavelink.TrackEventPayload):
         track = payload.track
+        if not isinstance(member.guild.voice_client, OldPlayer):
+            return
         player: OldPlayer = payload.player
         # track_title: str = str(player.source)
         #
@@ -759,7 +769,10 @@ class OldMusic(commands.Cog):
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         server: Server = self.bot.fetch_server(member.guild.id)
+        if not isinstance(member.guild.voice_client, OldPlayer):
+            return
         current_player: OldPlayer = member.guild.voice_client
+
 
 
         # print("state change")
@@ -782,6 +795,12 @@ class OldMusic(commands.Cog):
                     #     print("members remain")
                 # else:
                 #     print("user didn't leave")
+
+
+    async def interaction_check(self, interaction: discord.Interaction, /) -> bool:
+        if interaction.guild.voice_client and not isinstance(interaction.guild.voice_client, OldPlayer):
+            raise errors.WrongVoiceClient("`Incorrect command for Player, Try /m <command> instead`")
+        return True
 
 
 

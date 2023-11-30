@@ -4,7 +4,7 @@ from bot.utils.music_helpers import OldPlaylist
 from bot.utils.wavelink_utils import WavelinkTrack
 from bot.utils.context_vars import CVar
 
-
+# TODO deprecate this shit once nothing else uses it
 class Server:
     def __init__(self, guild_id: [int, str], player=None, json_data=None):
         self.id = str(guild_id)
@@ -36,20 +36,55 @@ class Track:
     name: str=""
     duration: int=0
 
+    @classmethod
+    def fromWavelinkTrack(cls, track: WavelinkTrack | Track) -> Track:
+        if isinstance(track, Track):
+            return track
+        return cls(encoded=track.encoded, name=track.title, duration=track.duration)
+
+
+
 @dataclass
 class Playlist:
     tracks: list[Track]
     duration: int=0
 
     @classmethod
-    def init_from_tracks(cls, tracks: list[WavelinkTrack]):
-        new_tracks = []
+    def initFromTracks(cls, tracks: list[WavelinkTrack] | list[Track]) -> Playlist:
+        new_tracks: list[Track] = []
         duration = 0
         for track in tracks:
-            new_tracks.append(Track(encoded=track.encoded, name=track.title, duration=track.duration))
+            track = Track.fromWavelinkTrack(track)
+            new_tracks.append(track)
             duration += track.duration
 
         return cls(tracks=new_tracks, duration=duration)
+
+    def updateFromTracks(self, tracks: list[WavelinkTrack] | list[Track], ignore_duplicates=True):
+        for track in tracks:
+            track = Track.fromWavelinkTrack(track)
+            if ignore_duplicates and track in self.tracks:
+                continue
+            else:
+                self.tracks.append(track)
+                self.duration += track.duration
+
+    def updateFromPlaylist(self, playlist: Playlist, ignore_duplicates=True):
+        self.updateFromTracks(playlist.tracks, ignore_duplicates)
+
+    def removeTracks(self, tracks: list[WavelinkTrack] | list[Track]):
+        for track in tracks:
+            track = Track.fromWavelinkTrack(track)
+            while track in self.tracks:
+                self.tracks.remove(track)
+                self.duration -= track.duration
+
+    def removeTracksFromPlaylist(self, playlist: Playlist):
+        self.removeTracks(playlist.tracks)
+
+
+
+
 
 @dataclass
 class Tag:
@@ -73,6 +108,11 @@ class ServerData:
     sentinels: dict[str, Sentinel] = default_factory(dict)
     fish_mode: bool=False
 
+    @classmethod
+    def fromDict(cls, data: dict):
+        # TODO implement this for python dict data
+        pass
+
 
 @dataclass
 class GlobalData:
@@ -80,11 +120,22 @@ class GlobalData:
     tags: dict[str, Tag] = default_factory(dict)
     sentinels: dict[str, Sentinel] = default_factory(dict)
 
+    @classmethod
+    def fromDict(cls, data: dict):
+        # TODO implement this for python dict data
+        pass
+
 
 @dataclass
 class BotData:
     servers: dict[str, ServerData] = default_factory(dict)
     globals: GlobalData = GlobalData
+
+    @classmethod
+    def fromDict(cls, data: dict):
+        # TODO implement this for python dict data
+        # No reason to do this in the main bot file, do it all here
+        pass
 
 
 
