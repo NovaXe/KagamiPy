@@ -570,7 +570,7 @@ def createNewPlaylist(name: str, tracks: list[WavelinkTrack]=None):
         if tracks:
             new_playlist = Playlist.initFromTracks(tracks)
         else:
-            new_playlist = Playlist
+            new_playlist = Playlist()
     playlists[name] = new_playlist
     return new_playlist
 
@@ -593,10 +593,16 @@ class PlaylistCog(GroupCog,
         createNewPlaylist(playlist_name)
         await respond(interaction, f"Created playlist `{playlist_name}`")
 
+    @requireVoiceclient()
     @create.command(name="queue", description="creates a new playlist using the current queue as a base")
-    async def p_create_queue(self, interaction: Interaction, name: str):
-        await respond(interaction, "create queue")
-        pass
+    async def p_create_queue(self, interaction: Interaction,
+                             playlist: Transform[Playlist, PlaylistTransformer]):
+        voice_client: Player = interaction.guild.voice_client
+        playlist_name = interaction.namespace.playlist
+        tracks = list(voice_client.queue.history) + list(voice_client.queue)
+        createNewPlaylist(playlist_name, tracks)
+        await respond(interaction, f"Created playlist `{playlist_name}` with `{len(tracks)} tracks`")
+
 
     async def p_delete(self, interaction: Interaction, playlist: str):
         pass

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import TypeVar, Type
+from typing import TypeVar, Type, Union
 
 from bot.utils.music_helpers import OldPlaylist
 from bot.utils.wavelink_utils import WavelinkTrack
@@ -57,8 +57,8 @@ class Track:
         return [cls.fromDict(track_data) for track_data in data]
 
     @classmethod
-    def fromWavelinkTrack(cls, track: WavelinkTrack):
-        if not isinstance(track, WavelinkTrack):
+    def fromWavelinkTrack(cls, track: Union[WavelinkTrack, 'Track']):
+        if isinstance(track, Track):
             return track
         return cls(encoded=track.encoded, title=track.title, duration=track.duration)
 
@@ -107,7 +107,7 @@ class Sound(Track, DictFromToDictMixin):
 
 @dataclass
 class Playlist(DictFromToDictMixin):
-    tracks: list[Track]
+    tracks: list[Track] = default_factory(list)
     duration: int=0
 
     @classmethod

@@ -54,7 +54,7 @@ class Kagami(commands.Bot):
 
     # DATA_PATH = "bot/data/old_data.json"
     def newLoadData(self):
-        with open(BOT_DATA_PATH) as f:
+        with open(BOT_NEW_DATA_PATH) as f:
             self.raw_data = json.load(f)
         self.data = BotData.fromDict(self.raw_data)
 
