@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import TypeVar, Type, Union
 
 from bot.utils.music_helpers import OldPlaylist
-from bot.utils.wavelink_utils import WavelinkTrack
+from bot.utils.wavelink_utils import WavelinkTrack, buildTrack
 from bot.utils.context_vars import CVar
 
 # TODO deprecate this shit once nothing else uses it
@@ -52,6 +52,10 @@ class Track:
             "duration": self.duration
         }
 
+    async def buildWavelinkTrack(self) -> WavelinkTrack:
+        track = await buildTrack(self.encoded)
+        return track
+
     @classmethod
     def listFromDictList(cls, data: list[dict]):
         return [cls.fromDict(track_data) for track_data in data]
@@ -61,6 +65,7 @@ class Track:
         if isinstance(track, Track):
             return track
         return cls(encoded=track.encoded, title=track.title, duration=track.duration)
+
 
 
 @dataclass
@@ -123,6 +128,9 @@ class Playlist(DictFromToDictMixin):
             "duration": self.duration
         }
 
+    async def buildTracks(self)->list[WavelinkTrack]:
+        tracks = [await track.buildWavelinkTrack() for track in self.tracks]
+        return tracks
     @classmethod
     def initFromTracks(cls, tracks: list[WavelinkTrack] | list[Track]):
         new_tracks: list[Track] = []
@@ -264,18 +272,6 @@ class BotData(DictFromToDictMixin):
         }
 
 
-
-
-
-
+server_data = CVar[ServerData]('server_data', default=ServerData())
 # server_data_context_var: ContextVar[ServerData] = ContextVar('server_data', default=ServerData)
 
-
-"""
-data structure
-bot.data
-
-
-
-"""
-server_data = CVar[ServerData]('server_data', default=ServerData())

@@ -16,3 +16,4 @@ async def respond(interaction: Interaction, content: str=None, ephemeral=False, 
             response = None
             pass
     return response
+

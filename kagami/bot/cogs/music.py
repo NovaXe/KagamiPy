@@ -19,7 +19,7 @@ from bot.utils.music_utils import (
     attemptHaltResume,
     createNowPlayingWithDescriptor, createQueuePage, secondsToTime, respondWithTracks)
 from bot.utils.wavelink_utils import createNowPlayingMessage, searchForTracks
-from bot.utils.player import Player
+from bot.utils.player import Player, player_instance
 from bot.utils.wavelink_utils import WavelinkTrack
 from bot.kagami_bot import Kagami
 from bot.ext.ui.music import PlayerController
@@ -35,6 +35,7 @@ async def searchAndQueue(voice_client: Player, search):
     tracks, source = await searchForTracks(search, 1)
     await voice_client.waitAddToQueue(tracks)
     return tracks, source
+
 
 
 async def joinVoice(interaction: Interaction, voice_channel: VoiceChannel):
@@ -81,6 +82,12 @@ def requireVoiceclient(begin_session=False, defer_response=True):
             return True
 
     return app_commands.check(predicate)
+
+# def deferResponse():
+#     async def predicate(interaction: Interaction):
+#         await respond(interaction)
+#         return True
+#     return app_commands.check(predicate)
 
 class Music(GroupCog,
             group_name="m",
@@ -517,30 +524,10 @@ class PlaylistTransformer(Transformer):
         server_data.value = bot_var.value.getServerData(interaction.guild_id)
         playlists = server_data.value.playlists
         keys = list(playlists.keys()) if len(playlists) else []
-        # close_matches = find_closely_matching_list_elems(value, keys, 25)
-        #
-        # def match_to_split(key:str):
-        #     words = key.split(' ')
-        #     for word in words:
-        #         if word.startswith(value):
-        #             return key
-        #
-        #
-        # starts_with = [match_to_split(key) for key in keys if match_to_split(key)]
-        # in_lower = [key for key in keys if value.lower() in key.lower()]
-        #
-        # options = list(set(starts_with + close_matches + in_lower))
-
         options = similaritySort(keys, value)
 
         choices = [Choice(name=key, value=key) for key in options][:25]
         return choices
-
-    # async def transform(self, interaction: Interaction, value: Any, /) -> tuple[str, Playlist]:
-    #     if value in server_data.playlists.keys():
-    #         return value, server_data.playlists[value]
-    #     else:
-    #         return value, None
 
     async def transform(self, interaction: Interaction, value: Any, /) -> Playlist:
         playlists = server_data.value.playlists
@@ -597,25 +584,44 @@ class PlaylistCog(GroupCog,
     @create.command(name="queue", description="creates a new playlist using the current queue as a base")
     async def p_create_queue(self, interaction: Interaction,
                              playlist: Transform[Playlist, PlaylistTransformer]):
-        voice_client: Player = interaction.guild.voice_client
-        playlist_name = interaction.namespace.playlist
-        tracks = list(voice_client.queue.history) + list(voice_client.queue)
+        # voice_client: Player = interaction.guild.voice_client
+        # voice_client = player_instance.value
+        tracks = player_instance.value.allTracks()
         createNewPlaylist(playlist_name, tracks)
         await respond(interaction, f"Created playlist `{playlist_name}` with `{len(tracks)} tracks`")
 
 
-    async def p_delete(self, interaction: Interaction, playlist: str):
-        pass
+    @app_commands.command(name="delete", description="deletes a playlist")
+    async def p_delete(self, interaction: Interaction,
+                       playlist: Transform[Playlist, PlaylistTransformer]):
+        await respond(interaction)
+        voice_client = interaction.guild.voice_client
+        playlist_name = interaction.namespace.playlist
+        if playlist is not None:
+            voice_client.playlists.pop(playlist_name)
+            await respond(interaction, f"**Deleted Playlist `{playlist_name}`**")
+        else:
+            await respond(interaction, f"**Playlist `{playlist_name}` does not exist**")
 
-    # this shit needs an autocomplete for the playlist parameter
-    async def p_play(self, interaction: Interaction, playlist: str):
-        pass
+    @requireVoiceclient(begin_session=True)
+    @app_commands.command(name="play", description="play a playlist")
+    async def p_play(self, interaction: Interaction,
+                     playlist: Transform[Playlist, PlaylistTransformer]):
+        voice_client = interaction.guild.voice_client
+        tracks = await playlist.buildTracks()
+        await voice_client.waitAddToQueue(tracks)
+        await respondWithTracks(self.bot, interaction, tracks)
+        await attemptHaltResume(interaction)
 
-    def setServerDataVar(self, interaction: Interaction):
+    # TODO Alias play command without the m before it in global space for ease of use
+
+    def setContextVars(self, interaction: Interaction):
         server_data.value = self.bot.getServerData(interaction.guild_id)
+        player_instance.value = interaction.guild.voice_client
+        pass
 
     async def interaction_check(self, interaction: Interaction):
-        self.setServerDataVar(interaction)
+        self.setContextVars(interaction)
         return True
     # async def autocomplete_check
 

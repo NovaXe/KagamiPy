@@ -25,6 +25,7 @@ def track_to_string(track: WavelinkTrack) -> str:
     return message
 
 
+
 def createNowPlayingMessage(track: WavelinkTrack, position: int=None,
                             formatting=True, show_arrow=True, descriptor_text: str="NOW PLAYING") -> str:
     if track is None:
@@ -128,3 +129,8 @@ async def searchForTracks(search: str, count: int=1) -> tuple[list[WavelinkTrack
         tracks = (await wavelink.YouTubeTrack.search(search))[0:count]
 
     return tracks, source
+
+
+
+async def buildTrack(track_encoded: str)->WavelinkTrack:
+    return await wavelink.NodePool.get_node().build_track(cls=WavelinkTrack, encoded=track_encoded)

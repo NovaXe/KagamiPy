@@ -228,7 +228,7 @@ upgrade old message scroller and player controls to utilize new dynamic shit
 """
 
 
-async def respondWithTracks(bot:Kagami, interaction: Interaction, tracks: list[WavelinkTrack,], followup=False, timeout=60):
+async def respondWithTracks(bot: Kagami, interaction: Interaction, tracks: list[WavelinkTrack], followup=False, timeout=60):
     data, duration = trackListData(tracks)
     track_count = len(tracks)
     # Message information

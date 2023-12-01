@@ -128,9 +128,8 @@ class Kagami(commands.Bot):
 
     def getServerData(self, server_id: int | str) ->ServerData:
         server_id = str(server_id)
-        if server_id not in self.data.servers.keys():
-            self.data.servers[server_id] = ServerData()
-        return self.data.servers[server_id]
+        data = self.data.servers.get(server_id, ServerData())
+        return data
 
     def fetch_server(self, server_id: [int, str]):
         if str(server_id) not in self.servers:

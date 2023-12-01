@@ -1,8 +1,11 @@
 from enum import Enum, auto
+from typing import Union, List
 import wavelink
 
 from bot.ext.responses import PersistentMessage
+from bot.utils.context_vars import CVar
 from bot.utils.wavelink_utils import WavelinkTrack
+from bot.utils.bot_data import Track
 
 
 class Player(wavelink.Player):
@@ -120,14 +123,23 @@ class Player(wavelink.Player):
         #         self.queue.put_at_front(self.queue.history.pop())
         #         # del self.queue.history[0]
 
-    async def waitAddToQueue(self, tracks:[WavelinkTrack]):
-        for track in tracks:
-            await self.queue.put_wait(track)
+    async def waitAddToQueue(self, tracks: list[WavelinkTrack] | WavelinkTrack):
+        if isinstance(tracks, list):
+            for track in tracks: await self.queue.put_wait(track)
+        else:
+            await self.queue.put_wait(tracks)
         # for track in tracks:
         #     self.queue.extend(track)
 
-    async def addToQueue(self, tracks:[WavelinkTrack]):
+    async def addToQueue(self, tracks: [WavelinkTrack]):
         self.queue.extend(tracks)
+
+    async def buildAndQueue(self, tracks: list[Track] | Track):
+        if isinstance(tracks, list):
+            new_tracks = [await track.buildWavelinkTrack() for track in tracks]
+        else:
+            new_tracks = await tracks.buildWavelinkTrack()
+        await self.waitAddToQueue(new_tracks)
 
     async def haltPlayback(self):
         self.halted = True
@@ -181,18 +193,18 @@ class Player(wavelink.Player):
     def savePos(self):
         self.start_pos = self.position
 
-
-
-
-
-
-
-
-
     async def playNext(self):
         pass
 
     async def playPrevious(self):
         pass
 
+    def allTracks(self):
+        tracks = list(self.queue.history) + list(self.queue)
+        return tracks
+
+
     # put implements
+
+
+player_instance = CVar[Player]('player_instance', default=None)
