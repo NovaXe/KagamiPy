@@ -298,7 +298,8 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
                     return  # Ignore if disabled
                 if reactions := sentinel_data['reactions']:
                     for reaction in reactions:
-                        await message.add_reaction(reaction)
+                        if reaction != 'None':
+                            await message.add_reaction(reaction)
                 if response := sentinel_data['response']:
                     await message.reply(content=response)
                 sentinel_data['uses'] += 1
