@@ -229,6 +229,7 @@ class Kagami(commands.Bot):
 
         self.update_data()
         self.save_data()
+        self.newSaveData()
         print("ran atexit\n")
         await super().close()
 

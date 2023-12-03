@@ -654,12 +654,13 @@ class PlaylistCog(GroupCog,
 
         # TODO create a list of the tracks added for both add_queue and add_track
 
-    @add.command(name="tracks", description="")
+    @add.command(name="tracks", description="adds tracks to a playlists")
     async def p_add_track(self, interaction: Interaction,
                           playlist: Playlist_Transformer,
-                          search:str, allow_duplicates=False):
+                          search:str, allow_duplicates:bool=False):
+        await respond(interaction)
         voice_client = interaction.guild.voice_client
-        tracks = searchForTracks(search)
+        tracks, _ = await searchForTracks(search)
         playlist.updateFromTracks(tracks, allow_duplicates)
         dups = "with" if allow_duplicates else "without"
         await respond(interaction,
@@ -678,15 +679,16 @@ class PlaylistCog(GroupCog,
     async def p_edit_details(self, interaction: Interaction,
                              playlist: Playlist_Transformer):
 
-        await respond(interaction, ephemeral=True)
+        # await respond(interaction, ephemeral=True)
         playlist_name = interaction.namespace.playlist
         edit_modal = SimpleEditModal(title="Edit Playlist Info",
                                      fields={
                                          "name": playlist_name,
                                          "description": playlist.description
                                      })
+
         await interaction.response.send_modal(edit_modal)
-        if await edit_modal.wait():
+        if not await edit_modal.wait():
             new_desc = edit_modal.fields.get("description")
             new_name = edit_modal.fields.get("name")
             playlist.description = new_desc
@@ -700,7 +702,6 @@ class PlaylistCog(GroupCog,
 
 
     @requireOptionalParams(params=["new_index", "replacement_track"])
-    @app_commands.rename(track_pos="track", new_index="new position", new_track="new track")
     @edit.command(name="track", description="move or replace a track in a playlist")
     async def p_edit_track(self, interaction: Interaction,
                            playlist: Playlist_Transformer,
@@ -770,9 +771,9 @@ class SimpleEditModal(Modal):
     def __init__(self, title: str, fields:dict[str, str]):
         super().__init__(title=title)
 
-        self.fields = fields[::5]
-        for field_name, default_value in fields:
-            field = TextInput(label=field_name, placeholder=default_value)
+        self.fields = fields
+        for field_name, default_value in fields.items():
+            field = TextInput(label=field_name, default=default_value)
             self.add_item(field)
             if len(self.children) == 5:
                 break
@@ -780,7 +781,7 @@ class SimpleEditModal(Modal):
 
     async def on_submit(self, interaction: Interaction) -> None:
         item: TextInput
-        self.fields = {item.label: item.value for item in self.children}
+        self.fields.update({item.label: item.value for item in self.children})
         await respond(interaction)
 
 
