@@ -1,12 +1,14 @@
+import discord
 import wavelink
 from wavelink import TrackEventPayload
 from wavelink.ext import spotify
 from typing import (Literal, Any, Union, List)
 from discord import (app_commands, Interaction, VoiceChannel, Message)
-from discord.app_commands import Group, Transformer, Transform, Choice
+from discord.app_commands import Group, Transformer, Transform, Choice, Range
 from discord.ext.commands import GroupCog
 from discord.ext import (commands, tasks)
 from discord.utils import MISSING
+from discord.ui import Modal, Select, TextInput
 
 from bot.ext.ui.custom_view import MessageInfo
 from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks
@@ -82,6 +84,22 @@ def requireVoiceclient(begin_session=False, defer_response=True):
             return True
 
     return app_commands.check(predicate)
+
+def requireOptionalParams(params=list[str], min_count: int=1):
+    async def predicate(interaction: Interaction):
+        count = 0
+        for param in params:
+            if interaction.namespace.param:
+                count += 1
+            if count >= min_count: return True
+        else:
+            raise errors.MissingParameters(f"Command requires at least `{min_count}` of the following parameters\n"
+                                           f"`{params}`")
+
+
+
+    return app_commands.check(predicate)
+
 
 # def deferResponse():
 #     async def predicate(interaction: Interaction):
@@ -545,6 +563,8 @@ class PlaylistTransformer(Transformer):
 
 
 
+
+
 def createNewPlaylist(name: str, tracks: list[WavelinkTrack]=None):
     # TODO add a overwrite confirmation if a playlist already exists
     # Future functionality have a YES / NO choice for overwriting the old one
@@ -571,11 +591,16 @@ class PlaylistCog(GroupCog,
 
     create = Group(name="create", description="creating playlists")
     add = Group(name="add", description="adding tracks to playlists")
+    # remove = Group(name="remove", description="removeing tracks or playlists")
+    view = Group(name="view", description="view playlists and tracks")
+    edit = Group(name="edit", description="edit playlist info and tracks")
+
+    Playlist_Transformer = Transform[Playlist, PlaylistTransformer]
 
     @create.command(name="new", description="create a new empty playlist")
     # @app_commands.rename(playlist_tuple="playlist")
     async def p_create_new(self, interaction: Interaction,
-                           playlist: Transform[Playlist, PlaylistTransformer]):
+                           playlist: Playlist_Transformer):
         playlist_name = interaction.namespace.playlist
         createNewPlaylist(playlist_name)
         await respond(interaction, f"Created playlist `{playlist_name}`")
@@ -583,7 +608,7 @@ class PlaylistCog(GroupCog,
     @requireVoiceclient()
     @create.command(name="queue", description="creates a new playlist using the current queue as a base")
     async def p_create_queue(self, interaction: Interaction,
-                             playlist: Transform[Playlist, PlaylistTransformer]):
+                             playlist: Playlist_Transformer):
         # voice_client: Player = interaction.guild.voice_client
         # voice_client = player_instance.value
         tracks = player_instance.value.allTracks()
@@ -593,7 +618,7 @@ class PlaylistCog(GroupCog,
 
     @app_commands.command(name="delete", description="deletes a playlist")
     async def p_delete(self, interaction: Interaction,
-                       playlist: Transform[Playlist, PlaylistTransformer]):
+                       playlist: Playlist_Transformer):
         await respond(interaction)
         voice_client = interaction.guild.voice_client
         playlist_name = interaction.namespace.playlist
@@ -606,7 +631,7 @@ class PlaylistCog(GroupCog,
     @requireVoiceclient(begin_session=True)
     @app_commands.command(name="play", description="play a playlist")
     async def p_play(self, interaction: Interaction,
-                     playlist: Transform[Playlist, PlaylistTransformer]):
+                     playlist: Playlist_Transformer):
         voice_client = interaction.guild.voice_client
         tracks = await playlist.buildTracks()
         await voice_client.waitAddToQueue(tracks)
@@ -614,6 +639,87 @@ class PlaylistCog(GroupCog,
         await attemptHaltResume(interaction)
 
     # TODO Alias play command without the m before it in global space for ease of use
+
+    @add.command(name="queue", description="adds the queue to a playlist")
+    async def p_add_queue(self, interaction: Interaction,
+                          playlist: Playlist_Transformer):
+        pass
+
+
+    @add.command(name="track", description="")
+    async def p_add_track(self, interaction: Interaction,
+                          playlist: Playlist_Transformer):
+        pass
+
+    @view.command(name="all", description="view all playlists")
+    async def p_view_all(self, interaction: Interaction):
+        pass
+
+    @view.command(name="tracks", description="view all tracks in a playlist")
+    async def p_view_tracks(self, interaction: Interaction,
+                            playlist: Playlist_Transformer):
+
+        pass
+
+    @edit.command(name="details", description="edits playlist details eg. title & description")
+    async def p_edit_details(self, interaction: Interaction,
+                             playlist: Playlist_Transformer):
+
+        await respond(interaction, ephemeral=True)
+        playlist_name = interaction.namespace.playlist
+        edit_modal = SimpleEditModal(title="Edit Playlist Info",
+                                     fields={
+                                         "name": playlist_name,
+                                         "description": playlist.description
+                                     })
+        await interaction.response.send_modal(edit_modal)
+        if await edit_modal.wait():
+            new_desc = edit_modal.fields.get("description")
+            new_name = edit_modal.fields.get("name")
+            playlist.description = new_desc
+            if new_name != playlist_name:
+                server_data.value.playlists[new_name] = playlist
+                del server_data.value.playlists[playlist_name]
+            await respond(interaction, f"Edited playist details")
+        else:
+            await respond(interaction, "Error in modal submission")
+
+
+
+    @requireOptionalParams(params=["new_index", "replacement_track"])
+    @app_commands.rename(track_pos="track", new_index="new position", new_track="new track")
+    @edit.command(name="track", description="move or replace a track in a playlist")
+    async def p_edit_track(self, interaction: Interaction,
+                           playlist: Playlist_Transformer,
+                           track_pos: Range[int, 1, None], new_pos: Range[int, 1, None]=None,
+                           new_track: str=None):
+        await respond(interaction, ephemeral=True)
+        if track_pos > len(playlist.tracks):
+            raise errors.CustomCheck("Track outside of playlist range")
+        if new_pos:
+            if new_pos == track_pos: raise errors.CustomCheck("New position same as old position")
+            popped_track = playlist.tracks.pop(track_pos - 1)
+            playlist.tracks.insert(new_pos - 1, popped_track)
+            await respond(interaction, f"Moved `{popped_track.title}` from position `{track_pos}` to `{new_pos}`")
+        elif new_track:
+            tracks, _ = await searchForTracks(new_track)
+            if not len(tracks):
+                raise errors.CustomCheck("Could not find new track")
+            else:
+                new_track = tracks[0]
+                old_track = playlist.tracks[track_pos-1]
+                playlist.tracks[track_pos-1] = Track.fromWavelinkTrack(new_track)
+                await respond(interaction, f"Replaced `{old_track.title}` with `{new_track.title}`")
+        else:
+            # Can only happen if the requireOptionalParams check wasn't setup correctly
+            await respond(interaction, "Something has gone horribly wrong, nova needs to fix this command")
+
+
+
+
+
+
+
 
     def setContextVars(self, interaction: Interaction):
         server_data.value = self.bot.getServerData(interaction.guild_id)
@@ -627,6 +733,54 @@ class PlaylistCog(GroupCog,
 
 
 # Music Related Classes
+
+"""
+list of links to songs or song names or some shit
+maybe don't bother?
+basic edit commands maybe
+
+/p remove playlist
+/p remove track
+
+add an edit button to a playlist when viewing
+or a seperate command to default into edit mode as I don't want to edit the existing shit
+could have a select menu with the 10 tracks from a page as options that can be deselected
+deselecting them removes them
+switching to a new page changes the tracks
+
+
+
+"""
+
+
+class SimpleEditModal(Modal):
+    def __init__(self, title: str, fields:dict[str, str]):
+        super().__init__(title=title)
+
+        self.fields = fields[::5]
+        for field_name, default_value in fields:
+            field = TextInput(label=field_name, placeholder=default_value)
+            self.add_item(field)
+            if len(self.children) == 5:
+                break
+
+
+    async def on_submit(self, interaction: Interaction) -> None:
+        item: TextInput
+        self.fields = {item.label: item.value for item in self.children}
+        await respond(interaction)
+
+
+
+
+class PlaylistEditModal(Modal, title="Edit Playlist"):
+    def __init__(self):
+        super().__init__()
+
+
+
+
+
 
 
 async def setup(bot):

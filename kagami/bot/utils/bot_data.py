@@ -113,6 +113,7 @@ class Sound(Track, DictFromToDictMixin):
 @dataclass
 class Playlist(DictFromToDictMixin):
     tracks: list[Track] = default_factory(list)
+    description: str=""
     duration: int=0
 
     @classmethod

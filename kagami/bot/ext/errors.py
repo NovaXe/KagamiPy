@@ -1,6 +1,7 @@
 import sys
 import traceback
 
+import discord.app_commands
 from discord import Interaction
 from discord.app_commands import CheckFailure, AppCommandError
 
@@ -33,6 +34,9 @@ class PlaylistAlreadyExists(CustomCheck):
 
 class WrongVoiceClient(CustomCheck):
     MESSAGE = "Wrong command, try the other play command"
+
+class MissingParameters(CustomCheck):
+    MESSAGE = "You are missing required parameters"
 
 async def on_app_command_error(interaction: Interaction, error: AppCommandError):
     if isinstance(error, CustomCheck):
