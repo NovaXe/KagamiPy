@@ -601,6 +601,7 @@ class PlaylistCog(GroupCog,
     # @app_commands.rename(playlist_tuple="playlist")
     async def p_create_new(self, interaction: Interaction,
                            playlist: Playlist_Transformer):
+        voice_client: Player = interaction.guild.voice_client
         playlist_name = interaction.namespace.playlist
         createNewPlaylist(playlist_name)
         await respond(interaction, f"Created playlist `{playlist_name}`")
@@ -609,9 +610,9 @@ class PlaylistCog(GroupCog,
     @create.command(name="queue", description="creates a new playlist using the current queue as a base")
     async def p_create_queue(self, interaction: Interaction,
                              playlist: Playlist_Transformer):
-        # voice_client: Player = interaction.guild.voice_client
+        voice_client: Player = interaction.guild.voice_client
         # voice_client = player_instance.value
-        tracks = player_instance.value.allTracks()
+        tracks = voice_client.value.allTracks()
         createNewPlaylist(playlist_name, tracks)
         await respond(interaction, f"Created playlist `{playlist_name}` with `{len(tracks)} tracks`")
 
@@ -632,7 +633,7 @@ class PlaylistCog(GroupCog,
     @app_commands.command(name="play", description="play a playlist")
     async def p_play(self, interaction: Interaction,
                      playlist: Playlist_Transformer):
-        voice_client = interaction.guild.voice_client
+        voice_client: Player = interaction.guild.voice_client
         tracks = await playlist.buildTracks()
         await voice_client.waitAddToQueue(tracks)
         await respondWithTracks(self.bot, interaction, tracks)
@@ -642,14 +643,27 @@ class PlaylistCog(GroupCog,
 
     @add.command(name="queue", description="adds the queue to a playlist")
     async def p_add_queue(self, interaction: Interaction,
-                          playlist: Playlist_Transformer):
-        pass
+                          playlist: Playlist_Transformer,
+                          allow_duplicates:bool=False):
+        await respond(interaction)
+        voice_client: Player = interaction.guild.voice_client
+        tracks = voice_client.allTracks()
+        playlist.updateFromTracks(tracks, ignore_duplicates=not allow_duplicates)
+        dups = "with" if allow_duplicates else "without"
+        await respond(interaction, f"Added the queue {dups} duplicates to the playist `{interaction.namespace.playlist}`")
 
+        # TODO create a list of the tracks added for both add_queue and add_track
 
-    @add.command(name="track", description="")
+    @add.command(name="tracks", description="")
     async def p_add_track(self, interaction: Interaction,
-                          playlist: Playlist_Transformer):
-        pass
+                          playlist: Playlist_Transformer,
+                          search:str, allow_duplicates=False):
+        voice_client = interaction.guild.voice_client
+        tracks = searchForTracks(search)
+        playlist.updateFromTracks(tracks, allow_duplicates)
+        dups = "with" if allow_duplicates else "without"
+        await respond(interaction,
+                      f"Added the search {dups} duplicates to the playist `{interaction.namespace.playlist}`")
 
     @view.command(name="all", description="view all playlists")
     async def p_view_all(self, interaction: Interaction):
@@ -658,7 +672,6 @@ class PlaylistCog(GroupCog,
     @view.command(name="tracks", description="view all tracks in a playlist")
     async def p_view_tracks(self, interaction: Interaction,
                             playlist: Playlist_Transformer):
-
         pass
 
     @edit.command(name="details", description="edits playlist details eg. title & description")
