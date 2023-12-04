@@ -1,0 +1,15 @@
+{
+  "token" : "",
+  "spotify": {
+    "client_id" : "",
+    "client_secret" : ""
+  },
+  "prefix" : ".",
+  "bot_id" : 655237484258656287,
+  "owner" : 230810421307768833,
+  "convars" : {
+    "" : "",
+  }
+
+
+}
