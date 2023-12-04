@@ -3,15 +3,17 @@ import os
 
 import discord
 import discord.utils
+from discord import Interaction
 from discord.ext import commands
 from typing import (
     Any,
 )
 
 from bot.ext import errors
-from bot.utils.bot_data import Server, BotData, Tag, Sentinel, Track, Playlist, ServerData
+from bot.utils.bot_data import Server, BotData, Tag, Sentinel, Track, Playlist, ServerData, server_data
 from bot.utils.music_helpers import OldPlaylist
 from bot.utils.context_vars import CVar
+from bot.utils.interactions import current_interaction
 
 intents = discord.Intents.all()
 # intents.message = True
@@ -255,6 +257,13 @@ class Kagami(commands.Bot):
             message = f"## {message}"
 
         await channel.send(message)
+
+    async def on_interaction(self, interaction: Interaction):
+        current_interaction.value = interaction
+        server_data.value = self.getServerData(interaction.guild_id)
+
+
+
 
     async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:
         await super().on_error(event_method, *args, **kwargs)

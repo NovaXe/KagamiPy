@@ -676,7 +676,7 @@ class OldMusic(commands.Cog):
 
     @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: wavelink.TrackEventPayload):
-        if not isinstance(member.guild.voice_client, OldPlayer):
+        if not isinstance(payload.player, OldPlayer):
             return
         player: OldPlayer = payload.player
         reason = payload.reason

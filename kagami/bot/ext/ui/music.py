@@ -3,7 +3,7 @@ from discord.ui import (Modal)
 from discord import (ButtonStyle, Interaction)
 
 from bot.utils.interactions import respond
-from bot.utils.music_utils import (attemptHaltResume, respondWithTracks)
+from bot.utils.music_utils import (attemptHaltResume, respondWithTracks, addedToQueueMessage)
 from bot.utils.wavelink_utils import searchForTracks
 from bot.utils.player import Player
 from bot.ext.ui.custom_view import *
@@ -104,6 +104,9 @@ class SearchModal(Modal, title="Search Prompt"):
         voice_client: Player = interaction.guild.voice_client
         await respond(interaction)
         tracks, _ = await searchForTracks(self.search.value)
+        track_count = len(tracks)
+        duration = sum([track.duration for track in tracks])
         await voice_client.waitAddToQueue(tracks)
-        await respondWithTracks(self.bot, interaction, tracks, followup=True, timeout=30)
+        info_text = addedToQueueMessage(track_count, duration)
+        await respondWithTracks(self.bot, interaction, tracks, info_text=info_text, followup=True, timeout=30)
         await attemptHaltResume(interaction)

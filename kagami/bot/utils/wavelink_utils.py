@@ -45,9 +45,9 @@ def trackListData(tracks: [WavelinkTrack]) ->tuple[dict, int]:
     data: collections.OrderedDict = {}
     total_duration = 0
     for track in tracks:
-        data[track.title] = {"duration": secondsToTime(track.length//1000)}
+        data[track.title] = {"duration": secondsToTime(track.duration//1000)}
         # data.update({track.title: {"duration": secondsToTime(track.length//1000)}})
-        total_duration += track.length
+        total_duration += track.duration
     return data, total_duration
 
 

@@ -1,3 +1,6 @@
+import dataclasses
+from math import ceil
+
 import discord
 import wavelink
 from wavelink import TrackEventPayload
@@ -11,15 +14,15 @@ from discord.utils import MISSING
 from discord.ui import Modal, Select, TextInput
 
 from bot.ext.ui.custom_view import MessageInfo
-from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks
-from bot.utils.bot_data import Playlist, server_data
+from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks, ITL
+from bot.utils.bot_data import Playlist, server_data, Track
 
 # context vars
 from bot.kagami_bot import bot_var
 
 from bot.utils.music_utils import (
     attemptHaltResume,
-    createNowPlayingWithDescriptor, createQueuePage, secondsToTime, respondWithTracks)
+    createNowPlayingWithDescriptor, createQueuePage, secondsToTime, respondWithTracks, addedToQueueMessage)
 from bot.utils.wavelink_utils import createNowPlayingMessage, searchForTracks
 from bot.utils.player import Player, player_instance
 from bot.utils.wavelink_utils import WavelinkTrack
@@ -28,7 +31,8 @@ from bot.ext.ui.music import PlayerController
 from bot.ext.responses import (PersistentMessage, MessageElements)
 from bot.utils.interactions import respond
 from bot.ext import errors
-from bot.utils.pages import EdgeIndices, getQueueEdgeIndices
+from bot.utils.pages import EdgeIndices, getQueueEdgeIndices, InfoTextElem, InfoSeparators, createPages, CustomRepr, \
+    PageBehavior, simplePageScroller, createSinglePage, PageIndices
 from bot.utils.utils import similaritySort
 
 
@@ -89,7 +93,7 @@ def requireOptionalParams(params=list[str], min_count: int=1):
     async def predicate(interaction: Interaction):
         count = 0
         for param in params:
-            if interaction.namespace.param:
+            if param in interaction.namespace:
                 count += 1
             if count >= min_count: return True
         else:
@@ -189,7 +193,10 @@ class Music(GroupCog,
                 await attemptHaltResume(interaction, send_response=True)
         else:
             tracks, _ = await searchAndQueue(voice_client, search)
-            await respondWithTracks(self.bot, interaction, tracks)
+            track_count = len(tracks)
+            duration = sum([track.duration for track in tracks])
+            info_text = addedToQueueMessage(track_count, duration)
+            await respondWithTracks(self.bot, interaction, tracks, info_text=info_text)
             await attemptHaltResume(interaction)
 
 
@@ -533,6 +540,8 @@ class PlaylistTransformer(Transformer):
     #     self.create_new: bool = create_new
     # def __init__(self, bot: Kagami):
     #     self.bot: Kagami = bot
+    def __init__(self, raise_error=True):
+        self.raise_error = raise_error
 
     async def autocomplete(self,
                            interaction: Interaction,
@@ -552,7 +561,8 @@ class PlaylistTransformer(Transformer):
         if playlists and value in playlists.keys():
             return playlists[value]
         else:
-            return None
+            if self.raise_error: raise errors.PlaylistNotFound
+            else: return None
             # if self.create_new:
             #     server_data.playlists[value] = ServerData
             #     createNewPlaylist(interaction, value)
@@ -565,7 +575,7 @@ class PlaylistTransformer(Transformer):
 
 
 
-def createNewPlaylist(name: str, tracks: list[WavelinkTrack]=None):
+def createNewPlaylist(name: str, description: str="", tracks: list[WavelinkTrack]=None):
     # TODO add a overwrite confirmation if a playlist already exists
     # Future functionality have a YES / NO choice for overwriting the old one
     # Send as an ephemeral followup to the original response with a view attached
@@ -578,9 +588,12 @@ def createNewPlaylist(name: str, tracks: list[WavelinkTrack]=None):
             new_playlist = Playlist.initFromTracks(tracks)
         else:
             new_playlist = Playlist()
+    new_playlist.description = description
     playlists[name] = new_playlist
     return new_playlist
 
+
+# TODO Confirmation dialogues sent ephemerally for deletions and edits and such, anything important like that
 class PlaylistCog(GroupCog,
                   group_name="p",
                   description="commands relating to music playlists"):
@@ -596,25 +609,30 @@ class PlaylistCog(GroupCog,
     edit = Group(name="edit", description="edit playlist info and tracks")
 
     Playlist_Transformer = Transform[Playlist, PlaylistTransformer]
+    Playlist_Transformer_NoError = Transform[Playlist, PlaylistTransformer(raise_error=False)]
 
     @create.command(name="new", description="create a new empty playlist")
     # @app_commands.rename(playlist_tuple="playlist")
     async def p_create_new(self, interaction: Interaction,
-                           playlist: Playlist_Transformer):
+                           playlist: Playlist_Transformer_NoError,
+                           description: str=""):
         voice_client: Player = interaction.guild.voice_client
         playlist_name = interaction.namespace.playlist
-        createNewPlaylist(playlist_name)
+        createNewPlaylist(name=playlist_name, description=description)
         await respond(interaction, f"Created playlist `{playlist_name}`")
 
     @requireVoiceclient()
     @create.command(name="queue", description="creates a new playlist using the current queue as a base")
     async def p_create_queue(self, interaction: Interaction,
-                             playlist: Playlist_Transformer):
+                             playlist: Playlist_Transformer_NoError,
+                             description: str=""):
+        playlist_name = interaction.namespace.playlist
         voice_client: Player = interaction.guild.voice_client
         # voice_client = player_instance.value
         tracks = voice_client.value.allTracks()
-        createNewPlaylist(playlist_name, tracks)
-        await respond(interaction, f"Created playlist `{playlist_name}` with `{len(tracks)} tracks`")
+        createNewPlaylist(name=playlist_name, description=description, tracks=tracks)
+        info_text = f"Created playlist `{playlist_name}` with `{len(tracks)} tracks`"
+        await respondWithTracks(bot=self.bot, interaction=interaction, tracks=tracks, info_text=info_text)
 
 
     @app_commands.command(name="delete", description="deletes a playlist")
@@ -632,10 +650,15 @@ class PlaylistCog(GroupCog,
     @requireVoiceclient(begin_session=True)
     @app_commands.command(name="play", description="play a playlist")
     async def p_play(self, interaction: Interaction,
-                     playlist: Playlist_Transformer):
+                     playlist: Playlist_Transformer,
+                     interupt: bool=False):
         voice_client: Player = interaction.guild.voice_client
         tracks = await playlist.buildTracks()
+        track_count = len(tracks)
+        duration = sum([track.duration for track in tracks])
+
         await voice_client.waitAddToQueue(tracks)
+        info_text = addedToQueueMessage(track_count, duration)
         await respondWithTracks(self.bot, interaction, tracks)
         await attemptHaltResume(interaction)
 
@@ -648,9 +671,12 @@ class PlaylistCog(GroupCog,
         await respond(interaction)
         voice_client: Player = interaction.guild.voice_client
         tracks = voice_client.allTracks()
-        playlist.updateFromTracks(tracks, ignore_duplicates=not allow_duplicates)
-        dups = "with" if allow_duplicates else "without"
-        await respond(interaction, f"Added the queue {dups} duplicates to the playist `{interaction.namespace.playlist}`")
+        tracks, duration = playlist.updateFromTracks(tracks, allow_duplicates)
+        info_text = f"Added {len(tracks)} with duration: {secondsToTime(duration // 1000)} " \
+                    f"to the playlist: {interaction.namespace.playlist}"
+        await respondWithTracks(bot=self.bot, interaction=interaction, tracks=tracks, info_text=info_text)
+
+
 
         # TODO create a list of the tracks added for both add_queue and add_track
 
@@ -661,78 +687,183 @@ class PlaylistCog(GroupCog,
         await respond(interaction)
         voice_client = interaction.guild.voice_client
         tracks, _ = await searchForTracks(search)
-        playlist.updateFromTracks(tracks, allow_duplicates)
-        dups = "with" if allow_duplicates else "without"
-        await respond(interaction,
-                      f"Added the search {dups} duplicates to the playist `{interaction.namespace.playlist}`")
+        tracks, duration = playlist.updateFromTracks(tracks, allow_duplicates)
+        info_text = f"Added {len(tracks)} with duration: {secondsToTime(duration//1000)} " \
+                    f"to the playlist: {interaction.namespace.playlist}"
+        await respondWithTracks(bot=self.bot, interaction=interaction, tracks=tracks, info_text=info_text)
 
     @view.command(name="all", description="view all playlists")
     async def p_view_all(self, interaction: Interaction):
-        pass
+
+
+
+        og_response = await respond(interaction)
+
+        def pageGen(interaction: Interaction, page_index: int) -> str:
+            server_data = self.bot.getServerData(interaction.guild_id)
+
+
+            first_item_index = page_index*10
+            playlists = dict(list(server_data.playlists.items())[first_item_index:first_item_index+10])
+
+            data = {
+                playlist_name: {
+                    "tracks": len(playlist.tracks),
+                    "duration": secondsToTime(playlist.duration//1000)
+                }
+                for playlist_name, playlist in playlists.items()
+            }
+            # return createSinglePage()
+            playlist_count = len(playlists)
+
+            info_text = f"{interaction.guild.name} has {playlist_count} playlists"
+            info_text_elem = InfoTextElem(
+                text=info_text,
+                loc=ITL.TOP,
+                separators=InfoSeparators(bottom="────────────────────────────────────────")
+            )
+            left, right = edgeIndices(interaction)
+
+            page = createSinglePage(
+                data=data,
+                infotext=info_text_elem,
+                first_item_index=page_index*10 + 1,
+                page_position=PageIndices(left, page_index, right),
+                custom_reprs={
+                    "encoded": CustomRepr(ignored=True)
+                },
+                behavior=PageBehavior(max_key_length=40)
+            )
+            return page
+
+        def edgeIndices(interaction: Interaction) -> EdgeIndices:
+            playlist_count = len(server_data.value.playlists)
+            page_count = ceil(playlist_count/10)
+            return EdgeIndices(left=0, right=page_count-1)
+
+
+        page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
+        view = PageScroller(bot=self.bot,
+                            message_info=MessageInfo(id=og_response.id,
+                                                     channel_id=og_response.channel.id),
+                            page_callbacks=page_callbacks,
+                            timeout=300)
+        home_text = pageGen(interaction=interaction, page_index=0)
+        await respond(interaction, content=home_text, view=view)
 
     @view.command(name="tracks", description="view all tracks in a playlist")
     async def p_view_tracks(self, interaction: Interaction,
                             playlist: Playlist_Transformer):
-        pass
+        og_response = await respond(interaction)
+        playlist_name = interaction.namespace.playlist
+
+        def pageGen(interaction: Interaction, page_index: int) -> str:
+            server_data = self.bot.getServerData(interaction.guild_id)
+            playlist = server_data.playlists.get(playlist_name)
+            first_item_index = page_index*10
+            tracks = playlist.tracks[first_item_index: first_item_index+10]
+            data = {track.title: {"duration": secondsToTime(track.duration // 1000)}
+                    for track in tracks}
+
+            track_coount = len(playlist.tracks)
+            duration = playlist.duration
+            info_text = f"{playlist_name} has {track_coount} tracks and a runtime of {secondsToTime(duration // 1000)}\n" \
+                        f"{playlist.description or '-no description'}"
+            info_text_elem = InfoTextElem(
+                text=info_text,
+                loc=ITL.TOP,
+                separators=InfoSeparators(bottom="────────────────────────────────────────")
+            )
+
+            left, right = edgeIndices(interaction)
+
+            page = createSinglePage(
+                data=data,
+                infotext=info_text_elem,
+                first_item_index=page_index * 10 + 1,
+                page_position=PageIndices(left, page_index, right),
+                behavior=PageBehavior(max_key_length=50)
+            )
+            return page
+
+        def edgeIndices(interaction: Interaction) -> EdgeIndices:
+            server_data = self.bot.getServerData(interaction.guild_id)
+            playlist = server_data.playlists.get(playlist_name)
+            track_count = len(playlist.tracks)
+            page_count = ceil(track_count / 10)
+            return EdgeIndices(left=0, right=page_count - 1)
+
+        page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
+        view = PageScroller(bot=self.bot,
+                            message_info=MessageInfo(id=og_response.id,
+                                                     channel_id=og_response.channel.id),
+                            page_callbacks=page_callbacks,
+                            timeout=300)
+        home_text = pageGen(interaction=interaction, page_index=0)
+        await respond(interaction, content=home_text, view=view)
+
+
+        # await respondWithTracks(self.bot, interaction, playlist.tracks, info_text=info_text, timeout=120)
 
     @edit.command(name="details", description="edits playlist details eg. title & description")
     async def p_edit_details(self, interaction: Interaction,
                              playlist: Playlist_Transformer):
-
         # await respond(interaction, ephemeral=True)
         playlist_name = interaction.namespace.playlist
         edit_modal = SimpleEditModal(title="Edit Playlist Info",
                                      fields={
                                          "name": playlist_name,
-                                         "description": playlist.description
-                                     })
+                                         "description": playlist.description},
+                                     optional=["description"])
 
         await interaction.response.send_modal(edit_modal)
         if not await edit_modal.wait():
             new_desc = edit_modal.fields.get("description")
             new_name = edit_modal.fields.get("name")
+            if new_name in server_data.value.playlists: raise errors.PlaylistAlreadyExists
             playlist.description = new_desc
             if new_name != playlist_name:
                 server_data.value.playlists[new_name] = playlist
                 del server_data.value.playlists[playlist_name]
-            await respond(interaction, f"Edited playist details")
+
+
+            await respond(interaction, f"Edited playist details", ephemeral=True)
         else:
-            await respond(interaction, "Error in modal submission")
+            await respond(interaction, "Error in modal submission", ephemeral=True)
 
 
 
-    @requireOptionalParams(params=["new_index", "replacement_track"])
-    @edit.command(name="track", description="move or replace a track in a playlist")
-    async def p_edit_track(self, interaction: Interaction,
-                           playlist: Playlist_Transformer,
-                           track_pos: Range[int, 1, None], new_pos: Range[int, 1, None]=None,
-                           new_track: str=None):
+    @requireOptionalParams(params=["new_pos", "delete"])
+    @edit.command(name="tracks", description="move or replace a track in a playlist")
+    async def p_edit_tracks(self, interaction: Interaction,
+                            playlist: Playlist_Transformer,
+                            track_pos: Range[int, 1, None], count: Range[int, 1, None]=1,
+                            delete: bool=False, new_pos: Range[int, 1, None]=None):
+        # , new_track: str=None probably put in its own command
+        playlist_name = interaction.namespace.playlist
         await respond(interaction, ephemeral=True)
-        if track_pos > len(playlist.tracks):
-            raise errors.CustomCheck("Track outside of playlist range")
-        if new_pos:
-            if new_pos == track_pos: raise errors.CustomCheck("New position same as old position")
-            popped_track = playlist.tracks.pop(track_pos - 1)
-            playlist.tracks.insert(new_pos - 1, popped_track)
-            await respond(interaction, f"Moved `{popped_track.title}` from position `{track_pos}` to `{new_pos}`")
-        elif new_track:
-            tracks, _ = await searchForTracks(new_track)
-            if not len(tracks):
-                raise errors.CustomCheck("Could not find new track")
-            else:
-                new_track = tracks[0]
-                old_track = playlist.tracks[track_pos-1]
-                playlist.tracks[track_pos-1] = Track.fromWavelinkTrack(new_track)
-                await respond(interaction, f"Replaced `{old_track.title}` with `{new_track.title}`")
+
+        if track_pos > len(playlist.tracks): raise errors.CustomCheck("`track_pos` outside of plaaylist range")
+        new_track_index = (new_pos if new_pos else track_pos)
+        if new_pos == track_pos: raise errors.CustomCheck("New position same as old position")
+        elif new_pos and new_pos > len(playlist.tracks): raise errors.CustomCheck("New position outside of playlist range")
+
+
+        track_index = track_pos-1
+        new_index = new_pos - 1 if new_pos else track_pos
+
+        # index_difference = new_index - track_index
+        # playlist.tracks = playlist.tracks[:track_index] + playlist.tracks[track_index + count:]
+
+        if not delete: # Move mode
+            tracks, _ = playlist.moveTrackRange(track_index, new_index, count)
+            info_text = f"Moved `{len(tracks)} tracks in playlist: {playlist_name} " \
+                        f"from position {track_pos} to {new_pos}"
         else:
-            # Can only happen if the requireOptionalParams check wasn't setup correctly
-            await respond(interaction, "Something has gone horribly wrong, nova needs to fix this command")
-
-
-
-
-
-
+            tracks, duration = playlist.removeTrackRange(track_index, count)
+            info_text = f"Deleted {len(tracks)} tracks " \
+                        f"with duration: {secondsToTime(duration//1000)} in playlist: {playlist_name}"
+        await respondWithTracks(self.bot, interaction, tracks, info_text)
 
 
     def setContextVars(self, interaction: Interaction):
@@ -766,14 +897,14 @@ switching to a new page changes the tracks
 
 """
 
-
 class SimpleEditModal(Modal):
-    def __init__(self, title: str, fields:dict[str, str]):
+    def __init__(self, title: str, fields: dict[str, str], optional: list[str]=None):
         super().__init__(title=title)
+        if not optional: optional = []
 
         self.fields = fields
         for field_name, default_value in fields.items():
-            field = TextInput(label=field_name, default=default_value)
+            field = TextInput(label=field_name, default=default_value, required=(field_name not in optional))
             self.add_item(field)
             if len(self.children) == 5:
                 break

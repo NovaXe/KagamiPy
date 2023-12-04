@@ -6,8 +6,12 @@ from typing import Literal
 
 import wavelink
 
-from bot.ext.ui.page_scroller import ITL
+from discord import Interaction
+from discord.ext.commands import Bot
 
+from bot.ext.ui.custom_view import MessageInfo
+from bot.ext.ui.page_scroller import ITL, PageScroller, PageGenCallbacks
+from bot.kagami_bot import Kagami
 
 PageIndexBounds = namedtuple("IndexBounds", "start end")
 
@@ -59,6 +63,43 @@ class CustomRepr:
     alias: str = ""
     delim: str = ":"
     ignored: bool = False
+
+
+def simplePageScroller(bot: Kagami, data: dict, info_text: str, message_info: MessageInfo, custom_reprs=None):
+    element_count = len(data)
+    page_count = ceil(element_count / 10)
+
+    def pageGen(interaction: Interaction, page_index: int) -> str:
+        return "No Content"
+
+    def edgeIndices(interaction: Interaction) -> EdgeIndices:
+        return EdgeIndices(left=0,
+                           right=page_count - 1)
+
+    pages = createPages(data=data,
+                        info_text=InfoTextElem(
+                            text=info_text,
+                            separators=InfoSeparators(bottom="────────────────────────────────────────"),
+                            loc=ITL.TOP),
+                        max_pages=page_count,
+                        custom_reprs=custom_reprs,
+                        first_item_index=1,
+                        page_behavior=PageBehavior(max_key_length=50))
+
+    page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
+
+    view = PageScroller(bot=bot,
+                        message_info=message_info,
+                        page_callbacks=page_callbacks,
+                        pages=pages,
+                        timeout=120)
+    home_text = pages[0]
+
+    return home_text, view
+
+
+
+
 
 
 def createPageList(info_text: str,
@@ -169,12 +210,13 @@ def createPages(data: dict | list,
                 page_behavior: dict[int, PageBehavior] | PageBehavior=PageBehavior,
                 starting_index: int=0):
 
-    if sort_items:
+    if isinstance(data, list) and sort_items:
         data = sorted(data)
 
     ending_index = starting_index + max_pages - 1
     pages = [""] * max_pages
     page_interator = enumerate(range(starting_index, ending_index+1))
+    slice_start = 0
     for loop_index, page_index in page_interator:
         if isinstance(page_behavior, dict) and page_index in page_behavior:
             pb = page_behavior[page_index]
@@ -183,16 +225,19 @@ def createPages(data: dict | list,
 
         page_max_elems = pb.elem_count
 
+
         # page_data = data[page_first_elem: page_first_elem + page_max_elems]
         # page_data = dict(data.items()[page_first_elem: page_first_elem + page_max_elems])
-        page_data = dict(itertools.islice(data.items(), first_item_index, first_item_index + page_max_elems))
+        page_data = dict(itertools.islice(data.items(), slice_start, slice_start + page_max_elems))
+        # page_data = {{} for index, (key, value) in enumerate(data.items()) if index < page_max_elems}
+
         pages[page_index] = createSinglePage(page_data,
                                              behavior=pb,
                                              infotext=info_text,
                                              custom_reprs=custom_reprs,
-                                             first_item_index=first_item_index,
+                                             first_item_index=first_item_index+slice_start,
                                              page_position=PageIndices(starting_index, page_index, ending_index))
-        first_item_index += page_max_elems
+        slice_start += page_max_elems
     return pages
 
 
@@ -248,11 +293,11 @@ def createSinglePage(data: [dict, list],
                 rep = f"  {subkey}: {sub_value}"
             # Adds seperators between subkey values
             if subkey_index != 0:
-                line += ";" + rep
+                line += "," + rep
             else:
                 line += rep
             # Places line into list of lines
-            lines.append(line)
+        lines.append(line)
 
     if page_position:
         page_progress = getPageProgress(page_position.first,

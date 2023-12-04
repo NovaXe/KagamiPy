@@ -129,6 +129,11 @@ class Playlist(DictFromToDictMixin):
             "duration": self.duration
         }
 
+    def toPageItemDict(self):
+        return {
+
+        }
+
     async def buildTracks(self)->list[WavelinkTrack]:
         tracks = [await track.buildWavelinkTrack() for track in self.tracks]
         return tracks
@@ -143,7 +148,9 @@ class Playlist(DictFromToDictMixin):
 
         return cls(tracks=new_tracks, duration=duration)
 
-    def updateFromTracks(self, tracks: list[WavelinkTrack] | list[Track], ignore_duplicates=True):
+    def updateFromTracks(self, tracks: list[WavelinkTrack] | list[Track], ignore_duplicates=True)-> tuple[list[Track], int]:
+        tracks_added = []
+        added_duration = 0
         for track in tracks:
             track = Track.fromWavelinkTrack(track)
             if ignore_duplicates and track in self.tracks:
@@ -151,6 +158,9 @@ class Playlist(DictFromToDictMixin):
             else:
                 self.tracks.append(track)
                 self.duration += track.duration
+                tracks_added.append(track)
+                added_duration += track.duration
+        return tracks_added, added_duration
 
     def updateFromPlaylist(self, playlist: 'Playlist', ignore_duplicates=True):
         self.updateFromTracks(playlist.tracks, ignore_duplicates)
@@ -161,6 +171,23 @@ class Playlist(DictFromToDictMixin):
             while track in self.tracks:
                 self.tracks.remove(track)
                 self.duration -= track.duration
+
+    def removeTrackRange(self, index: int, count: int=1) -> tuple[list[Track], int]:
+        selected_tracks = self.tracks[index:index+count]
+        del self.tracks[index:index+count]
+        duration = sum([track.duration for track in selected_tracks])
+        self.duration -= duration
+        # self.tracks = self.tracks[:index] + self.tracks[track_index + count:]
+        return selected_tracks, duration
+
+    def moveTrackRange(self, index: int, new_index: int, count: int=1) -> list[Track]:
+        selected_tracks = self.tracks[index:index+count]
+        del self.tracks[index:index+count]
+        self.tracks = self.tracks[:new_index] + selected_tracks + self.tracks[new_index:]
+        return selected_tracks
+
+
+
 
     def removeTracksFromPlaylist(self, playlist: 'Playlist'):
         self.removeTracks(playlist.tracks)

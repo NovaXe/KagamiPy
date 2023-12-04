@@ -16,7 +16,7 @@ from bot.utils.pages import createSinglePage, CustomRepr, PageBehavior, PageIndi
 # from bot.ext.ui import (PageScroller)
 from bot.utils.interactions import respond
 from bot.utils.wavelink_utils import createNowPlayingMessage, trackListData, getPageTracks
-
+from bot.utils.bot_data import *
 
 class TrackType(Enum):
     YOUTUBE = auto()
@@ -227,19 +227,23 @@ upgrade old message scroller and player controls to utilize new dynamic shit
 
 """
 
+def addedToQueueMessage(track_count: int, duration: int):
+    return f"{track_count} tracks with a duration of {secondsToTime(duration // 1000)} were added to the queue"
 
-async def respondWithTracks(bot: Kagami, interaction: Interaction, tracks: list[WavelinkTrack], followup=False, timeout=60):
-    data, duration = trackListData(tracks)
+async def respondWithTracks(bot: Kagami, interaction: Interaction,
+                            tracks: list[Track] | list[WavelinkTrack],
+                            info_text: str=None, followup=False, timeout=60):
     track_count = len(tracks)
-    # Message information
-    if followup:
-        og_response = await interaction.followup.send(content="...")
-    else:
-        og_response = await interaction.original_response()
+    data, duration = trackListData(tracks)
+    og_response = await respond(interaction, followup=followup)
+
     if track_count > 1:
-        info_text = InfoTextElem(text=f"{track_count} tracks with a duration of {secondsToTime(duration // 1000)} were added to the queue",
-                                 separators=InfoSeparators(bottom="────────────────────────────────────────"),
-                                 loc=ITL.TOP)
+        if info_text is None: info_text = f"{track_count} tracks with a duration of {secondsToTime(duration // 1000)}"
+
+        info_text_elem = InfoTextElem(text=info_text,
+                                      separators=InfoSeparators(bottom="────────────────────────────────────────"),
+                                      loc=ITL.TOP)
+
 
         message_info = MessageInfo(og_response.id,
                                    og_response.channel.id)
@@ -259,7 +263,7 @@ async def respondWithTracks(bot: Kagami, interaction: Interaction, tracks: list[
 
 
         pages = createPages(data=data,
-                            info_text=info_text,
+                            info_text=info_text_elem,
                             max_pages=page_count,
                             sort_items=False,
                             custom_reprs={
