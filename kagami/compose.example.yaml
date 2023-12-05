@@ -9,12 +9,19 @@
 # https://github.com/docker/awesome-compose
 services:
   kagami:
-    build:
-      context: .
+    image: nova8x/kagami_bot:latest
+    container_name: kagami_bot
+#    user: uid:gid
+#    network_mode: "host"
+    volumes:
+      - path/to/config:/bot/data/config.json
+      - path/to/data:/bot/data/data.json
+      - path/to/old_data:/bot/data/old_data.json
+    networks:
+      - lavalink
     ports:
       - 8077:8077
-    network_mode: "host"
-    restart: "on-failure"
+    restart: "unless-stopped"
 
 # The commented out section below is an example of how to define a PostgreSQL
 # database that your application can use. `depends_on` tells Docker Compose to

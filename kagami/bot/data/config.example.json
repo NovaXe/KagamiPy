@@ -7,9 +7,8 @@
   "prefix" : ".",
   "bot_id" : 655237484258656287,
   "owner" : 230810421307768833,
-  "convars" : {
-    "" : "",
+  "lavalink": {
+    "password": "youshallnotpass",
+    "uri": "http://lavalink:2333"
   }
-
-
 }

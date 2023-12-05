@@ -127,7 +127,12 @@ class Music(GroupCog,
     async def connectNodes(self):
         await self.bot.wait_until_ready()
         #  fix the config
-        node = wavelink.Node(uri='http://localhost:4762', password='KagamiLavalink1337')
+        print(self.config)
+        uri = self.config["lavalink"]["uri"]
+        pw = self.config["lavalink"]["password"]
+        print(pw)
+        node = wavelink.Node(uri=uri,
+                             password=pw)
         spotify_client = spotify.SpotifyClient(
             client_id=self.config["spotify"]["client_id"],
             client_secret=self.config["spotify"]["client_secret"]
@@ -651,7 +656,7 @@ class PlaylistCog(GroupCog,
     @app_commands.command(name="play", description="play a playlist")
     async def p_play(self, interaction: Interaction,
                      playlist: Playlist_Transformer,
-                     interupt: bool=False):
+                     interrupt: bool=False):
         voice_client: Player = interaction.guild.voice_client
         tracks = await playlist.buildTracks()
         track_count = len(tracks)
