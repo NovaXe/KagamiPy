@@ -9,7 +9,7 @@
 # https://github.com/docker/awesome-compose
 services:
   kagami:
-    image: nova8x/kagami_bot:latest
+    image: nova8x/kagami_bot:amd64
     container_name: kagami_bot
 #    user: uid:gid
 #    network_mode: "host"
