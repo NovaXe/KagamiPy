@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 
 import discord
 import discord.utils
@@ -20,14 +21,20 @@ intents = discord.Intents.all()
 # intents.voice_states = True
 # intents.
 
-BOT_CONFIG_PATH = "bot/data/config.json"
-BOT_OLD_DATA_PATH = "bot/data/old_data.json"
-BOT_NEW_DATA_PATH = "bot/data/data.json"
+BOT_CONFIG_PATH = "/bot/data/config.json"
+BOT_OLD_DATA_PATH = "/bot/data/old_data.json"
+BOT_NEW_DATA_PATH = "/bot/data/data.json"
 
 class Kagami(commands.Bot):
     def __init__(self):
-        with open(BOT_CONFIG_PATH) as f:
-            self.config = json.load(f)
+        try:
+            with open(BOT_CONFIG_PATH, "r") as f:
+                self.config = json.load(f)
+                print(self.config["owner"])
+        except FileNotFoundError:
+            print(f"Missing config.json file at {BOT_CONFIG_PATH}")
+            print("path=", os.path.dirname(sys.argv[0]))
+            raise FileNotFoundError
 
         super(Kagami, self).__init__(command_prefix=self.config["prefix"],
                                      intents=intents,
@@ -56,8 +63,14 @@ class Kagami(commands.Bot):
 
     # DATA_PATH = "bot/data/old_data.json"
     def newLoadData(self):
-        with open(BOT_NEW_DATA_PATH) as f:
-            self.raw_data = json.load(f)
+        try:
+            with open(BOT_NEW_DATA_PATH) as f:
+                self.raw_data = json.load(f)
+        except FileNotFoundError:
+            print(f"Missing data.json file at {BOT_NEW_DATA_PATH}")
+            print("path=", os.path.dirname(sys.argv[0]))
+            raise FileNotFoundError
+
         self.data = BotData.fromDict(self.raw_data)
 
         # self.loadGlobals()
@@ -209,9 +222,13 @@ class Kagami(commands.Bot):
             json.dump(self.old_data, f, indent=4)
 
     def load_data(self):
-        with open(BOT_OLD_DATA_PATH, "r") as f:
-            self.old_data = json.load(f)
-
+        try:
+            with open(BOT_OLD_DATA_PATH, "r") as f:
+                self.old_data = json.load(f)
+        except FileNotFoundError:
+            print(f"Missing old_data.json file at {BOT_OLD_DATA_PATH}")
+            print("path=", os.path.dirname(sys.argv[0]))
+            raise FileNotFoundError
 
         self.create_server_list()
 
