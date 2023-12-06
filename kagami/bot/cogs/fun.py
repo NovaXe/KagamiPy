@@ -79,6 +79,7 @@ class Fun(commands.Cog):
 
     @app_commands.command(name="colorpreview", description="gives an image preview of the colors available")
     async def color_preview(self, interaction: discord.Interaction):
+        await respond(interaction)
         color_roles = list(reversed([role for role in interaction.guild.roles if "C:" in role.name]))
 
         image = Image.new("RGB", (512, len(color_roles) * 40))
@@ -111,7 +112,7 @@ class Fun(commands.Cog):
         image.save(output_buffer, "png")
         output_buffer.seek(0)
 
-        await interaction.response.send_message(file=discord.File(fp=output_buffer, filename="color_image.png"))
+        await respond(file=discord.File(fp=output_buffer, filename="color_image.png"))
 
 
     @app_commands.command(name="fish", description="fish reacts all")

@@ -69,7 +69,8 @@ async def attemptToJoin(interaction: Interaction, voice_channel: VoiceChannel = 
 
     else:
         voice_client = await joinVoice(interaction, voice_channel)
-        if send_response: await respond(interaction, f"I have joined {voice_client.channel.name}")
+        if send_response:
+            await respond(interaction, f"I have joined {voice_client.channel.name}")
     return voice_client
 
 
@@ -188,7 +189,7 @@ class Music(GroupCog,
                          description="plays the given song or adds it to the queue")
     async def m_play(self, interaction: Interaction, search: str = None):
         voice_client: Player = interaction.guild.voice_client
-        await respond(interaction)
+        # await respond(interaction)
         if not search:
             if voice_client.is_paused():
                 await voice_client.resume()
@@ -301,7 +302,8 @@ class Music(GroupCog,
         return
 
     @requireVoiceclient()
-    @music_group.command(name="queue", description="shows the previous and upcoming tracks")
+    @music_group.command(name="queue",
+                         description="shows the previous and upcoming tracks")
     async def m_queue(self, interaction: Interaction):
         voice_client: Player = interaction.guild.voice_client
 
@@ -355,7 +357,8 @@ class Music(GroupCog,
         await og_response.edit(content=home_text, view=view)
 
     @requireVoiceclient()
-    @music_group.command(name="loop", description="changes the loop mode, Off->All->Single")
+    @music_group.command(name="loop",
+                         description="changes the loop mode, Off->All->Single")
     async def m_loop(self, interaction: Interaction, mode: Player.LoopType = None):
         voice_client: Player = interaction.guild.voice_client
         # TODO Loop needs to work properly
@@ -364,7 +367,8 @@ class Music(GroupCog,
         await respond(interaction, f"Loop Mode:`{mode}`")
 
     @requireVoiceclient()
-    @music_group.command(name="stop", description="Halts the playback of the current track, resuming restarts")
+    @music_group.command(name="stop",
+                         description="Halts the playback of the current track, resuming restarts")
     async def m_stop(self, interaction: Interaction):
         await respond(interaction)
         # TODO Stop implements stopping via calling the halt function
@@ -373,7 +377,8 @@ class Music(GroupCog,
         await respond(interaction, "Stopped the Player")
 
     @requireVoiceclient()
-    @music_group.command(name="seek", description="Seeks to the specified position in the track in seconds")
+    @music_group.command(name="seek",
+                         description="Seeks to the specified position in the track in seconds")
     async def m_seek(self, interaction: Interaction, position: float):
         await respond(interaction)
         voice_client: Player = interaction.guild.voice_client
@@ -389,7 +394,8 @@ class Music(GroupCog,
         await respond(interaction, f"**Jumped to `{new_pos} / {duration_text}`**")
 
     @requireVoiceclient()
-    @music_group.command(name="pop", description="Removes a track from the queue")
+    @music_group.command(name="pop",
+                         description="Removes a track from the queue")
     async def m_pop(self, interaction: Interaction, position: int, source: Literal["history", "queue"]=None):
         await respond(interaction)
         # TODO Extend support for alternate queues, ie next up queue and soundboard queue
@@ -412,7 +418,8 @@ class Music(GroupCog,
         await respond(interaction, reply)
 
     @requireVoiceclient()
-    @music_group.command(name="pause", description="Pauses the music player")
+    @music_group.command(name="pause",
+                         description="Pauses the music player")
     async def m_pause(self, interaction: Interaction):
         # Pause calls the pause function from the player, functions as a toggle
         # This never needs to do anything fancy ever
@@ -425,7 +432,8 @@ class Music(GroupCog,
             await respond(interaction, "Paused the player")
 
     @requireVoiceclient()
-    @music_group.command(name="resume", description="Resumes the music player")
+    @music_group.command(name="resume",
+                         description="Resumes the music player")
     async def m_resume(self, interaction: Interaction):
         # Resume which just calls resume on the player, effectively pause toggle alias
         voice_client: Player = interaction.guild.voice_client
@@ -436,7 +444,8 @@ class Music(GroupCog,
             await attemptHaltResume(voice_client, send_response=True)
 
     @requireVoiceclient()
-    @music_group.command(name="replay", description="Restarts the current song")
+    @music_group.command(name="replay",
+                         description="Restarts the current song")
     async def m_replay(self, interaction: Interaction):
         # Contextually handles replaying based off of the current track progress
         # Tweak the replay vs restart cutoff based off feedback
@@ -456,7 +465,8 @@ class Music(GroupCog,
 
 
     @requireVoiceclient()
-    @music_group.command(name="clear", description="Clears the selected queue")
+    @music_group.command(name="clear",
+                         description="Clears the selected queue")
     async def m_clear(self, interaction: Interaction, choice: Literal["queue", "history"]):
         # TODO Support multiple queue types, up next queue and soundboard queue for example
         await respond(interaction)
@@ -616,7 +626,8 @@ class PlaylistCog(GroupCog,
     Playlist_Transformer = Transform[Playlist, PlaylistTransformer]
     Playlist_Transformer_NoError = Transform[Playlist, PlaylistTransformer(raise_error=False)]
 
-    @create.command(name="new", description="create a new empty playlist")
+    @create.command(name="new",
+                    description="create a new empty playlist")
     # @app_commands.rename(playlist_tuple="playlist")
     async def p_create_new(self, interaction: Interaction,
                            playlist: Playlist_Transformer_NoError,
@@ -627,7 +638,8 @@ class PlaylistCog(GroupCog,
         await respond(interaction, f"Created playlist `{playlist_name}`")
 
     @requireVoiceclient()
-    @create.command(name="queue", description="creates a new playlist using the current queue as a base")
+    @create.command(name="queue",
+                    description="creates a new playlist using the current queue as a base")
     async def p_create_queue(self, interaction: Interaction,
                              playlist: Playlist_Transformer_NoError,
                              description: str=""):
@@ -640,7 +652,8 @@ class PlaylistCog(GroupCog,
         await respondWithTracks(bot=self.bot, interaction=interaction, tracks=tracks, info_text=info_text)
 
 
-    @app_commands.command(name="delete", description="deletes a playlist")
+    @app_commands.command(name="delete",
+                          description="deletes a playlist")
     async def p_delete(self, interaction: Interaction,
                        playlist: Playlist_Transformer):
         await respond(interaction)
@@ -653,7 +666,8 @@ class PlaylistCog(GroupCog,
             await respond(interaction, f"**Playlist `{playlist_name}` does not exist**")
 
     @requireVoiceclient(begin_session=True)
-    @app_commands.command(name="play", description="play a playlist")
+    @app_commands.command(name="play",
+                          description="play a playlist")
     async def p_play(self, interaction: Interaction,
                      playlist: Playlist_Transformer,
                      interrupt: bool=False):
@@ -669,7 +683,8 @@ class PlaylistCog(GroupCog,
 
     # TODO Alias play command without the m before it in global space for ease of use
 
-    @add.command(name="queue", description="adds the queue to a playlist")
+    @add.command(name="queue",
+                 description="adds the queue to a playlist")
     async def p_add_queue(self, interaction: Interaction,
                           playlist: Playlist_Transformer,
                           allow_duplicates:bool=False):
@@ -685,7 +700,8 @@ class PlaylistCog(GroupCog,
 
         # TODO create a list of the tracks added for both add_queue and add_track
 
-    @add.command(name="tracks", description="adds tracks to a playlists")
+    @add.command(name="tracks",
+                 description="adds tracks to a playlists")
     async def p_add_track(self, interaction: Interaction,
                           playlist: Playlist_Transformer,
                           search:str, allow_duplicates:bool=False):
@@ -697,7 +713,8 @@ class PlaylistCog(GroupCog,
                     f"to the playlist: {interaction.namespace.playlist}"
         await respondWithTracks(bot=self.bot, interaction=interaction, tracks=tracks, info_text=info_text)
 
-    @view.command(name="all", description="view all playlists")
+    @view.command(name="all",
+                  description="view all playlists")
     async def p_view_all(self, interaction: Interaction):
 
 
@@ -756,7 +773,8 @@ class PlaylistCog(GroupCog,
         home_text = pageGen(interaction=interaction, page_index=0)
         await respond(interaction, content=home_text, view=view)
 
-    @view.command(name="tracks", description="view all tracks in a playlist")
+    @view.command(name="tracks",
+                  description="view all tracks in a playlist")
     async def p_view_tracks(self, interaction: Interaction,
                             playlist: Playlist_Transformer):
         og_response = await respond(interaction)
@@ -810,7 +828,8 @@ class PlaylistCog(GroupCog,
 
         # await respondWithTracks(self.bot, interaction, playlist.tracks, info_text=info_text, timeout=120)
 
-    @edit.command(name="details", description="edits playlist details eg. title & description")
+    @edit.command(name="details",
+                  description="edits playlist details eg. title & description")
     async def p_edit_details(self, interaction: Interaction,
                              playlist: Playlist_Transformer):
         # await respond(interaction, ephemeral=True)
@@ -919,13 +938,6 @@ class SimpleEditModal(Modal):
         item: TextInput
         self.fields.update({item.label: item.value for item in self.children})
         await respond(interaction)
-
-
-
-
-class PlaylistEditModal(Modal, title="Edit Playlist"):
-    def __init__(self):
-        super().__init__()
 
 
 

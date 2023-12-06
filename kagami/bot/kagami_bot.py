@@ -21,9 +21,9 @@ intents = discord.Intents.all()
 # intents.voice_states = True
 # intents.
 
-BOT_CONFIG_PATH = "/bot/data/config.json"
-BOT_OLD_DATA_PATH = "/bot/data/old_data.json"
-BOT_NEW_DATA_PATH = "/bot/data/data.json"
+BOT_CONFIG_PATH = "bot/data/config.json"
+BOT_OLD_DATA_PATH = "bot/data/old_data.json"
+BOT_NEW_DATA_PATH = "bot/data/data.json"
 
 class Kagami(commands.Bot):
     def __init__(self):
