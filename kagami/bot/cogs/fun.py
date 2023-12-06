@@ -51,22 +51,25 @@ class Fun(commands.Cog):
 
     @app_commands.command(name="echo", description="repeats the sender's message")
     async def msg_echo(self, interaction: discord.Interaction, string: str) -> None:
+        await respond(interaction)
         channel: discord.channel = interaction.channel
         await channel.send(string)
-        await interaction.response.send_message(content="echoed", ephemeral=True, delete_after=1)
+        await respond(interaction, content="echoed", ephemeral=True, delete_after=1)
 
     @app_commands.command(name="status", description="sets the custom status of the bot")
     async def set_status(self, interaction: discord.Interaction, status: str = None):
+        await respond(interaction)
         await self.bot.change_presence(activity=discord.Game(name=status))
-        await interaction.response.send_message("status changed", ephemeral=True, delete_after=1)
+        await respond(interaction, "status changed", ephemeral=True, delete_after=1)
 
     @app_commands.command(name="color", description="lets you select any color from the server")
     async def color_role(self, interaction: discord.Interaction, color: str):
+        await respond(interaction)
         role = discord.utils.get(interaction.guild.roles, name=color)
         user_roles = [role for role in interaction.user.roles if "C:" not in role.name]
         user_roles.append(role)
         await interaction.user.edit(roles=user_roles)
-        await interaction.response.send_message(content="added role", ephemeral=True, delete_after=1)
+        await respond(interaction, content="added role", ephemeral=True, delete_after=1)
 
     @color_role.autocomplete("color")
     async def color_role_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
@@ -98,7 +101,8 @@ class Fun(commands.Cog):
             bounding_color = "#%02x%02x%02x" % ((r+ri, g+gi, b+bi)
                                                 if (r+ri <= 0xff and g+gi <= 0xff and b+bi <= 0xff) else (r, g, b))
 
-            font = ImageFont.truetype("arialbd.ttf", 30)
+            # font = ImageFont.truetype("arialbd.ttf", 30)
+            font = ImageFont.truetype("/bot/fonts/arialbd.ttf", 30)
             text = f"{name}- {color}"
             bb_left, bb_top, bb_right, bb_bottom = active_draw.textbbox((0, 0), text, font=font)
             bb_left, bb_top, bb_right, bb_bottom = active_draw.textbbox((255 - bb_right/2, i * 40 + 20 - (bb_bottom / 2)), text, font=font)
@@ -112,30 +116,32 @@ class Fun(commands.Cog):
         image.save(output_buffer, "png")
         output_buffer.seek(0)
 
-        await respond(file=discord.File(fp=output_buffer, filename="color_image.png"))
+        await respond(interaction, attachments=[discord.File(fp=output_buffer, filename="color_image.png")])
 
 
     @app_commands.command(name="fish", description="fish reacts all")
     async def fish_all(self, interaction: discord.Interaction):
+        await respond(interaction)
         server: Server = self.bot.fetch_server(interaction.guild_id)
         server.fish_mode = not server.fish_mode
 
-        await interaction.response.send_message(f"Fish Mode: {'On' if server.fish_mode else 'Off'}")
+        await respond(interaction, f"Fish Mode: {'On' if server.fish_mode else 'Off'}")
 
     @app_commands.command(name='timeout', description='sever mutes someone in vc')
     async def timeout_user(self, interaction: discord.Interaction, member: discord.Member):
+        await respond(interaction)
         is_muted = member.voice.mute
         await member.edit(mute=not is_muted)
         if is_muted:
             response = f"`{member.name}` can speak again"
         else:
             response = f"`{member.name}` can no longer speak"
-        await interaction.response.send_message(response)
+        await respond(interaction, response)
 
     @app_commands.command(name='spam', description='spam ping them lol')
     async def spam_ping(self, interaction: discord.Interaction, mode: Literal["Ping", "Direct Message"], user: discord.Member, msg: str, count: int=5):
+        await respond(interaction, ephemeral=True, content=f"Spamming {user.mention}")
         count = 20 if count > 20 else count
-        await interaction.response.send_message(ephemeral=True, content=f"Spamming {user.mention}")
         for i in range(count):
             # if i % 5 == 0:
             #     await asyncio.sleep(delay=5)
@@ -149,6 +155,7 @@ class Fun(commands.Cog):
 
     @app_commands.command(name="galactic", description="converts text to the galactic alphabet")
     async def galactic_text(self, interaction: discord.Interaction, text: str, to_alpha:bool=False):
+        await respond(interaction)
         alpha_g = "ᔑ ʖ ᓵ ↸ ᒷ ⎓ ⊣ ⍑ ╎ ⋮ ꖌ ꖎ ᒲ リ 𝙹 !¡ ᑑ ∷ ᓭ ℸ ⚍ ⍊ ∴ ̇/ || ⨅".split(' ')
         alphabet_str = "a b c d e f g h i j k l m n o p q r s t u v w x y z"
         alpha = alphabet_str.split(' ')

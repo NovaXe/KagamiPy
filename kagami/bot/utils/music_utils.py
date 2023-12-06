@@ -232,10 +232,10 @@ def addedToQueueMessage(track_count: int, duration: int):
 
 async def respondWithTracks(bot: Kagami, interaction: Interaction,
                             tracks: list[Track] | list[WavelinkTrack],
-                            info_text: str=None, followup=False, timeout=60):
+                            info_text: str=None, send_followup=False, timeout=60):
     track_count = len(tracks)
     data, duration = trackListData(tracks)
-    og_response = await respond(interaction, followup=followup)
+    og_response = await respond(interaction, send_followup=True)
 
     if track_count > 1:
         if info_text is None: info_text = f"{track_count} tracks with a duration of {secondsToTime(duration // 1000)}"

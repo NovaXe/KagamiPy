@@ -30,7 +30,7 @@ async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
         assert isinstance(interaction.response, InteractionResponse)
         if send_followup:
             followup = interaction.followup
-            return await webhookRespond(
+            return await followupRespond(
                 followup,
                 content=content,
                 embeds=embeds,
@@ -54,7 +54,7 @@ async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
                 **kwargs
             )
     elif isinstance(target, WebhookMessage):
-        await webhookRespond(
+        await followupRespond(
             WebhookMessage,
             embeds=embeds,
             attachments=attachments,
@@ -91,7 +91,7 @@ async def followupRespond(followup: Webhook | WebhookMessage, content: str=None,
             ephemeral=ephemeral,
             **kwargs
         )
-        await message.delete(delay=delete_after)
+        if delete_after: await message.delete(delay=delete_after)
         return message
     elif isinstance(followup, WebhookMessage):
         message = await followup.edit(
@@ -141,7 +141,7 @@ async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
     else:
         if not (content or embeds or attachments or view):
             await interaction.response.defer(ephemeral=ephemeral, thinking=thinking)
-            return interaction.original_response()
+            return await interaction.original_response()
         else:
             if attachments is not MISSING and isinstance(attachments[0], Attachment):
                 attachments = [await attachment.to_file() for attachment in attachments]
@@ -153,7 +153,7 @@ async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
                 delete_after=delete_after,
                 **kwargs
             )
-            return interaction.original_response()
+            return await interaction.original_response()
 
 
 
