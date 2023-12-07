@@ -51,7 +51,7 @@ class Fun(commands.Cog):
 
     @app_commands.command(name="echo", description="repeats the sender's message")
     async def msg_echo(self, interaction: discord.Interaction, string: str) -> None:
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         channel: discord.channel = interaction.channel
         await channel.send(string)
         await respond(interaction, content="echoed", ephemeral=True, delete_after=1)
@@ -102,7 +102,7 @@ class Fun(commands.Cog):
                                                 if (r+ri <= 0xff and g+gi <= 0xff and b+bi <= 0xff) else (r, g, b))
 
             # font = ImageFont.truetype("arialbd.ttf", 30)
-            font = ImageFont.truetype("/bot/fonts/arialbd.ttf", 30)
+            font = ImageFont.truetype("bot/fonts/arialbd.ttf", 30)
             text = f"{name}- {color}"
             bb_left, bb_top, bb_right, bb_bottom = active_draw.textbbox((0, 0), text, font=font)
             bb_left, bb_top, bb_right, bb_bottom = active_draw.textbbox((255 - bb_right/2, i * 40 + 20 - (bb_bottom / 2)), text, font=font)

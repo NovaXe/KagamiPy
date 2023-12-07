@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import sys
@@ -8,17 +9,36 @@ import discord.utils
 from discord.ext import commands
 from discord import app_commands
 from bot.kagami_bot import Kagami
-
-def is_developer():
-    def predicate(interaction: discord.Interaction) -> bool:
-        return interaction.user.id == json.load(open("bot/data/config.json"))["developer"]
-    return app_commands.check(predicate)
+from bot.utils. interactions import respond
 
 
 class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
+
+
+    @commands.is_owner()
+    @app_commands.command()
+    async def test(self, interaction: discord.Interaction):
+        print(f"-------------\nentered test command\n"
+              f"interaction:{interaction.command}")
+        await respond(interaction)
+        print("-------------\ndoing stuff")
+        await asyncio.sleep(2)
+        print("------------\nfinished doing stuff")
+        await respond(interaction, "did some stuff")
+
+    @commands.is_owner()
+    @app_commands.command()
+    async def defer(self, interaction: discord.Interaction):
+        print(f"-------------\nentered defer command\n"
+              f"interaction:{interaction.command}")
+        await respond(interaction, force_defer=True)
+        print("-------------\ndoing stuff")
+        await asyncio.sleep(2)
+        print("------------\nfinished doing stuff")
+        await respond(interaction, "did some deferred stuff")
 
     @commands.command(name="sync", description="syncs the command tree")
     @commands.is_owner()
@@ -31,6 +51,7 @@ class Admin(commands.Cog):
     async def ping(self, ctx):
         latency = int(self.bot.latency * 1000)
         await ctx.send(f"Pong! {latency}ms")
+
 
     @commands.command(name="reload_all", description="reloads all cogs")
     @commands.is_owner()

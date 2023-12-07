@@ -128,10 +128,10 @@ class Music(GroupCog,
     async def connectNodes(self):
         await self.bot.wait_until_ready()
         #  fix the config
-        print(self.config)
-        uri = self.config["lavalink"]["uri"]
-        pw = self.config["lavalink"]["password"]
-        print(pw)
+        # print(self.config)
+        # uri = self.config["lavalink"]["uri"]
+        # pw = self.config["lavalink"]["password"]
+        # print(pw)
         node = wavelink.Node(uri=uri,
                              password=pw)
         spotify_client = spotify.SpotifyClient(
@@ -308,8 +308,8 @@ class Music(GroupCog,
         voice_client: Player = interaction.guild.voice_client
 
         # assert isinstance(interaction.response, InteractionResponse)
-        await respond(interaction)
-        og_response = await interaction.original_response()
+        og_response = await respond(interaction)
+        # og_response = await interaction.original_response()
         message_info = MessageInfo(og_response.id,
                                    og_response.channel.id)
 
@@ -354,7 +354,7 @@ class Music(GroupCog,
                             timeout=300)
         home_text = pageGen(interaction=interaction, page_index=0)
 
-        await og_response.edit(content=home_text, view=view)
+        await respond(interaction, content=home_text, view=view)
 
     @requireVoiceclient()
     @music_group.command(name="loop",

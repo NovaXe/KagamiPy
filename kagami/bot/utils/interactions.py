@@ -1,3 +1,5 @@
+import asyncio
+
 import discord
 from discord import Interaction, InteractionResponse, InteractionResponded, InteractionMessage
 
@@ -8,7 +10,7 @@ from discord.utils import MISSING
 
 async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
                   embeds: Embed=MISSING, attachments: list[Attachment] | list[File]=MISSING, view: View=MISSING,
-                  ephemeral: bool=False, thinking: bool=False, send_followup: bool=False, delete_after: float=None,
+                  ephemeral: bool=False, force_defer: bool=False, thinking: bool=False, send_followup: bool=False, delete_after: float=None,
                   **kwargs) -> InteractionMessage | WebhookMessage:
     """
     :param target: the Interaction or Webhook object to work with
@@ -17,17 +19,25 @@ async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
     :param attachments: list of attachments to send
     :param view: the view to be attached to the message
     :param ephemeral: if the message should be client side
-    :param thinking: if a message should be sent when deferred
+    :param force_defer: attempts to defer and throws an error if it cant
+    :param thinking: whether a message should be sent when deferred
     :param send_followup: if the target is an Interaction send a followup
     :param delete_after: automatically deletes the message after a time
     :param kwargs: anything not in the param list that will be passed to sub functions
     :return:
     """
-
+    # print(f"----------------------\nreceived response target: {target}")
+    # await asyncio.sleep(1.0)
+    # print(f"----------------------\nFinished sleeping")
     if isinstance(target, Interaction):
+        # print("is interaction")
         interaction = target
-        assert isinstance(interaction.followup, Webhook)
-        assert isinstance(interaction.response, InteractionResponse)
+        if force_defer:
+            await interaction.response.defer()
+            return await interaction.original_response()
+        # assert isinstance(interaction.followup, Webhook)
+        # assert isinstance(interaction.response, InteractionResponse)
+
         if send_followup:
             followup = interaction.followup
             return await followupRespond(
@@ -42,6 +52,7 @@ async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
                 **kwargs
             )
         else:
+            # print("before interaction respond")
             return await interactionRespond(
                 interaction,
                 content=content,
@@ -119,11 +130,23 @@ async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
     # defer_parameters = ["ephemeral", "thinking"]
     # can_send = content or embeds or attachments or view
     # can_edit = True
-
-    assert isinstance(interaction.response, InteractionResponse)
+    # print("inside interaction respond")
+    # print(f"interaction type: {interaction.type}")
+    # print(f"interaction command: {interaction.command.name}")
+    # print(f"interaction response: {interaction.command}")
+    # assert isinstance(interaction.response, InteractionResponse)
     if interaction.response.is_done():
+        # print("interaction is done")
         try:
             message = await interaction.original_response()
+        except (discord.HTTPException, discord.ClientException, discord.NotFound) as e:
+            message = None
+            # Maybe send a followup
+            # print("Error: Could not find original response to interaction\n"
+            #       "Consider using followup after send_modal")
+            raise e
+
+        if content or embeds or attachments or view:
             await message.edit(
                 content=content,
                 embeds=embeds,
@@ -132,17 +155,16 @@ async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
                 delete_after=delete_after,
                 **kwargs
             )
-        except (discord.HTTPException, discord.ClientException, discord.NotFound) as e:
-            # Maybe send a followup
-            print("Error: Could not find original response to interaction\n"
-                  "Consider using followup after send_modal")
-            raise e
-
+        return message
     else:
+        # print("interaction not done")
         if not (content or embeds or attachments or view):
+            # print("no content")
             await interaction.response.defer(ephemeral=ephemeral, thinking=thinking)
+            # print("deferred")
             return await interaction.original_response()
         else:
+            # print("content")
             if attachments is not MISSING and isinstance(attachments[0], Attachment):
                 attachments = [await attachment.to_file() for attachment in attachments]
             await interaction.response.send_message(
@@ -153,8 +175,8 @@ async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
                 delete_after=delete_after,
                 **kwargs
             )
+            # print("sent response")
             return await interaction.original_response()
-
 
 
 

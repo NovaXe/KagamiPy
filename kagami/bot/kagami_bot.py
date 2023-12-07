@@ -21,16 +21,16 @@ intents = discord.Intents.all()
 # intents.voice_states = True
 # intents.
 
-BOT_CONFIG_PATH = "./bot/data/config.json"
-BOT_OLD_DATA_PATH = "./bot/data/old_data.json"
-BOT_NEW_DATA_PATH = "./bot/data/data.json"
+BOT_CONFIG_PATH = "/bot/data/config.json"
+BOT_OLD_DATA_PATH = "/bot/data/old_data.json"
+BOT_NEW_DATA_PATH = "/bot/data/data.json"
 
 class Kagami(commands.Bot):
     def __init__(self):
         try:
             with open(BOT_CONFIG_PATH, "r") as f:
                 self.config = json.load(f)
-                print(self.config["owner"])
+                print("owner_id:", self.config["owner"])
         except FileNotFoundError:
             print(f"Missing config.json file at {BOT_CONFIG_PATH}")
             print("path=", os.path.dirname(sys.argv[0]))
@@ -275,9 +275,11 @@ class Kagami(commands.Bot):
 
         await channel.send(message)
 
-    async def on_interaction(self, interaction: Interaction):
-        current_interaction.value = interaction
-        server_data.value = self.getServerData(interaction.guild_id)
+    # async def on_interaction(self, interaction: Interaction):
+    #     print("-----------------------------\nON INTERACTION HAS FIRED")
+    #     print(f"{interaction.command.name}")
+    #     # current_interaction.value = interaction
+    #     server_data.value = self.getServerData(interaction.guild_id)
 
 
 

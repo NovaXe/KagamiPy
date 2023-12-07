@@ -3,8 +3,9 @@ FROM python:3.11-bullseye
 WORKDIR /kagami
 
 
-COPY requirements.txt ./
+COPY . .
 RUN pip install -r requirements.txt
+#COPY requirements.txt ./
 
 #RUN --mount=type=cache,target=/root/.cache/pip \
 #    --mount=type=bind,source=requirements.txt,target=requirements.txt \
@@ -18,8 +19,7 @@ RUN pip install -r requirements.txt
 
 # Copy the source code into the container.
 
-COPY . .
 
 # Run the application.
 #CMD python3 -m main
-CMD ["python", "main.py"]
+CMD ["python", "-u","main.py"]
