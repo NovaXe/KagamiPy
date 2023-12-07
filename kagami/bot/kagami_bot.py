@@ -252,13 +252,27 @@ class Kagami(commands.Bot):
         print("ran atexit\n")
         await super().close()
 
+    async def connectNodes(self):
+        node = wavelink.Node(uri=self.config["lavalink"]["uri"],
+                             password=self.config["lavalink"]["password"])
+        spotify_client = spotify.SpotifyClient(
+            client_id=self.config["spotify"]["client_id"],
+            client_secret=self.config["spotify"]["client_secret"]
+        )
+        await wavelink.NodePool.connect(
+            client=self.bot,
+            nodes=[node],
+            spotify=spotify_client
+        )
+
     async def setup_hook(self):
         for file in os.listdir("bot/cogs"):
             if file.endswith(".py"):
                 name = file[:-3]
                 path = f"bot.cogs.{name}"
                 await self.load_extension(path)
-        # await self.tree.sync()
+
+        await self.connectNodes()
 
     LOG_CHANNEL = 825529492982333461
     # TODO change the config system to utilize a dataclass

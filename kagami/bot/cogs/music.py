@@ -129,8 +129,8 @@ class Music(GroupCog,
         await self.bot.wait_until_ready()
         #  fix the config
         # print(self.config)
-        # uri = self.config["lavalink"]["uri"]
-        # pw = self.config["lavalink"]["password"]
+        uri = self.config["lavalink"]["uri"]
+        pw = self.config["lavalink"]["password"]
         # print(pw)
         node = wavelink.Node(uri=uri,
                              password=pw)
@@ -150,11 +150,13 @@ class Music(GroupCog,
             await node.disconnect()
 
     def cog_load(self):
+        # self.connectNodes.start()
+        pass
         # tree = self.bot.tree
         # self._old_tree_error = tree.on_error
         # tree.on_error = on_app_command_error
 
-        self.bot.loop.create_task(self.connectNodes())
+        # self.bot.loop.create_task(self.connectNodes())
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, node: wavelink.Node):
