@@ -15,7 +15,7 @@ from typing import (
 from bot.ext import errors
 from bot.utils.bot_data import Server, BotData, Tag, Sentinel, Track, Playlist, ServerData, server_data
 from bot.utils.music_helpers import OldPlaylist
-# from bot.utils.context_vars import CVar
+from bot.utils.context_vars import CVar
 from bot.utils.interactions import current_interaction
 
 intents = discord.Intents.all()
