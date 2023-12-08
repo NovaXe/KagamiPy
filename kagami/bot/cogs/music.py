@@ -648,7 +648,7 @@ class PlaylistCog(GroupCog,
         playlist_name = interaction.namespace.playlist
         voice_client: Player = interaction.guild.voice_client
         # voice_client = player_instance.value
-        tracks = voice_client.value.allTracks()
+        tracks = voice_client.allTracks()
         createNewPlaylist(name=playlist_name, description=description, tracks=tracks)
         info_text = f"Created playlist `{playlist_name}` with `{len(tracks)} tracks`"
         await respondWithTracks(bot=self.bot, interaction=interaction, tracks=tracks, info_text=info_text)
