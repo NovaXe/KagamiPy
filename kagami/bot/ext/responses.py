@@ -116,7 +116,8 @@ class PersistentMessage:
         if self.refresh_callback:
             # self.message_elems.content = self.get_messsage_content()
             self.message_elems = self.getMessageElems()
-            await self.message_elems.view.refreshButtonState()
+            if self.message_elems.view:
+                await self.message_elems.view.refreshButtonState()
 
 
 

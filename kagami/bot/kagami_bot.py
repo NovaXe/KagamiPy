@@ -1,6 +1,8 @@
 import json
 import os
 import sys
+import wavelink
+from wavelink.ext import spotify
 
 import discord
 import discord.utils
@@ -13,7 +15,7 @@ from typing import (
 from bot.ext import errors
 from bot.utils.bot_data import Server, BotData, Tag, Sentinel, Track, Playlist, ServerData, server_data
 from bot.utils.music_helpers import OldPlaylist
-from bot.utils.context_vars import CVar
+# from bot.utils.context_vars import CVar
 from bot.utils.interactions import current_interaction
 
 intents = discord.Intents.all()
@@ -260,7 +262,7 @@ class Kagami(commands.Bot):
             client_secret=self.config["spotify"]["client_secret"]
         )
         await wavelink.NodePool.connect(
-            client=self.bot,
+            client=self,
             nodes=[node],
             spotify=spotify_client
         )

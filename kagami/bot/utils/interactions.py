@@ -26,7 +26,7 @@ async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
     :param kwargs: anything not in the param list that will be passed to sub functions
     :return:
     """
-    # print(f"----------------------\nreceived response target: {target}")
+    print(f"----------------------\nreceived response target: {target}")
     # await asyncio.sleep(1.0)
     # print(f"----------------------\nFinished sleeping")
     if isinstance(target, Interaction):
@@ -135,6 +135,7 @@ async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
     # print(f"interaction command: {interaction.command.name}")
     # print(f"interaction response: {interaction.command}")
     # assert isinstance(interaction.response, InteractionResponse)
+    
     if interaction.response.is_done():
         # print("interaction is done")
         try:

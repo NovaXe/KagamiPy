@@ -18,7 +18,7 @@ class Admin(commands.Cog):
         self.config = bot.config
 
 
-    @commands.is_owner()
+    # @commands.is_owner()
     @app_commands.command()
     async def test(self, interaction: discord.Interaction):
         print(f"-------------\nentered test command\n"
@@ -29,7 +29,7 @@ class Admin(commands.Cog):
         print("------------\nfinished doing stuff")
         await respond(interaction, "did some stuff")
 
-    @commands.is_owner()
+    # @commands.is_owner()
     @app_commands.command()
     async def defer(self, interaction: discord.Interaction):
         print(f"-------------\nentered defer command\n"
