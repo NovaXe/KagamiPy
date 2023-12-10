@@ -108,5 +108,5 @@ class SearchModal(Modal, title="Search Prompt"):
         duration = sum([track.duration for track in tracks])
         await voice_client.waitAddToQueue(tracks)
         info_text = addedToQueueMessage(track_count, duration)
-        await respondWithTracks(self.bot, interaction, tracks, info_text=info_text, followup=True, timeout=30)
+        await respondWithTracks(self.bot, interaction, tracks, info_text=info_text, send_followup=True, timeout=30)
         await attemptHaltResume(interaction)

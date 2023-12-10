@@ -1,6 +1,8 @@
 import json
 import os
 import sys
+import wavelink
+from wavelink.ext import spotify
 
 import discord
 import discord.utils
@@ -30,7 +32,7 @@ class Kagami(commands.Bot):
         try:
             with open(BOT_CONFIG_PATH, "r") as f:
                 self.config = json.load(f)
-                print(self.config["owner"])
+                print("owner_id:", self.config["owner"])
         except FileNotFoundError:
             print(f"Missing config.json file at {BOT_CONFIG_PATH}")
             print("path=", os.path.dirname(sys.argv[0]))
@@ -252,13 +254,27 @@ class Kagami(commands.Bot):
         print("ran atexit\n")
         await super().close()
 
+    async def connectNodes(self):
+        node = wavelink.Node(uri=self.config["lavalink"]["uri"],
+                             password=self.config["lavalink"]["password"])
+        spotify_client = spotify.SpotifyClient(
+            client_id=self.config["spotify"]["client_id"],
+            client_secret=self.config["spotify"]["client_secret"]
+        )
+        await wavelink.NodePool.connect(
+            client=self,
+            nodes=[node],
+            spotify=spotify_client
+        )
+
     async def setup_hook(self):
         for file in os.listdir("bot/cogs"):
             if file.endswith(".py"):
                 name = file[:-3]
                 path = f"bot.cogs.{name}"
                 await self.load_extension(path)
-        # await self.tree.sync()
+
+        await self.connectNodes()
 
     LOG_CHANNEL = 825529492982333461
     # TODO change the config system to utilize a dataclass
@@ -275,9 +291,11 @@ class Kagami(commands.Bot):
 
         await channel.send(message)
 
-    async def on_interaction(self, interaction: Interaction):
-        current_interaction.value = interaction
-        server_data.value = self.getServerData(interaction.guild_id)
+    # async def on_interaction(self, interaction: Interaction):
+    #     print("-----------------------------\nON INTERACTION HAS FIRED")
+    #     print(f"{interaction.command.name}")
+    #     # current_interaction.value = interaction
+    #     server_data.value = self.getServerData(interaction.guild_id)
 
 
 
