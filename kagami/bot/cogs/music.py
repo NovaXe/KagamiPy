@@ -659,10 +659,10 @@ class PlaylistCog(GroupCog,
     async def p_delete(self, interaction: Interaction,
                        playlist: Playlist_Transformer):
         await respond(interaction)
-        voice_client = interaction.guild.voice_client
+        # voice_client = interaction.guild.voice_client
         playlist_name = interaction.namespace.playlist
         if playlist is not None:
-            voice_client.playlists.pop(playlist_name)
+            server_data.value.playlists.pop(playlist_name)
             await respond(interaction, f"**Deleted Playlist `{playlist_name}`**")
         else:
             await respond(interaction, f"**Playlist `{playlist_name}` does not exist**")
@@ -850,7 +850,7 @@ class PlaylistCog(GroupCog,
             playlist.description = new_desc
             if new_name != playlist_name:
                 server_data.value.playlists[new_name] = playlist
-                del server_data.value.playlists[playlist_name]
+                server_data.value.playlists.pop(playlist_name)
 
 
             await respond(interaction, f"Edited playist details", ephemeral=True)

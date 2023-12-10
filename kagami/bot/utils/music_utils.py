@@ -1,6 +1,6 @@
 from math import(ceil)
 
-from discord import(Interaction)
+from discord import(Interaction, InteractionType)
 
 import wavelink
 from enum import (Enum, auto)
@@ -233,9 +233,9 @@ def addedToQueueMessage(track_count: int, duration: int):
 async def respondWithTracks(bot: Kagami, interaction: Interaction,
                             tracks: list[Track] | list[WavelinkTrack],
                             info_text: str=None, send_followup=False, timeout=60):
+    send_followup = (interaction.type is not InteractionType.application_command) or send_followup
     track_count = len(tracks)
     data, duration = trackListData(tracks)
-    og_response = await respond(interaction, send_followup=True)
 
     if track_count > 1:
         if info_text is None: info_text = f"{track_count} tracks with a duration of {secondsToTime(duration // 1000)}"
@@ -245,8 +245,7 @@ async def respondWithTracks(bot: Kagami, interaction: Interaction,
                                       loc=ITL.TOP)
 
 
-        message_info = MessageInfo(og_response.id,
-                                   og_response.channel.id)
+
 
         # New Shit
         def pageGen(interaction: Interaction, page_index: int) -> str:
@@ -283,8 +282,14 @@ async def respondWithTracks(bot: Kagami, interaction: Interaction,
         home_text = pages[abs(left_edge) + home_index]
         # Let it have arbitary home pages that aren't just the first page
 
-        await og_response.edit(content=home_text, view=view)
+        message = await respond(interaction, content=home_text, view=view, send_followup=send_followup)
+        view.setMessageInfo(MessageInfo.init_from_message(message))
+
     else:
         hours, minutes, seconds = secondsDivMod(tracks[0].duration//1000)
-        await og_response.edit(
-            content=f"`{tracks[0].title}  -  {f'{hours}:02' + ':' if hours > 0 else ''}{minutes:02}:{seconds:02} was added to the queue`")
+        message = await respond(
+            interaction,
+            content=f"`{tracks[0].title}  -  {f'{hours}:02' + ':' if hours > 0 else ''}"
+                    f"{minutes:02}:{seconds:02} was added to the queue`",
+            send_followup=send_followup
+        )
