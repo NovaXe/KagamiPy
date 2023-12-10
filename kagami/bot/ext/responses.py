@@ -103,7 +103,7 @@ class PersistentMessage:
                                view=elems.view,
                                attachments=elems.attachments,
                                embeds=elems.embeds)
-        except discord.HTTPException:
+        except (discord.HTTPException, discord.NotFound):
             await self.send_message()
 
     async def attempt_message_delete(self, message: PartialMessage):
