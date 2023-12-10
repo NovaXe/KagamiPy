@@ -38,6 +38,10 @@ class WrongVoiceClient(CustomCheck):
 class MissingParameters(CustomCheck):
     MESSAGE = "You are missing required parameters"
 
+class SoundNotFound(CustomCheck):
+    MESSAGE = "There is no sound with that name"
+
+
 async def on_app_command_error(interaction: Interaction, error: AppCommandError):
     if isinstance(error, CustomCheck):
         og_response = await respond(interaction, f"**{error}**")

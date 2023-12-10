@@ -207,6 +207,9 @@ class Kagami(commands.Bot):
 
         self.old_data = data
 
+    async def setContextVars(self, interaction: Interaction):
+        server_data.value = self.getServerData(interaction.guild_id)
+
 
     async def start(self, token, reconnect=True):
         await super().start(token, reconnect=reconnect)
