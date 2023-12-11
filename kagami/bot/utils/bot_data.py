@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
-from typing import TypeVar, Type, Union
+from typing import TypeVar, Type, Union, Self
 
+from bot.ext import errors
 from bot.utils.music_helpers import OldPlaylist
 from bot.utils.wavelink_utils import WavelinkTrack, buildTrack
 from bot.utils.context_vars import CVar
@@ -28,7 +29,7 @@ class Server:
 def default_factory(data_type): return field(default_factory=data_type)
 
 
-T = TypeVar('T')
+# T = TypeVar('T', bound='Track')
 
 
 @dataclass
@@ -61,8 +62,8 @@ class Track:
         return [cls.fromDict(track_data) for track_data in data]
 
     @classmethod
-    def fromWavelinkTrack(cls, track: Union[WavelinkTrack, 'Track']):
-        if isinstance(track, Track):
+    def fromWavelinkTrack(cls, track: Union[WavelinkTrack, Self]) -> Self:
+        if isinstance(track, cls):
             return track
         return cls(encoded=track.encoded, title=track.title, duration=track.duration)
 
@@ -71,8 +72,11 @@ class Track:
 @dataclass
 class DictFromToDictMixin:
     @classmethod
-    def dictFromDict(cls, data: dict):
+    def dictFromDict(cls, data: dict) -> object:
         return {key: cls.fromDict(_data) for key, _data in data.items()}
+
+    def fromDict(self, *args, **kwargs):
+        pass
 
     @staticmethod
     def dictToDict(data: dict):
@@ -100,7 +104,6 @@ class Sound(Track, DictFromToDictMixin):
                    start_time=start_time,
                    end_time=end_time)
 
-
     def toDict(self):
         return{
             "encoded": self.encoded,
@@ -109,6 +112,11 @@ class Sound(Track, DictFromToDictMixin):
             "start_time": self.start_time,
             "end_time": self.end_time
         }
+
+    def setTimes(self, start_time=0, end_time=None) -> Self:
+        self.start_time = start_time
+        self.end_time = self.end_time
+        return self
 
 @dataclass
 class Playlist(DictFromToDictMixin):
@@ -261,6 +269,37 @@ class ServerData(DictFromToDictMixin):
             "fish_mode": self.fish_mode
         }
 
+    def createNewPlaylist(self, name: str, description: str="",
+                          tracks: list[WavelinkTrack] | list[Track]=None) -> Playlist:
+        if name in self.playlists.keys():
+            raise errors.PlaylistAlreadyExists
+        else:
+            if tracks:
+                new_playlist = Playlist.initFromTracks(tracks)
+            else:
+                new_playlist = Playlist()
+        new_playlist.description = description
+        self.playlists[name] = new_playlist
+        return new_playlist
+
+    def createNewSound(self, name: str, source: WavelinkTrack | Track,
+                       start_time: float = 0, end_time: float = None) -> Sound:
+        if name in self.soundboard.keys():
+            raise errors.SoundAlreadyExists
+        new_sound = Sound.fromWavelinkTrack(source)
+        new_sound.setTimes(start_time, end_time)
+        self.soundboard[name] = new_sound
+
+    def createNewTag(self, tag_name: str,
+                     content: str, author: str, creation_date: str, attachments: list[str]=None):
+        pass
+
+    def createSentinel(self, sentinel_name: str,
+                       triggers: str, responses: list[str], reactions: list[str]):
+        pass
+
+
+
 @dataclass
 class GlobalData(DictFromToDictMixin):
     # playlists: dict[str, Playlist] = default_factory(dict)
@@ -279,6 +318,14 @@ class GlobalData(DictFromToDictMixin):
             "tags": self.dictToDict(self.tags),
             "sentinels": self.dictToDict(self.sentinels)
         }
+
+    def createNewTag(self, tag_name: str,
+                     content: str, author: str, creation_date: str, attachments: list[str]=None):
+        pass
+
+    def createSentinel(self, sentinel_name: str,
+                       triggers: str, responses: list[str], reactions: list[str]):
+        pass
 
 
 @dataclass

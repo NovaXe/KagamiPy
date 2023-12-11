@@ -32,9 +32,10 @@ class SoundTransformer(Transformer):
             return sound
         else:
             if self.raise_error:
-                raise errors.PlaylistNotFound
+                raise errors.SoundNotFound
             else:
                 return None
+
 
 
 class SoundboardCog(commands.GroupCog, group_name="s"):
@@ -42,11 +43,28 @@ class SoundboardCog(commands.GroupCog, group_name="s"):
         self.bot: Kagami = bot
         self.config = bot.config
 
+
+    Soundboard_Transformer = Transform[Sound, SoundTransformer]
+    Soundboard_Transformer_NoError = Transform[Sound, SoundTransformer(raise_error=False)]
+
     @app_commands.command(
         name="add",
         description="add a sound to the server's soundboard")
-    async def s_add(self, interaction: Interaction):
-        await respond(interaction)
+    @app_commands.rename(sound="sound_name")
+    async def s_add(self, interaction: Interaction,
+                    sound: Soundboard_Transformer_NoError,
+                    source: str, start: Range[float, 0, None], end: float=None):
+        await respond(interaction, ephemeral=True)
+        sound_name = interaction.namespace.sound
+        if sound is not None:
+            pass  # TODO Send overwrite confirmation buttons
+        # if yes proceed to creating a new sound otherwise send a message dictating that the sound has been discarded
+        new_sound = server_data.value.createNewSound(name=sound_name, source=source)
+
+        await respond(interaction, f"Added sound: `{sound_name}` to the soundboard")
+
+
+
 
     @app_commands.command(
         name="remove",

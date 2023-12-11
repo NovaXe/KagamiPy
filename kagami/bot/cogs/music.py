@@ -580,22 +580,12 @@ class PlaylistTransformer(Transformer):
 
 
 
-def createNewPlaylist(name: str, description: str="", tracks: list[WavelinkTrack]=None):
+def createNewPlaylist(name: str, description: str="", tracks: list[WavelinkTrack]=None) -> Playlist:
     # TODO add a overwrite confirmation if a playlist already exists
     # Future functionality have a YES / NO choice for overwriting the old one
     # Send as an ephemeral followup to the original response with a view attached
     # Wait for a view response and timeout default to No after a little bit
-    playlists = server_data.value.playlists
-    if name in playlists.keys():
-        raise errors.PlaylistAlreadyExists
-    else:
-        if tracks:
-            new_playlist = Playlist.initFromTracks(tracks)
-        else:
-            new_playlist = Playlist()
-    new_playlist.description = description
-    playlists[name] = new_playlist
-    return new_playlist
+    return server_data.value.createNewPlaylist(name=name, description=description, tracks=tracks)
 
 
 # TODO Confirmation dialogues sent ephemerally for deletions and edits and such, anything important like that

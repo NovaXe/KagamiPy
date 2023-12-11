@@ -41,6 +41,8 @@ class MissingParameters(CustomCheck):
 class SoundNotFound(CustomCheck):
     MESSAGE = "There is no sound with that name"
 
+class SoundAlreadyExists(CustomCheck):
+    MESSAGE = "There is already a sound with that name"
 
 async def on_app_command_error(interaction: Interaction, error: AppCommandError):
     if isinstance(error, CustomCheck):
@@ -50,4 +52,5 @@ async def on_app_command_error(interaction: Interaction, error: AppCommandError)
         await og_response.channel.send(content=f"**Command encountered an error:**\n"
                                                f"{error}")
         traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
+
 
