@@ -274,7 +274,7 @@ async def respondWithTracks(bot: Kagami, interaction: Interaction,
         page_callbacks = PageGenCallbacks(genPage=pageGen, getEdgeIndices=edgeIndices)
 
         view = PageScroller(bot=bot,
-                            message_info=message_info,
+                            message_info=MessageInfo(),
                             page_callbacks=page_callbacks,
                             pages=pages,
                             timeout=timeout)
