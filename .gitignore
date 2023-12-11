@@ -5,3 +5,5 @@
 /venv
 /kagami/compose.yaml
 /lavalink/compose.yaml
+/.env
+/compose.yaml

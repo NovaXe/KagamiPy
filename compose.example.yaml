@@ -1,10 +1,19 @@
 services:
+  kagami:
+    image: nova8x/kagami_bot:arm64
+    container_name: kagami_bot
+    network_mode: host
+    volumes:
+      - ${DATA_PATH}:/bot/data
+    expose:
+      - 8077
+    ports:
+      - 8077:8077
+    restart: "unless-stopped"
   lavalink:
     # pin the image version to Lavalink v3.7.8
     image: ghcr.io/lavalink-devs/lavalink:3.7.8
     container_name: lavalink
-#    user: uid:gid
-#    network_mode: "host"
     restart: 'unless-stopped'
     environment:
       # set Java options here
@@ -12,7 +21,7 @@ services:
       # set lavalink server port
       - SERVER_PORT=2333
       # set password for lavalink
-      - LAVALINK_SERVER_PASSWORD=youshallnotpass
+      - LAVALINK_SERVER_PASSWORD=${LAVALINK_PASSWORD}
     volumes:
       # mount application.yml from the same directory or use environment variables
       - ./application.yml:/opt/Lavalink/application.yml
