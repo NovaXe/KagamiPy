@@ -123,32 +123,6 @@ class Music(GroupCog,
     music_group = app_commands
     # music_group = Group(name="m", description="commands relating to the music player")
 
-    # Wavelink Handling
-    @tasks.loop(seconds=10)
-    async def connectNodes(self):
-        await self.bot.wait_until_ready()
-        #  fix the config
-        # print(self.config)
-        uri = self.config["lavalink"]["uri"]
-        pw = self.config["lavalink"]["password"]
-        # print(pw)
-        node = wavelink.Node(uri=uri,
-                             password=pw)
-        spotify_client = spotify.SpotifyClient(
-            client_id=self.config["spotify"]["client_id"],
-            client_secret=self.config["spotify"]["client_secret"]
-        )
-        await wavelink.NodePool.connect(
-            client=self.bot,
-            nodes=[node],
-            spotify=spotify_client
-        )
-
-    @staticmethod
-    async def close_nodes() -> None:
-        for node in wavelink.NodePool.nodes:
-            await node.disconnect()
-
     def cog_load(self):
         # self.connectNodes.start()
         pass
