@@ -1,17 +1,22 @@
 import json
+import logging
 import os
 import sys
+import wavelink
+from discord.utils import MISSING
+from wavelink.ext import spotify
 
 import discord
 import discord.utils
 from discord import Interaction
-from discord.ext import commands
+from discord.ext import commands, tasks
 from typing import (
-    Any,
+    Any, Optional,
 )
 
 from bot.ext import errors
-from bot.utils.bot_data import Server, BotData, Tag, Sentinel, Track, Playlist, ServerData, server_data
+from bot.utils.bot_data import Server, BotData, Tag, Sentinel, Track, Playlist, ServerData, server_data, \
+    BotConfiguration
 from bot.utils.music_helpers import OldPlaylist
 from bot.utils.context_vars import CVar
 from bot.utils.interactions import current_interaction
@@ -27,18 +32,11 @@ BOT_NEW_DATA_PATH = "/bot/data/data.json"
 
 class Kagami(commands.Bot):
     def __init__(self):
-        try:
-            with open(BOT_CONFIG_PATH, "r") as f:
-                self.config = json.load(f)
-                print(self.config["owner"])
-        except FileNotFoundError:
-            print(f"Missing config.json file at {BOT_CONFIG_PATH}")
-            print("path=", os.path.dirname(sys.argv[0]))
-            raise FileNotFoundError
+        self.config = BotConfiguration.initFromEnv()
+        super().__init__(command_prefix=self.config.prefix,
+                         intents=intents,
+                         owner_id=self.config.owner_id)
 
-        super(Kagami, self).__init__(command_prefix=self.config["prefix"],
-                                     intents=intents,
-                                     owner_id=self.config["owner"])
         self.changeCmdError()
 
         self.old_data = {}
@@ -63,8 +61,10 @@ class Kagami(commands.Bot):
 
     # DATA_PATH = "bot/data/old_data.json"
     def newLoadData(self):
+        data_path = self.config.data_path
+
         try:
-            with open(BOT_NEW_DATA_PATH) as f:
+            with open(f"{data_path}/data.json") as f:
                 self.raw_data = json.load(f)
         except FileNotFoundError:
             print(f"Missing data.json file at {BOT_NEW_DATA_PATH}")
@@ -77,8 +77,9 @@ class Kagami(commands.Bot):
         # self.loadServers()
 
     def newSaveData(self):
+        data_path = self.config.data_path
         self.raw_data = self.data.toDict()
-        with open(BOT_NEW_DATA_PATH, "w") as f:
+        with open(f"{data_path}/data.json", "w") as f:
             json.dump(self.raw_data, f, indent=4)
 
     def loadGlobals(self):
@@ -214,19 +215,25 @@ class Kagami(commands.Bot):
     async def start(self, token, reconnect=True):
         await super().start(token, reconnect=reconnect)
 
+    def run_bot(self):
+        log_handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
+        self.run(token=self.config.token, log_handler=log_handler, log_level=logging.DEBUG)
 
-    def start_bot(self):
-        self.run(self.config["token"])
+    # def run(self):
+    #     super()
+
 
 
     def save_data(self):
+        data_path = self.config.data_path
         self.update_data()
-        with open(BOT_OLD_DATA_PATH, "w") as f:
+        with open(f"{data_path}/old_data.json", "w") as f:
             json.dump(self.old_data, f, indent=4)
 
     def load_data(self):
+        data_path = self.config.data_path
         try:
-            with open(BOT_OLD_DATA_PATH, "r") as f:
+            with open(f"{data_path}/old_data.json", "r") as f:
                 self.old_data = json.load(f)
         except FileNotFoundError:
             print(f"Missing old_data.json file at {BOT_OLD_DATA_PATH}")
@@ -255,13 +262,26 @@ class Kagami(commands.Bot):
         print("ran atexit\n")
         await super().close()
 
+    # @tasks.loop(seconds=10)
+    async def connectWavelinkNodes(self):
+        spotify_client = spotify.SpotifyClient(**self.config.spotify)
+        node = wavelink.Node(**self.config.lavalink)
+
+        await wavelink.NodePool.connect(
+            client=self,
+            nodes=[node],
+            spotify=spotify_client
+        )
+
+
     async def setup_hook(self):
         for file in os.listdir("bot/cogs"):
             if file.endswith(".py"):
                 name = file[:-3]
                 path = f"bot.cogs.{name}"
                 await self.load_extension(path)
-        # await self.tree.sync()
+
+        await self.connectWavelinkNodes()
 
     LOG_CHANNEL = 825529492982333461
     # TODO change the config system to utilize a dataclass
@@ -278,9 +298,11 @@ class Kagami(commands.Bot):
 
         await channel.send(message)
 
-    async def on_interaction(self, interaction: Interaction):
-        current_interaction.value = interaction
-        server_data.value = self.getServerData(interaction.guild_id)
+    # async def on_interaction(self, interaction: Interaction):
+    #     print("-----------------------------\nON INTERACTION HAS FIRED")
+    #     print(f"{interaction.command.name}")
+    #     # current_interaction.value = interaction
+    #     server_data.value = self.getServerData(interaction.guild_id)
 
 
 

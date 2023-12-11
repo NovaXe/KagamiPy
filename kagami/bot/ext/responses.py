@@ -103,7 +103,7 @@ class PersistentMessage:
                                view=elems.view,
                                attachments=elems.attachments,
                                embeds=elems.embeds)
-        except discord.HTTPException:
+        except (discord.HTTPException, discord.NotFound):
             await self.send_message()
 
     async def attempt_message_delete(self, message: PartialMessage):
@@ -116,7 +116,8 @@ class PersistentMessage:
         if self.refresh_callback:
             # self.message_elems.content = self.get_messsage_content()
             self.message_elems = self.getMessageElems()
-            await self.message_elems.view.refreshButtonState()
+            if self.message_elems.view:
+                await self.message_elems.view.refreshButtonState()
 
 
 

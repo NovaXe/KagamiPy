@@ -44,19 +44,19 @@ class OldMusic(commands.Cog):
         # self.bot.loop.create_task(self.connect_nodes())
         pass
 
-    @tasks.loop(seconds=10)
-    async def connect_nodes(self):
-        await self.bot.wait_until_ready()
-        node = wavelink.Node(uri='http://localhost:4762', password='KagamiLavalink1337')
-        spotify_client = spotify.SpotifyClient(
-            client_id=self.config["spotify"]["client_id"],
-            client_secret=self.config["spotify"]["client_secret"]
-        )
-        await wavelink.NodePool.connect(
-            client=self.bot,
-            nodes=[node],
-            spotify=spotify_client
-        )
+    # @tasks.loop(seconds=10)
+    # async def connect_nodes(self):
+    #     await self.bot.wait_until_ready()
+    #     node = wavelink.Node(uri='http://localhost:4762', password='KagamiLavalink1337')
+    #     spotify_client = spotify.SpotifyClient(
+    #         client_id=self.config["spotify"]["client_id"],
+    #         client_secret=self.config["spotify"]["client_secret"]
+    #     )
+    #     await wavelink.NodePool.connect(
+    #         client=self.bot,
+    #         nodes=[node],
+    #         spotify=spotify_client
+    #     )
 
     @staticmethod
     async def close_nodes() -> None:

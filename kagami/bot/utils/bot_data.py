@@ -1,5 +1,9 @@
+import os
 from dataclasses import dataclass, field
 from typing import TypeVar, Type, Union, Self
+import wavelink
+from dotenv import load_dotenv, find_dotenv
+from wavelink.ext import spotify
 
 from bot.ext import errors
 from bot.utils.music_helpers import OldPlaylist
@@ -72,7 +76,7 @@ class Track:
 @dataclass
 class DictFromToDictMixin:
     @classmethod
-    def dictFromDict(cls, data: dict) -> object:
+    def dictFromDict(cls, data: dict):
         return {key: cls.fromDict(_data) for key, _data in data.items()}
 
     def fromDict(self, *args, **kwargs):
@@ -345,6 +349,39 @@ class BotData(DictFromToDictMixin):
             "globals": self.globals.toDict(),
             "servers": self.dictToDict(self.servers)
         }
+
+
+@dataclass
+class BotConfiguration:
+    token: str
+    prefix: str
+    owner_id: int
+    data_path: str
+    lavalink: dict[str, str] = None
+    spotify: dict[str, str] = None
+
+    @classmethod
+    def initFromEnv(cls):
+        load_dotenv(find_dotenv())
+        env = os.environ
+
+        return cls(
+            token=env.get("BOT_TOKEN"),
+            prefix=env.get("COMMAND_PREFIX"),
+            owner_id=env.get("OWNER_ID"),
+            data_path=env.get("DATA_PATH"),
+            lavalink={
+                "uri": env.get("LAVALINK_URI"),
+                "password": env.get("LAVALINK_PASSWORD")
+            },
+            spotify={
+                "client_id": env.get("SPOTIFY_CLIENT_ID"),
+                "client_secret": env.get("SPOTIFY_CLIENT_SECRET")
+            }
+        )
+
+
+
 
 
 server_data = CVar[ServerData]('server_data', default=ServerData())

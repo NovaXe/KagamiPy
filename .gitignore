@@ -3,3 +3,7 @@
 /kagami/discord.log
 /kagami/bot/data/data.json
 /venv
+/kagami/compose.yaml
+/lavalink/compose.yaml
+/.env
+/compose.yaml

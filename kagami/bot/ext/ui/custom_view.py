@@ -15,8 +15,8 @@ class StopBehavior:
 
 @dataclass
 class MessageInfo:
-    id: int
-    channel_id: int
+    id: int=0
+    channel_id: int=0
     # guild_id: int
     @classmethod
     def init_from_message(cls, message: discord.Message):
