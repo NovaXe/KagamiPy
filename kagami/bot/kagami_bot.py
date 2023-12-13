@@ -29,9 +29,10 @@ intents = discord.Intents.all()
 class Kagami(commands.Bot):
     def __init__(self):
         self.config = BotConfiguration.initFromEnv()
+        # print(self.config)
         super().__init__(command_prefix=self.config.prefix,
                          intents=intents,
-                         owner_id=int(self.config.owner_id))
+                         owner_id=self.config.owner_id)
 
         self.changeCmdError()
 
@@ -57,7 +58,7 @@ class Kagami(commands.Bot):
 
     # DATA_PATH = "bot/data/old_data.json"
     def newLoadData(self):
-        data_path = self.config.data_path
+        data_path = self.config.local_data_path
 
         try:
             with open(f"{data_path}/data.json") as f:
@@ -73,7 +74,7 @@ class Kagami(commands.Bot):
         # self.loadServers()
 
     def newSaveData(self):
-        data_path = self.config.data_path
+        data_path = self.config.local_data_path
         self.raw_data = self.data.toDict()
         with open(f"{data_path}/data.json", "w") as f:
             json.dump(self.raw_data, f, indent=4)
@@ -218,13 +219,13 @@ class Kagami(commands.Bot):
 
 
     def save_data(self):
-        data_path = self.config.data_path
+        data_path = self.config.local_data_path
         self.update_data()
         with open(f"{data_path}/old_data.json", "w") as f:
             json.dump(self.old_data, f, indent=4)
 
     def load_data(self):
-        data_path = self.config.data_path
+        data_path = self.config.local_data_path
         try:
             with open(f"{data_path}/old_data.json", "r") as f:
                 self.old_data = json.load(f)
