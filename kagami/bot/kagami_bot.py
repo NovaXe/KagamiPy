@@ -26,10 +26,6 @@ intents = discord.Intents.all()
 # intents.voice_states = True
 # intents.
 
-BOT_CONFIG_PATH = "/bot/data/config.json"
-BOT_OLD_DATA_PATH = "/bot/data/old_data.json"
-BOT_NEW_DATA_PATH = "/bot/data/data.json"
-
 class Kagami(commands.Bot):
     def __init__(self):
         self.config = BotConfiguration.initFromEnv()
@@ -67,7 +63,7 @@ class Kagami(commands.Bot):
             with open(f"{data_path}/data.json") as f:
                 self.raw_data = json.load(f)
         except FileNotFoundError:
-            print(f"Missing data.json file at {BOT_NEW_DATA_PATH}")
+            print(f"Missing data.json file at {data_path}")
             print("path=", os.path.dirname(sys.argv[0]))
             raise FileNotFoundError
 
@@ -233,7 +229,7 @@ class Kagami(commands.Bot):
             with open(f"{data_path}/old_data.json", "r") as f:
                 self.old_data = json.load(f)
         except FileNotFoundError:
-            print(f"Missing old_data.json file at {BOT_OLD_DATA_PATH}")
+            print(f"Missing old_data.json file at {data_path}")
             print("path=", os.path.dirname(sys.argv[0]))
             raise FileNotFoundError
 
