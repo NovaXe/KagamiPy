@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass, field
 from typing import TypeVar, Type, Union, Self
 import wavelink
+from discord import TextChannel
 from dotenv import load_dotenv, find_dotenv
 from wavelink.ext import spotify
 
@@ -242,6 +243,7 @@ class ServerData(DictFromToDictMixin):
     tags: dict[str, Tag] = default_factory(dict)
     sentinels: dict[str, Sentinel] = default_factory(dict)
     fish_mode: bool=False
+    last_music_command_channel: TextChannel = None
 
     @classmethod
     def fromDict(cls, data: dict):

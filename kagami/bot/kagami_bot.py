@@ -31,7 +31,7 @@ class Kagami(commands.Bot):
         self.config = BotConfiguration.initFromEnv()
         super().__init__(command_prefix=self.config.prefix,
                          intents=intents,
-                         owner_id=self.config.owner_id)
+                         owner_id=int(self.config.owner_id))
 
         self.changeCmdError()
 
