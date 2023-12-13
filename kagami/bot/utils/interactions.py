@@ -26,7 +26,7 @@ async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
     :param kwargs: anything not in the param list that will be passed to sub functions
     :return:
     """
-    print(f"----------------------\nreceived response target: {target}")
+    # print(f"----------------------\nreceived response target: {target}")
     # await asyncio.sleep(1.0)
     # print(f"----------------------\nFinished sleeping")
     if isinstance(target, Interaction):
@@ -173,6 +173,7 @@ async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
                 embeds=embeds,
                 files=attachments,
                 view=view,
+                ephemeral=ephemeral,
                 delete_after=delete_after,
                 **kwargs
             )

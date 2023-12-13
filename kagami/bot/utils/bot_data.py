@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass, field
 from typing import TypeVar, Type, Union, Self
 import wavelink
+from discord import TextChannel
 from dotenv import load_dotenv, find_dotenv
 from wavelink.ext import spotify
 
@@ -130,7 +131,8 @@ class Playlist(DictFromToDictMixin):
     def toDict(self):
         return {
             "tracks": [track.toDict() for track in self.tracks],
-            "duration": self.duration
+            "duration": self.duration,
+            "description": self.description
         }
 
     def toPageItemDict(self):
@@ -242,6 +244,7 @@ class ServerData(DictFromToDictMixin):
     tags: dict[str, Tag] = default_factory(dict)
     sentinels: dict[str, Sentinel] = default_factory(dict)
     fish_mode: bool=False
+    last_music_command_channel: TextChannel = None
 
     @classmethod
     def fromDict(cls, data: dict):
@@ -309,20 +312,25 @@ class BotConfiguration:
     token: str
     prefix: str
     owner_id: int
-    data_path: str
+    local_data_path: str
+    real_data_path: str
     lavalink: dict[str, str] = None
     spotify: dict[str, str] = None
 
     @classmethod
     def initFromEnv(cls):
-        load_dotenv(find_dotenv())
+        if not os.environ.get("BOT_TOKEN"):
+            print("Couldn't fine Environment Variable `BOT_TOKEN`")
+            load_dotenv(find_dotenv())
         env = os.environ
+        # print(env)
 
         return cls(
             token=env.get("BOT_TOKEN"),
             prefix=env.get("COMMAND_PREFIX"),
-            owner_id=env.get("OWNER_ID"),
-            data_path=env.get("DATA_PATH"),
+            owner_id=int(env.get("OWNER_ID")),
+            local_data_path="bot/data",
+            real_data_path=env.get("DATA_PATH"),
             lavalink={
                 "uri": env.get("LAVALINK_URI"),
                 "password": env.get("LAVALINK_PASSWORD")

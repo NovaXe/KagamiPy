@@ -17,6 +17,11 @@ class MessageElements:
     embeds: list[Embed] = MISSING
 
 
+# TODO Persistent Message Tracking
+# Keep track per server of all the persistent messages accessible by their channel id or something of the like
+# If a channel already has a persistent message throw an error on the command run
+# potential ephemeral only mode so that it doesn't fuck with everyone else's shit
+
 class PersistentMessage:
     def __init__(self, bot: commands.Bot, guild_id, message_info: MessageInfo, message_elems: MessageElements=MessageElements,
                  refresh_callback: Callable=None, seperator:bool=False, refresh_delay: int = 0, persist_interval=60):

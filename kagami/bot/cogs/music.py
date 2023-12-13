@@ -6,9 +6,9 @@ import wavelink
 from wavelink import TrackEventPayload
 from wavelink.ext import spotify
 from typing import (Literal, Any, Union, List)
-from discord import (app_commands, Interaction, VoiceChannel, Message)
+from discord import (app_commands, Interaction, VoiceChannel, Message, Member, VoiceState)
 from discord.app_commands import Group, Transformer, Transform, Choice, Range
-from discord.ext.commands import GroupCog
+from discord.ext.commands import GroupCog, Cog
 from discord.ext import (commands, tasks)
 from discord.utils import MISSING
 from discord.ui import Modal, Select, TextInput
@@ -54,7 +54,7 @@ async def joinVoice(interaction: Interaction, voice_channel: VoiceChannel):
     return voice_client
 
 
-async def attemptToJoin(interaction: Interaction, voice_channel: VoiceChannel = None, send_response=True):
+async def attemptToJoin(interaction: Interaction, voice_channel: VoiceChannel = None, send_response=True, ephemeral=False):
     voice_client: Player = interaction.guild.voice_client
     user_vc = user_voice.channel if (user_voice := interaction.user.voice) else None
     voice_channel = voice_channel or user_vc
@@ -68,20 +68,19 @@ async def attemptToJoin(interaction: Interaction, voice_channel: VoiceChannel = 
     # raise errors.AlreadyInVC
 
     else:
+        if send_response: await respond(interaction, "Joining...", ephemeral=ephemeral, delete_after=0.5)
         voice_client = await joinVoice(interaction, voice_channel)
-        if send_response:
-            await respond(interaction, f"I have joined {voice_client.channel.name}")
     return voice_client
 
 
-def requireVoiceclient(begin_session=False, defer_response=True):
+def requireVoiceclient(begin_session=False, defer_response=True, ephemeral=False):
     async def predicate(interaction: Interaction):
-        if defer_response: await respond(interaction)
+        if defer_response: await respond(interaction, ephemeral=ephemeral)
         voice_client = interaction.guild.voice_client
 
         if voice_client is None:
             if begin_session:
-                await attemptToJoin(interaction, send_response=False)
+                await attemptToJoin(interaction, send_response=False, ephemeral=ephemeral)
                 return True
             else:
                 raise errors.NoVoiceClient
@@ -101,8 +100,13 @@ def requireOptionalParams(params=list[str], min_count: int=1):
             raise errors.MissingParameters(f"Command requires at least `{min_count}` of the following parameters\n"
                                            f"`{params}`")
 
+    return app_commands.check(predicate)
 
 
+def setCommandChannel():
+    async def predicate(interaction: Interaction):
+        server_data.value.last_music_command_channel = interaction.channel
+        return True
     return app_commands.check(predicate)
 
 
@@ -143,22 +147,22 @@ class Music(GroupCog,
 
     # Auto Queue Doesn't work for me
     # Make queue automatically cycle
-
     @music_group.command(name="join",
                          description="joins the voice channel")
     async def m_join(self, interaction: Interaction, voice_channel: VoiceChannel = None):
-        voice_client: Player = await attemptToJoin(interaction, voice_channel)
-        pass
+        await respond(interaction, ephemeral=True)
+        voice_client: Player = await attemptToJoin(interaction, voice_channel, ephemeral=True)
+
 
     @music_group.command(name="leave",
                          description="leaves the voice channel")
     async def m_leave(self, interaction: Interaction):
+        await respond(interaction, ephemeral=True)
         voice_client: Player = interaction.guild.voice_client
         if not voice_client: raise errors.NotInVC
 
-        message = f"I have left {voice_client.channel}"
+        await respond(interaction, "Leaving...", delete_after=0.5, ephemeral=True)
         await voice_client.disconnect()
-        await respond(interaction, message)
 
     @requireVoiceclient(begin_session=True)
     @music_group.command(name="play",
@@ -169,7 +173,7 @@ class Music(GroupCog,
         if not search:
             if voice_client.is_paused():
                 await voice_client.resume()
-                await respond(interaction, "Resumed music playback")
+                await respond(interaction, "Resumed music playback", delete_after=3)
                 # await respond(interaction, ("Resumed music playback")
             else:
                 await attemptHaltResume(interaction, send_response=True)
@@ -183,7 +187,7 @@ class Music(GroupCog,
 
 
 
-    @requireVoiceclient()
+    @requireVoiceclient(ephemeral=True)
     @music_group.command(name="skip",
                          description="skips the current track")
     async def m_skip(self, interaction: Interaction, count: int = 1):
@@ -238,9 +242,6 @@ class Music(GroupCog,
         else:
             await respond(interaction, "`Enabled status message`", ephemeral=True, delete_after=3)
 
-
-
-
         message: Message = await interaction.channel.send(createNowPlayingWithDescriptor(voice_client, True, True))
 
         message_info = MessageInfo(id=message.id,
@@ -265,22 +266,30 @@ class Music(GroupCog,
             message_elems.content = message
             return message_elems
 
+        voice_client.now_playing_message = PersistentMessage(
+            self.bot,
+            guild_id=interaction.guild_id,
+            message_info=message_info,
+            message_elems=message_elems,
+            seperator=sep,
+            refresh_callback=callback,
+            persist_interval=5)
 
-        voice_client.now_playing_message = PersistentMessage(self.bot,
-                                                             guild_id=interaction.guild_id,
-                                                             message_info=message_info,
-                                                             message_elems=message_elems,
-                                                             seperator=sep,
-                                                             refresh_callback=callback,
-                                                             persist_interval=5)
-        voice_client.now_playing_message.begin()
+        np_message = PersistentMessage(
+            self.bot,
+            guild_id=interaction.guild_id,
+            message_info=message_info,
+            message_elems=message_elems,
+            seperator=sep,
+            refresh_callback=callback,
+            persist_interval=5)
+        np_message.begin()
 
-        return
 
     @requireVoiceclient()
     @music_group.command(name="queue",
                          description="shows the previous and upcoming tracks")
-    async def m_queue(self, interaction: Interaction):
+    async def m_queue(self, interaction: Interaction, clientside: bool=False):
         voice_client: Player = interaction.guild.voice_client
 
         # assert isinstance(interaction.response, InteractionResponse)
@@ -340,7 +349,7 @@ class Music(GroupCog,
         # TODO Loop needs to work properly
 
         voice_client.changeLoopMode(mode)
-        await respond(interaction, f"Loop Mode:`{mode}`")
+        await respond(interaction, f"Loop Mode:`{mode}`", delete_after=3)
 
     @requireVoiceclient()
     @music_group.command(name="stop",
@@ -350,7 +359,7 @@ class Music(GroupCog,
         # TODO Stop implements stopping via calling the halt function
         voice_client: Player = interaction.guild.voice_client
         await voice_client.stop(halt=True)
-        await respond(interaction, "Stopped the Player")
+        await respond(interaction, "Stopped the Player", delete_after=3)
 
     @requireVoiceclient()
     @music_group.command(name="seek",
@@ -361,14 +370,15 @@ class Music(GroupCog,
         pos_milliseconds = position * 1000
         await voice_client.seek(pos_milliseconds)
         np, _ = voice_client.currentlyPlaying()
-        duration_text = secondsToTime(np.length)
+        duration_text = secondsToTime(np.length//1000)
         if pos_milliseconds > np.length:
             new_pos = duration_text
         else:
             new_pos = secondsToTime(position)
 
-        await respond(interaction, f"**Jumped to `{new_pos} / {duration_text}`**")
+        await respond(interaction, f"**Jumped to `{new_pos} / {duration_text}`**", delete_after=3)
 
+# TODO make pop act similarly to the playlist pop with a message scroller response
     @requireVoiceclient()
     @music_group.command(name="pop",
                          description="Removes a track from the queue")
@@ -389,9 +399,9 @@ class Music(GroupCog,
             track = voice_client.queue[index]
             del voice_client.queue[index]
 
-        track_text =createNowPlayingMessage(track, position=None, formatting=False, show_arrow=False, descriptor_text='')
+        track_text = createNowPlayingMessage(track, position=None, formatting=False, show_arrow=False, descriptor_text='')
         reply = f"Removed `{track_text}` from `{queue_source}`"
-        await respond(interaction, reply)
+        await respond(interaction, reply, delete_after=3)
 
     @requireVoiceclient()
     @music_group.command(name="pause",
@@ -402,10 +412,12 @@ class Music(GroupCog,
         voice_client: Player = interaction.guild.voice_client
         if voice_client.is_paused():
             await voice_client.resume()
-            await respond(interaction, "Resumed the player")
+            message = "Resumed the player"
         else:
             await voice_client.pause()
-            await respond(interaction, "Paused the player")
+            message = "Paused the player"
+
+        await respond(interaction, message, delete_after=3)
 
     @requireVoiceclient()
     @music_group.command(name="resume",
@@ -415,7 +427,7 @@ class Music(GroupCog,
         voice_client: Player = interaction.guild.voice_client
         if voice_client.is_paused():
             await voice_client.resume()
-            await respond(interaction, "Resumed playback")
+            await respond(interaction, "Resumed playback", delete_after=3)
         else:
             await attemptHaltResume(voice_client, send_response=True)
 
@@ -433,11 +445,12 @@ class Music(GroupCog,
         if pos//1000 < cutoff_pos:
             await voice_client.cycleQueue(-1)
             await voice_client.beginPlayback()
-            response = await respond(interaction, "Replaying the previous track")
+            message = "Replaying the previous track"
         else:
             await voice_client.seek(0)
-            response = await respond(interaction, "Restarted the current track")
-        await response.delete(delay=3)
+            message = "Restarted the current track"
+        await respond(interaction, message, delete_after=3)
+
 
 
     @requireVoiceclient()
@@ -452,7 +465,7 @@ class Music(GroupCog,
         elif choice == "history":
             voice_client.queue.history.clear()
 
-        await respond(interaction, f"Cleared {choice}")
+        await respond(interaction, f"Cleared {choice}", delete_after=3)
 
 
 
@@ -490,9 +503,54 @@ class Music(GroupCog,
             pass
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
+        server_data.value = self.bot.getServerData(interaction.guild_id)
         if interaction.guild.voice_client and not isinstance(interaction.guild.voice_client, Player):
             raise errors.WrongVoiceClient("`Incorrect command for Player, Try /<command> instead`")
+
+        server_data.value.last_music_command_channel = interaction.channel
+
         return True
+
+    @Cog.listener()
+    async def on_voice_state_update(self, member: Member, before: VoiceState, after: VoiceState):
+        voice_client: Player = member.guild.voice_client
+        server_data = self.bot.getServerData(member.guild.id)
+        bc = before.channel
+        ac = after.channel
+
+        joined_channel = (not bc) and ac  # there is no before channel but there is an after channel
+        left_channel = bc and (not ac)  # there is no after channel but there was a before channel
+        moved_channel = (bc and ac) and (bc != ac)  # there is a before and after but they are different channels
+
+        if member == self.bot.user:  # the member is the bot
+            if joined_channel:
+                message = f"I joined `{ac.name}`"
+            elif left_channel:
+                message = f"I left `{bc.name}`"
+                if len(bc.members) == 0: message += f" because it was empty"
+            elif moved_channel:
+                message = f"I moved from `{bc.name}` to `{ac.name}`"
+            else:
+                return  # other voice state changed
+
+            last_channel = server_data.last_music_command_channel
+            if last_channel: await last_channel.send(message, delete_after=8)
+        else:
+            # member is not the bot
+            if voice_client:
+                # only do if there is an active voice client
+                if bc == voice_client.channel and (left_channel or moved_channel):
+                    # someone has left the player channel
+                    if len(bc.members) - 1 == 0:
+                        await voice_client.disconnect()
+                    else:
+                        # someone left but there are still enough people
+                        pass
+                else:
+                    # could include other cases besides just leaving the player channel
+                    pass
+            else: # unrelated to the voice client
+                pass
 
 
 # TODO Playlist Functionality needs a reimplementation
@@ -608,10 +666,11 @@ class PlaylistCog(GroupCog,
     async def p_create_new(self, interaction: Interaction,
                            playlist: Playlist_Transformer_NoError,
                            description: str=""):
+        await respond(interaction, ephemeral=True)
         voice_client: Player = interaction.guild.voice_client
         playlist_name = interaction.namespace.playlist
         createNewPlaylist(name=playlist_name, description=description)
-        await respond(interaction, f"Created playlist `{playlist_name}`")
+        await respond(interaction, f"Created playlist `{playlist_name}`", ephemeral=True, delete_after=3)
 
     @requireVoiceclient()
     @create.command(name="queue",
@@ -637,9 +696,9 @@ class PlaylistCog(GroupCog,
         playlist_name = interaction.namespace.playlist
         if playlist is not None:
             server_data.value.playlists.pop(playlist_name)
-            await respond(interaction, f"**Deleted Playlist `{playlist_name}`**")
+            await respond(interaction, f"**Deleted Playlist `{playlist_name}`**", delete_after=3)
         else:
-            await respond(interaction, f"**Playlist `{playlist_name}` does not exist**")
+            await respond(interaction, f"**Playlist `{playlist_name}` does not exist**", delete_after=3)
 
     @requireVoiceclient(begin_session=True)
     @app_commands.command(name="play",
@@ -827,9 +886,9 @@ class PlaylistCog(GroupCog,
                 server_data.value.playlists.pop(playlist_name)
 
 
-            await respond(interaction, f"Edited playist details", ephemeral=True)
+            await respond(interaction, f"Edited playist details", ephemeral=True, delete_after=3)
         else:
-            await respond(interaction, "Error in modal submission", ephemeral=True)
+            await respond(interaction, "Error in modal submission", ephemeral=True, delete_after=3)
 
 
 
@@ -873,8 +932,15 @@ class PlaylistCog(GroupCog,
 
     async def interaction_check(self, interaction: Interaction):
         self.setContextVars(interaction)
+        server_data.value.last_music_command_channel = interaction.channel
+
         return True
     # async def autocomplete_check
+
+
+
+
+
 
 
 # Music Related Classes
