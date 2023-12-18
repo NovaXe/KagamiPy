@@ -1,6 +1,7 @@
 from enum import Enum, auto
 from typing import Union, List
 import wavelink
+from discord import TextChannel
 
 from bot.ext.responses import PersistentMessage
 from bot.utils.context_vars import CVar

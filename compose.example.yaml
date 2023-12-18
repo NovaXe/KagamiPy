@@ -1,10 +1,10 @@
 services:
   kagami:
-    image: nova8x/kagami_bot:arm64
+    image: nova8x/kagami_bot:amd64
     container_name: kagami_bot
     network_mode: host
     volumes:
-      - ${DATA_PATH}:/bot/data
+      - ${DATA_PATH}:/kagami/bot/data
     expose:
       - 8077
     ports:

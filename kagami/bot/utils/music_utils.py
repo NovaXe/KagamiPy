@@ -48,7 +48,7 @@ async def attemptHaltResume(interaction: Interaction, send_response=False, befor
         response = "Let the playa be playin"
     else:
         response = "The playa be playin"
-    if send_response: await respond(interaction, f"`{response}`")
+    if send_response: await respond(interaction, f"`{response}`", delete_after=3)
 
 
 async def buildTracks(tracks: list[str]):
@@ -291,5 +291,6 @@ async def respondWithTracks(bot: Kagami, interaction: Interaction,
             interaction,
             content=f"`{tracks[0].title}  -  {f'{hours}:02' + ':' if hours > 0 else ''}"
                     f"{minutes:02}:{seconds:02} was added to the queue`",
-            send_followup=send_followup
+            send_followup=send_followup,
+            delete_after=5
         )
