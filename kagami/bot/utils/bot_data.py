@@ -321,7 +321,10 @@ class BotConfiguration:
     def initFromEnv(cls):
         if not os.environ.get("BOT_TOKEN"):
             print("Couldn't fine Environment Variable `BOT_TOKEN`")
-            load_dotenv(find_dotenv())
+            if load_dotenv(find_dotenv()):
+                print("Loaded .env file")
+            else:
+                print("Missing environment variables in .env file")
         env = os.environ
         # print(env)
 
