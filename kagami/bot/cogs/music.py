@@ -266,14 +266,14 @@ class Music(GroupCog,
             message_elems.content = message
             return message_elems
 
-        voice_client.now_playing_message = PersistentMessage(
-            self.bot,
-            guild_id=interaction.guild_id,
-            message_info=message_info,
-            message_elems=message_elems,
-            seperator=sep,
-            refresh_callback=callback,
-            persist_interval=5)
+        # voice_client.now_playing_message = PersistentMessage(
+        #     self.bot,
+        #     guild_id=interaction.guild_id,
+        #     message_info=message_info,
+        #     message_elems=message_elems,
+        #     seperator=sep,
+        #     refresh_callback=callback,
+        #     persist_interval=5)
 
         np_message = PersistentMessage(
             self.bot,
@@ -283,6 +283,8 @@ class Music(GroupCog,
             seperator=sep,
             refresh_callback=callback,
             persist_interval=5)
+        voice_client.now_playing_message = np_message
+
         np_message.begin()
 
 

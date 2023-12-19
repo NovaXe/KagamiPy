@@ -43,10 +43,16 @@ class CustomView(View):
     async def onStop(self):
         if self.stop_behavior.delete_message:
             if p_message := self.partialMessage():
-                await p_message.delete()
+                try:
+                    await p_message.delete()
+                except discord.NotFound as e:
+                    pass
         elif self.stop_behavior.remove_view:
             if p_message := self.partialMessage():
-                await p_message.edit(view=None)
+                try:
+                    await p_message.edit(view=None)
+                except discord.NotFound as e:
+                    pass
         elif self.stop_behavior.disable_items:
             item: Button | Select | TextInput
             for item in self.children:
