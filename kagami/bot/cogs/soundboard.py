@@ -1,3 +1,5 @@
+from math import ceil
+
 import discord
 from discord import app_commands, Interaction
 from discord._types import ClientT
@@ -6,10 +8,14 @@ from discord.ext import commands
 from discord.ext.commands import GroupCog, Group
 
 from bot.ext import errors
+from bot.ext.ui.custom_view import MessageInfo
+from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks, ITL
 from bot.kagami_bot import Kagami
 from bot.utils.bot_data import Sound, server_data
 from bot.utils.interactions import respond
-from bot.utils.utils import similaritySort
+from bot.utils.pages import EdgeIndices, createSinglePage, InfoTextElem, InfoSeparators, CustomRepr, PageBehavior, \
+    PageIndices
+from bot.utils.utils import similaritySort, secondsToTime
 
 
 class SoundTransformer(Transformer):
@@ -59,7 +65,7 @@ class SoundboardCog(commands.GroupCog, group_name="s"):
         if sound is not None:
             pass  # TODO Send overwrite confirmation buttons
         # if yes proceed to creating a new sound otherwise send a message dictating that the sound has been discarded
-        new_sound = server_data.value.createNewSound(name=sound_name, source=source)
+        new_sound = server_data.value.createNewSound(name=sound_name, source=source, start_time=start, end_time=end)
 
         await respond(interaction, f"Added sound: `{sound_name}` to the soundboard")
 
@@ -69,20 +75,82 @@ class SoundboardCog(commands.GroupCog, group_name="s"):
     @app_commands.command(
         name="remove",
         description="removes a sound from the server's soundboard")
-    async def s_remove(self, interaction: Interaction, sound):
+    async def s_remove(self, interaction: Interaction, sound: Soundboard_Transformer):
         await respond(interaction)
+        soundboard = server_data.value.soundboard
+        soundboard.pop(interaction.namespace.sound)
+        await respond(interaction, f"Removed the sound `{sound.title}` from the soundboard", delete_after=3)
 
     @app_commands.command(
         name="view",
         description="view all of the server's sounds")
     async def s_view(self, interaction: Interaction):
-        await respond(interaction)
+        message = await respond(interaction)
+
+        def edge_callback(interaction: Interaction) -> EdgeIndices:
+            server_data = self.bot.getServerData(interaction.guild_id)
+            sound_count = len(server_data.soundboard)
+            page_count = ceil(sound_count/10)
+            return EdgeIndices(left=0, right=page_count-1)
+
+        def gen_callback(interaction: Interaction, page_index: int) -> str:
+            server_data = self.bot.getServerData(interaction.guild_id)
+
+            first_item_index = page_index * 10
+            soundboard = dict(list(server_data.soundboard.items())[first_item_index:first_item_index + 10])
+
+            info_text_elem = InfoTextElem(
+                text=f"`{interaction.guild.name}` has `{len(server_data.soundboard)}` sounds in the soundboard",
+                loc=ITL.TOP,
+                separators=InfoSeparators(bottom="────────────────────────────────────────")
+            )
+
+            data = {
+                sound_name: {
+                    "duration": secondsToTime(sound.end_time - sound.start_time)
+                }
+                for sound_name, sound in soundboard.items()
+            }
+
+            left, right = edge_callback(interaction)
+
+
+            page = createSinglePage(
+                data=data,
+                infotext=info_text_elem,
+                first_item_index=page_index*10 + 1,
+                page_position=PageIndices(left, page_index, right),
+                custom_reprs={
+                    "encoded": CustomRepr(ignored=True),
+                    "start_time": CustomRepr(ignored=True),
+                    "end_time": CustomRepr(ignored=True)
+                },
+                behavior=PageBehavior(max_key_length=40)
+            )
+
+            return page
+
+        view = PageScroller(
+            bot=self.bot,
+            page_callbacks=PageGenCallbacks(getEdgeIndices=edge_callback, genPage=gen_callback),
+            message_info=MessageInfo.init_from_message(message)
+        )
+        await respond(interaction, content=gen_callback(interaction, 0), view=view)
+
 
     @app_commands.command(
         name="info",
         description="shows the sound's info")
-    async def s_info(self, interaction: Interaction):
+    async def s_info(self, interaction: Interaction, sound: Soundboard_Transformer):
         await respond(interaction)
+        message_text = f"""```swift
+        Sound Info: `{interaction.namespace.sound}`
+        ────────────────────────────────────────
+        Track Title: {sound.title}
+        
+        ```"""
+        await respond(interaction, message_text)
+
 
     @app_commands.command(
         name="stop",
