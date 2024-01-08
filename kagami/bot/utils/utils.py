@@ -4,10 +4,10 @@ from difflib import (
     SequenceMatcher
 )
 import discord
-from discord import (Interaction)
+from discord import (Interaction, app_commands)
 import discord.utils
 
-
+from bot.ext import errors
 
 
 def clamp(num, min_value, max_value):
@@ -121,4 +121,15 @@ class ClampedValue:
         return float(self._value)
 
 
+def requireOptionalParams(params=list[str], min_count: int=1):
+    async def predicate(interaction: Interaction):
+        count = 0
+        for param in params:
+            if param in interaction.namespace:
+                count += 1
+            if count >= min_count: return True
+        else:
+            raise errors.MissingParameters(f"Command requires at least `{min_count}` of the following parameters\n"
+                                           f"`{params}`")
 
+    return app_commands.check(predicate)

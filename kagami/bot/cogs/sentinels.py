@@ -288,6 +288,7 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
 
     @staticmethod
     async def process_sentinel_event(message: discord.Message, sentinels):
+        return
         content = message.content.lower()
         # if content := content.split(' '):
         #     pass

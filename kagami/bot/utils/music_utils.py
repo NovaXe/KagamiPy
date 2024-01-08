@@ -1,15 +1,17 @@
 from math import(ceil)
 
-from discord import(Interaction, InteractionType)
+from discord import (Interaction, InteractionType, app_commands, VoiceChannel)
 
 import wavelink
 from enum import (Enum, auto)
+
+from bot.ext import errors
 
 from bot.ext.ui.custom_view import MessageInfo
 from bot.ext.ui.page_scroller import ITL, PageGenCallbacks, PageScroller
 from bot.kagami_bot import Kagami
 from bot.utils.player import Player
-from bot.utils.wavelink_utils import WavelinkTrack
+from bot.utils.wavelink_utils import WavelinkTrack, searchForTracks
 from bot.utils.utils import (secondsToTime, secondsDivMod)
 from bot.utils.pages import createSinglePage, CustomRepr, PageBehavior, PageIndices, InfoSeparators, InfoTextElem, \
     EdgeIndices, createPages, getQueueEdgeIndices
@@ -294,3 +296,55 @@ async def respondWithTracks(bot: Kagami, interaction: Interaction,
             send_followup=send_followup,
             delete_after=5
         )
+
+
+def requireVoiceclient(begin_session=False, defer_response=True, ephemeral=False):
+    async def predicate(interaction: Interaction):
+        if defer_response: await respond(interaction, ephemeral=ephemeral)
+        voice_client = interaction.guild.voice_client
+
+        if voice_client is None:
+            if begin_session:
+                await attemptToJoin(interaction, send_response=False, ephemeral=ephemeral)
+                return True
+            else:
+                raise errors.NoVoiceClient
+        else:
+            return True
+
+    return app_commands.check(predicate)
+
+
+async def attemptToJoin(interaction: Interaction, voice_channel: VoiceChannel = None, send_response=True, ephemeral=False):
+    voice_client: Player = interaction.guild.voice_client
+    user_vc = user_voice.channel if (user_voice := interaction.user.voice) else None
+    voice_channel = voice_channel or user_vc
+    if not voice_channel: raise errors.NoVoiceChannel
+
+    if voice_client and voice_client.channel == voice_channel:
+        raise errors.AlreadyInVC("I'm already in the voice channel")
+
+    if voice_client:
+        pass
+    # raise errors.AlreadyInVC
+
+    else:
+        if send_response: await respond(interaction, "Joining...", ephemeral=ephemeral, delete_after=0.5)
+        voice_client = await joinVoice(interaction, voice_channel)
+    return voice_client
+
+
+async def joinVoice(interaction: Interaction, voice_channel: VoiceChannel):
+    voice_client: Player = interaction.guild.voice_client
+    if voice_client:
+        await voice_client.move_to(voice_channel)
+        voice_client = interaction.guild.voice_client
+    else:
+        voice_client = await voice_channel.connect(cls=Player())
+    return voice_client
+
+
+async def searchAndQueue(voice_client: Player, search):
+    tracks, source = await searchForTracks(search, 1)
+    await voice_client.waitAddToQueue(tracks)
+    return tracks, source

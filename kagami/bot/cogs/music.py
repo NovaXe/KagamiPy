@@ -1,28 +1,26 @@
-import dataclasses
 from math import ceil
 
-import discord
 import wavelink
 from wavelink import TrackEventPayload
-from wavelink.ext import spotify
 from typing import (Literal, Any, Union, List)
 from discord import (app_commands, Interaction, VoiceChannel, Message, Member, VoiceState)
 from discord.app_commands import Group, Transformer, Transform, Choice, Range
 from discord.ext.commands import GroupCog, Cog
-from discord.ext import (commands, tasks)
+from discord.ext import (commands)
 from discord.utils import MISSING
-from discord.ui import Modal, Select, TextInput
+from discord.ui import Modal, TextInput
 
 from bot.ext.ui.custom_view import MessageInfo
 from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks, ITL
-from bot.utils.bot_data import Playlist, server_data, Track
+from bot.utils.bot_data import Playlist, server_data
 
 # context vars
 from bot.kagami_bot import bot_var
 
 from bot.utils.music_utils import (
     attemptHaltResume,
-    createNowPlayingWithDescriptor, createQueuePage, secondsToTime, respondWithTracks, addedToQueueMessage)
+    createNowPlayingWithDescriptor, createQueuePage, secondsToTime, respondWithTracks, addedToQueueMessage,
+    requireVoiceclient, attemptToJoin, searchAndQueue)
 from bot.utils.wavelink_utils import createNowPlayingMessage, searchForTracks
 from bot.utils.player import Player, player_instance
 from bot.utils.wavelink_utils import WavelinkTrack
@@ -31,76 +29,12 @@ from bot.ext.ui.music import PlayerController
 from bot.ext.responses import (PersistentMessage, MessageElements)
 from bot.utils.interactions import respond
 from bot.ext import errors
-from bot.utils.pages import EdgeIndices, getQueueEdgeIndices, InfoTextElem, InfoSeparators, createPages, CustomRepr, \
-    PageBehavior, simplePageScroller, createSinglePage, PageIndices
-from bot.utils.utils import similaritySort
+from bot.utils.pages import EdgeIndices, getQueueEdgeIndices, InfoTextElem, InfoSeparators, CustomRepr, \
+    PageBehavior, createSinglePage, PageIndices
+from bot.utils.utils import similaritySort, requireOptionalParams
 
 
 # General functions for music and playlist use
-async def searchAndQueue(voice_client: Player, search):
-    tracks, source = await searchForTracks(search, 1)
-    await voice_client.waitAddToQueue(tracks)
-    return tracks, source
-
-
-
-async def joinVoice(interaction: Interaction, voice_channel: VoiceChannel):
-    voice_client: Player = interaction.guild.voice_client
-    if voice_client:
-        await voice_client.move_to(voice_channel)
-        voice_client = interaction.guild.voice_client
-    else:
-        voice_client = await voice_channel.connect(cls=Player())
-    return voice_client
-
-
-async def attemptToJoin(interaction: Interaction, voice_channel: VoiceChannel = None, send_response=True, ephemeral=False):
-    voice_client: Player = interaction.guild.voice_client
-    user_vc = user_voice.channel if (user_voice := interaction.user.voice) else None
-    voice_channel = voice_channel or user_vc
-    if not voice_channel: raise errors.NoVoiceChannel
-
-    if voice_client and voice_client.channel == voice_channel:
-        raise errors.AlreadyInVC("I'm already in the voice channel")
-
-    if voice_client:
-        pass
-    # raise errors.AlreadyInVC
-
-    else:
-        if send_response: await respond(interaction, "Joining...", ephemeral=ephemeral, delete_after=0.5)
-        voice_client = await joinVoice(interaction, voice_channel)
-    return voice_client
-
-
-def requireVoiceclient(begin_session=False, defer_response=True, ephemeral=False):
-    async def predicate(interaction: Interaction):
-        if defer_response: await respond(interaction, ephemeral=ephemeral)
-        voice_client = interaction.guild.voice_client
-
-        if voice_client is None:
-            if begin_session:
-                await attemptToJoin(interaction, send_response=False, ephemeral=ephemeral)
-                return True
-            else:
-                raise errors.NoVoiceClient
-        else:
-            return True
-
-    return app_commands.check(predicate)
-
-def requireOptionalParams(params=list[str], min_count: int=1):
-    async def predicate(interaction: Interaction):
-        count = 0
-        for param in params:
-            if param in interaction.namespace:
-                count += 1
-            if count >= min_count: return True
-        else:
-            raise errors.MissingParameters(f"Command requires at least `{min_count}` of the following parameters\n"
-                                           f"`{params}`")
-
-    return app_commands.check(predicate)
 
 
 def setCommandChannel():
@@ -729,7 +663,7 @@ class PlaylistCog(GroupCog,
                  description="adds tracks to a playlists")
     async def p_add_track(self, interaction: Interaction,
                           playlist: Playlist_Transformer,
-                          search:str, allow_duplicates:bool=False):
+                          search: str, allow_duplicates:bool=False):
         await respond(interaction)
         voice_client = interaction.guild.voice_client
         tracks, _ = await searchForTracks(search)

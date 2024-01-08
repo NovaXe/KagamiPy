@@ -1,6 +1,7 @@
 from math import ceil
 
 import discord
+import wavelink.ext.spotify
 from discord import app_commands, Interaction
 from discord._types import ClientT
 from discord.app_commands import autocomplete, Range, Transformer, Transform, Choice
@@ -10,13 +11,15 @@ from discord.ext.commands import GroupCog, Group
 from bot.ext import errors
 from bot.ext.ui.custom_view import MessageInfo
 from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks, ITL
-from bot.kagami_bot import Kagami
+from bot.kagami_bot import Kagami, bot_var
 from bot.utils.bot_data import Sound, server_data
 from bot.utils.interactions import respond
 from bot.utils.pages import EdgeIndices, createSinglePage, InfoTextElem, InfoSeparators, CustomRepr, PageBehavior, \
     PageIndices
+from bot.utils.player import Player
 from bot.utils.utils import similaritySort, secondsToTime
-
+from bot.utils.wavelink_utils import searchForTracks, WavelinkTrack
+from bot.utils.music_utils import requireVoiceclient, attemptToJoin
 
 class SoundTransformer(Transformer):
     def __init__(self, raise_error=True):
@@ -25,6 +28,7 @@ class SoundTransformer(Transformer):
     async def autocomplete(self,
                            interaction: Interaction,
                            value: str, /) -> list[Choice[str]]:
+        server_data.value = bot_var.value.getServerData(interaction.guild_id)
         soundboard_dict = server_data.value.soundboard
         keys = list(soundboard_dict.keys()) if len(soundboard_dict) else []
         options = similaritySort(keys, value)
@@ -44,7 +48,7 @@ class SoundTransformer(Transformer):
 
 
 
-class SoundboardCog(commands.GroupCog, group_name="s"):
+class SoundboardCog(commands.GroupCog, group_name="sound"):
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
@@ -61,11 +65,13 @@ class SoundboardCog(commands.GroupCog, group_name="s"):
                     sound: Soundboard_Transformer_NoError,
                     source: str, start: Range[float, 0, None], end: float=None):
         await respond(interaction, ephemeral=True)
-        sound_name = interaction.namespace.sound
+        sound_name = interaction.namespace.sound_name
         if sound is not None:
             pass  # TODO Send overwrite confirmation buttons
-        # if yes proceed to creating a new sound otherwise send a message dictating that the sound has been discarded
-        new_sound = server_data.value.createNewSound(name=sound_name, source=source, start_time=start, end_time=end)
+            pass  # if yes proceed to creating a new sound otherwise send a message dictating that the sound has been discarded
+        tracks, _ = await searchForTracks(source)
+        track = tracks[0]
+        new_sound = server_data.value.createNewSound(name=sound_name, source=track, start_time=start, end_time=end)
 
         await respond(interaction, f"Added sound: `{sound_name}` to the soundboard")
 
@@ -82,9 +88,9 @@ class SoundboardCog(commands.GroupCog, group_name="s"):
         await respond(interaction, f"Removed the sound `{sound.title}` from the soundboard", delete_after=3)
 
     @app_commands.command(
-        name="view",
-        description="view all of the server's sounds")
-    async def s_view(self, interaction: Interaction):
+        name="list",
+        description="list all of the server's sounds")
+    async def s_list(self, interaction: Interaction):
         message = await respond(interaction)
 
         def edge_callback(interaction: Interaction) -> EdgeIndices:
@@ -107,7 +113,9 @@ class SoundboardCog(commands.GroupCog, group_name="s"):
 
             data = {
                 sound_name: {
-                    "duration": secondsToTime(sound.end_time - sound.start_time)
+                    "duration": secondsToTime(
+                        ((sound.end_time or sound.duration) - sound.start_time)//1000
+                    )
                 }
                 for sound_name, sound in soundboard.items()
             }
@@ -125,7 +133,7 @@ class SoundboardCog(commands.GroupCog, group_name="s"):
                     "start_time": CustomRepr(ignored=True),
                     "end_time": CustomRepr(ignored=True)
                 },
-                behavior=PageBehavior(max_key_length=40)
+                behavior=PageBehavior(max_key_length=30)
             )
 
             return page
@@ -147,7 +155,9 @@ class SoundboardCog(commands.GroupCog, group_name="s"):
         Sound Info: `{interaction.namespace.sound}`
         ────────────────────────────────────────
         Track Title: {sound.title}
-        
+        Track Duration: {secondsToTime(sound.duration//1000)}
+        Playback Range: {secondsToTime(sound.start_time//1000)} -> {secondsToTime((sound.end_time or sound.duration)//1000)}
+        Playback Duration: {secondsToTime(((sound.end_time or sound.duration) //1000)-sound.start_time)}
         ```"""
         await respond(interaction, message_text)
 
@@ -158,15 +168,119 @@ class SoundboardCog(commands.GroupCog, group_name="s"):
     async def s_stop(self, interaction: Interaction):
         await respond(interaction)
 
+    @requireVoiceclient(begin_session=True)
+    @app_commands.command(
+        name="play",
+        description="adds a sound to the sound queue")
+    async def s_play(self, interaction: Interaction, sound: Soundboard_Transformer, play_now: bool=False):
+        await respond(interaction)
+        voice_client: Player = interaction.guild.voice_client
+        track = await sound.buildWavelinkTrack()
+        await voice_client.queueTracks("soundboard", track)
+        await respond(interaction, f"Queued the sound: `{interaction.namespace.sound}`", delete_after=5)
+
+    @requireVoiceclient()
+    @app_commands.command(
+        name="queue",
+        description="shows the sound queue")
+    async def s_queue(self, interaction: Interaction):
+        messsage = await respond(interaction)
+
+        def edge_callback(interaction: Interaction) -> EdgeIndices:
+            server_data = self.bot.getServerData(interaction.guild_id)
+            voice_client: Player = interaction.guild.voice_client
+            queue_length = voice_client.sound_queue.count
+            page_count = ceil(queue_length/10)
+            return EdgeIndices(left=0, right=page_count-1)
+
+        def gen_callback(interaction: Interaction, page_index: int) -> str:
+            server_data = self.bot.getServerData(interaction.guild_id)
+            voice_client: Player = interaction.guild.voice_client
+
+            first_item_index = page_index * 10
+            sound_queue = dict(list(voice_client.sound_queue.items()))[first_item_index:first_item_index + 10]
+            info_text_elem = InfoTextElem(
+                text=f"`There are {voice_client.sound_queue.count} queued sounds",
+                loc=ITL.TOP,
+                separators=InfoSeparators(bottom="────────────────────────────────────────")
+            )
+
+            data = {
+                sound_name: {
+                    "duration": secondsToTime(
+                        ((sound.end_time or sound.duration) - sound.start_time)//1000
+                    )
+                }
+                for sound_name, sound in sound_queue.items()
+            }
+
+            left, right = edge_callback(interaction)
+
+
+            page = createSinglePage(
+                data=data,
+                infotext=info_text_elem,
+                first_item_index=page_index*10 + 1,
+                page_position=PageIndices(left, page_index, right),
+                custom_reprs={
+                    "encoded": CustomRepr(ignored=True),
+                    "start_time": CustomRepr(ignored=True),
+                    "end_time": CustomRepr(ignored=True)
+                },
+                behavior=PageBehavior(max_key_length=30)
+            )
+
+            return page
+
+        view = PageScroller(
+            bot=self.bot,
+            page_callbacks=PageGenCallbacks(getEdgeIndices=edge_callback, genPage=gen_callback),
+            message_info=MessageInfo.init_from_message(messsage)
+        )
+        await respond(interaction, content=gen_callback(interaction, 0), view=view)
+
+    @requireVoiceclient()
+    @app_commands.command(
+        name="skip",
+        description="skips the currently playing sound")
+    async def s_skip(self, interaction: Interaction, count: Range[int, 1, None]=1):
+        await respond(interaction)
+        voice_client: Player = interaction.guild.voice_client
+        if voice_client.currentlyPlaying() is voice_client.sound_queue.history[-1]:
+            sound_queue_length = voice_client.sound_queue.count
+            skip_count = max(min(count, sound_queue_length), 1)
+            await voice_client.cycleQueue(min(count, skip_count))
+            if voice_client.halted: await voice_client.stop()
+            else: await voice_client.beginPlayback()
+
+            await respond(interaction, f"Skipped `{skip_count} sound{'s' if skip_count > 1 else ''}`")
+        else:
+            await respond(interaction, "There are no sounds to skip", delete_after=3)
+
+    @requireVoiceclient()
     @app_commands.command(
         name="pop",
         description="pops the sounds from the player's sound queue")
     async def s_pop(self, interaction: Interaction, position: Range[int, 1, None]=1, count: int=1):
         await respond(interaction)
+        voice_client: Player = interaction.guild.voice_client
+        sound_queue_length = voice_client.sound_queue.count
+        if not sound_queue_length:
+            raise errors.SoundQueueEmpty
+        elif position > sound_queue_length:
+            raise IndexError(f"Queue: `0 -> {sound_queue_length}`: pos `{position}` out of range")
+
+        tracks = list(reversed([voice_client.sound_queue.pop(i) for i in reversed(range(position-1, min(position-1+count, sound_queue_length)))]))
+        if track_count:=len(tracks) > 1:
+            await respond(interaction, f"Removed `{track_count}` tracks")
+            # TODO make this a list scrolling thing even though it probably isn't necessary and no one cares
+        else:
+            await respond(interaction, f"Removed track `{tracks[0]}` from the sound queue")
 
 
     async def interaction_check(self, interaction: discord.Interaction, /) -> bool:
         await self.bot.setContextVars(interaction)
+        return True
 
 
 """
@@ -179,3 +293,7 @@ prioritized queue in the bot
 sounds with start and stop times
 
 """
+
+async def setup(bot):
+    soundboard_cog = SoundboardCog(bot)
+    await bot.add_cog(soundboard_cog)

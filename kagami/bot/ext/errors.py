@@ -44,6 +44,9 @@ class SoundNotFound(CustomCheck):
 class SoundAlreadyExists(CustomCheck):
     MESSAGE = "There is already a sound with that name"
 
+class SoundQueueEmpty(CustomCheck):
+    MESSAGE = "The sound queue is empty"
+
 async def on_app_command_error(interaction: Interaction, error: AppCommandError):
     if isinstance(error, CustomCheck):
         og_response = await respond(interaction, f"**{error}**")

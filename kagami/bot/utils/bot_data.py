@@ -8,7 +8,7 @@ from wavelink.ext import spotify
 
 from bot.ext import errors
 from bot.utils.music_helpers import OldPlaylist
-from bot.utils.wavelink_utils import WavelinkTrack, buildTrack
+from bot.utils.wavelink_utils import WavelinkTrack, buildTrack, searchForTracks
 from bot.utils.context_vars import CVar
 
 # TODO deprecate this shit once nothing else uses it
@@ -231,7 +231,7 @@ class Sentinel(DictFromToDictMixin):
     response: str = ""
     reactions: list[str] = default_factory(list)
     uses: int = 0
-    enabled: bool = True
+    enabled: bool = False
 
     @classmethod
     def fromDict(cls, data: dict):
@@ -293,9 +293,11 @@ class ServerData(DictFromToDictMixin):
                        start_time: float = 0, end_time: float = None) -> Sound:
         if name in self.soundboard.keys():
             raise errors.SoundAlreadyExists
+
         new_sound = Sound.fromWavelinkTrack(source)
         new_sound.setTimes(start_time, end_time)
         self.soundboard[name] = new_sound
+        return new_sound
 
     def createNewTag(self, tag_name: str,
                      content: str, author: str, creation_date: str, attachments: list[str]=None):

@@ -8,7 +8,8 @@ from wavelink.ext import spotify
 
 from bot.utils.utils import secondsToTime
 
-WavelinkTrack = wavelink.GenericTrack
+# WavelinkTrack = wavelink.GenericTrack
+WavelinkTrack = wavelink.Playable
 
 
 def track_to_string(track: WavelinkTrack) -> str:
@@ -116,6 +117,11 @@ async def searchForTracks(search: str, count: int=1) -> tuple[list[WavelinkTrack
         # Not sure cause i think having it be the whole list will make it work for playlists
         # tracks = await spotify.SpotifyTrack.search(query=search)[0:count]
         tracks = (await spotify.SpotifyTrack.search(query=search))
+        # tracks = []
+        for _track in tracks:
+            _track.encoded = _track.id
+
+
     elif is_soundcloud_url:
         source = "soundcloud"
         tracks = (await node.get_tracks(query=search, cls=wavelink.SoundCloudTrack))
