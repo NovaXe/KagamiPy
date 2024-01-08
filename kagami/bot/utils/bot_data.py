@@ -120,7 +120,7 @@ class Sound(Track, DictFromToDictMixin):
 
     def setTimes(self, start_time=0, end_time=None) -> Self:
         self.start_time = start_time
-        self.end_time = self.end_time
+        self.end_time = end_time
         return self
 
 @dataclass
@@ -166,6 +166,7 @@ class Playlist(DictFromToDictMixin):
         tracks_added = []
         added_duration = 0
         for track in tracks:
+            if isinstance(track, spotify.SpotifyTrack): continue
             track = Track.fromWavelinkTrack(track)
             if ignore_duplicates and track in self.tracks:
                 continue

@@ -118,10 +118,8 @@ async def searchForTracks(search: str, count: int=1) -> tuple[list[WavelinkTrack
         # tracks = await spotify.SpotifyTrack.search(query=search)[0:count]
         tracks = (await spotify.SpotifyTrack.search(query=search))
         # tracks = []
-        for _track in tracks:
-            _track.encoded = _track.id
-
-
+        # for _track in tracks:
+        #     _track.encoded = _track.id
     elif is_soundcloud_url:
         source = "soundcloud"
         tracks = (await node.get_tracks(query=search, cls=wavelink.SoundCloudTrack))

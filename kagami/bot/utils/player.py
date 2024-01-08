@@ -347,8 +347,13 @@ class Player(wavelink.Player):
     async def beginPlayback(self):
         self.halted = False
         if track:=self.popSelectedTrack():
+            # TODO Rewrite all this shit to be custom so that I don't have to do this smelly bullshit
+            start = track.start_time if hasattr(track, "start_time") else 0
+            end = track.end_time if hasattr(track, "end_time") else None
             await self.play(track,
-                            replace=True)
+                            replace=True,
+                            start=start,
+                            end=end)
         else:
             self.halted=True
 

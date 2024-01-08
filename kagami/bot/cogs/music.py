@@ -2,6 +2,7 @@ from math import ceil
 
 import wavelink
 from wavelink import TrackEventPayload
+from wavelink.ext import spotify
 from typing import (Literal, Any, Union, List)
 from discord import (app_commands, Interaction, VoiceChannel, Message, Member, VoiceState)
 from discord.app_commands import Group, Transformer, Transform, Choice, Range
@@ -667,7 +668,9 @@ class PlaylistCog(GroupCog,
         await respond(interaction)
         voice_client = interaction.guild.voice_client
         tracks, _ = await searchForTracks(search)
+
         tracks, duration = playlist.updateFromTracks(tracks, allow_duplicates)
+
         info_text = f"Added {len(tracks)} with duration: {secondsToTime(duration//1000)} " \
                     f"to the playlist: {interaction.namespace.playlist}"
         await respondWithTracks(bot=self.bot, interaction=interaction, tracks=tracks, info_text=info_text)

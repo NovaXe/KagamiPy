@@ -19,7 +19,8 @@ from bot.utils.pages import EdgeIndices, createSinglePage, InfoTextElem, InfoSep
 from bot.utils.player import Player
 from bot.utils.utils import similaritySort, secondsToTime
 from bot.utils.wavelink_utils import searchForTracks, WavelinkTrack
-from bot.utils.music_utils import requireVoiceclient, attemptToJoin
+from bot.utils.music_utils import requireVoiceclient, attemptToJoin, attemptHaltResume
+
 
 class SoundTransformer(Transformer):
     def __init__(self, raise_error=True):
@@ -63,7 +64,7 @@ class SoundboardCog(commands.GroupCog, group_name="sound"):
     @app_commands.rename(sound="sound_name")
     async def s_add(self, interaction: Interaction,
                     sound: Soundboard_Transformer_NoError,
-                    source: str, start: Range[float, 0, None], end: float=None):
+                    source: str, start: Range[float, 0, None]=0, end: float=None):
         await respond(interaction, ephemeral=True)
         sound_name = interaction.namespace.sound_name
         if sound is not None:
@@ -71,6 +72,10 @@ class SoundboardCog(commands.GroupCog, group_name="sound"):
             pass  # if yes proceed to creating a new sound otherwise send a message dictating that the sound has been discarded
         tracks, _ = await searchForTracks(source)
         track = tracks[0]
+        if isinstance(track, wavelink.ext.spotify.SpotifyTrack):
+            raise errors.CustomCheck("Spotify links are not supported in the soundboard")
+        start = start * 1000
+        end = end * 1000 if end else None
         new_sound = server_data.value.createNewSound(name=sound_name, source=track, start_time=start, end_time=end)
 
         await respond(interaction, f"Added sound: `{sound_name}` to the soundboard")
@@ -151,14 +156,15 @@ class SoundboardCog(commands.GroupCog, group_name="sound"):
         description="shows the sound's info")
     async def s_info(self, interaction: Interaction, sound: Soundboard_Transformer):
         await respond(interaction)
-        message_text = f"""```swift
-        Sound Info: `{interaction.namespace.sound}`
-        ────────────────────────────────────────
-        Track Title: {sound.title}
-        Track Duration: {secondsToTime(sound.duration//1000)}
-        Playback Range: {secondsToTime(sound.start_time//1000)} -> {secondsToTime((sound.end_time or sound.duration)//1000)}
-        Playback Duration: {secondsToTime(((sound.end_time or sound.duration) //1000)-sound.start_time)}
-        ```"""
+        message_text = f"```swift\n" \
+                       f"Sound Info: `{interaction.namespace.sound}`\n" \
+                       f"────────────────────────────────────────\n" \
+                       f"Track Title: {sound.title}\n" \
+                       f"Track Url: {'Unknown'}\n" \
+                       f"Track Duration: {secondsToTime(sound.duration//1000)}\n" \
+                       f"Playback Range: {secondsToTime(sound.start_time//1000)} -> {secondsToTime((sound.end_time or sound.duration)//1000)}\n" \
+                       f"Playback Duration: {secondsToTime( ((sound.end_time or sound.duration)-sound.start_time)//1000)}\n" \
+                       f"```"
         await respond(interaction, message_text)
 
 
@@ -176,7 +182,10 @@ class SoundboardCog(commands.GroupCog, group_name="sound"):
         await respond(interaction)
         voice_client: Player = interaction.guild.voice_client
         track = await sound.buildWavelinkTrack()
+        track.start_time = sound.start_time
+        track.end_time = sound.end_time
         await voice_client.queueTracks("soundboard", track)
+        await attemptHaltResume(interaction)
         await respond(interaction, f"Queued the sound: `{interaction.namespace.sound}`", delete_after=5)
 
     @requireVoiceclient()
@@ -268,7 +277,7 @@ class SoundboardCog(commands.GroupCog, group_name="sound"):
         if not sound_queue_length:
             raise errors.SoundQueueEmpty
         elif position > sound_queue_length:
-            raise IndexError(f"Queue: `0 -> {sound_queue_length}`: pos `{position}` out of range")
+            raise errors.CustomCheck(f"Queue: `0 -> {sound_queue_length}`: pos `{position}` out of range")
 
         tracks = list(reversed([voice_client.sound_queue.pop(i) for i in reversed(range(position-1, min(position-1+count, sound_queue_length)))]))
         if track_count:=len(tracks) > 1:
