@@ -53,7 +53,7 @@ def createSentinelData(response: str, reactions: list[str]) -> dict:
         }
 
 
-class Sentinels(commands.GroupCog, group_name="sentinel"):
+class Sentinels(commands.GroupCog, group_name="old_sentinel"):
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
@@ -288,6 +288,7 @@ class Sentinels(commands.GroupCog, group_name="sentinel"):
 
     @staticmethod
     async def process_sentinel_event(message: discord.Message, sentinels):
+        return
         content = message.content.lower()
         # if content := content.split(' '):
         #     pass

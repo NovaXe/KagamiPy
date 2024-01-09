@@ -317,3 +317,5 @@ class Kagami(commands.Bot):
 
 
 bot_var = CVar[Kagami]('kagami')
+
+

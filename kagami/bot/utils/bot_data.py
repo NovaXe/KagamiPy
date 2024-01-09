@@ -218,12 +218,21 @@ class Tag(DictFromToDictMixin):
             "attachments": self.attachments
         }
 
+
+
+@dataclass
+class SentinelTrigger(DictFromToDictMixin):
+    object: str
+
 @dataclass
 class Sentinel(DictFromToDictMixin):
     response: str = ""
     reactions: list[str] = default_factory(list)
     uses: int = 0
+    users: dict[str, int] = default_factory(dict)
     enabled: bool = True
+
+
 
     @classmethod
     def fromDict(cls, data: dict):
@@ -234,6 +243,7 @@ class Sentinel(DictFromToDictMixin):
             "response": self.response,
             "reactions": self.reactions,
             "uses": self.uses,
+            "users": self.users,
             "enabled": self.enabled
         }
 
