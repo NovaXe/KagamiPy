@@ -7,3 +7,6 @@
 /lavalink/compose.yaml
 /.env
 /compose.yaml
+__pycache__
+.venv
+.env
