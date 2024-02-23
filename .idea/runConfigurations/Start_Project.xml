@@ -1,0 +1,8 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Start Project" type="CompoundRunConfigurationType">
+    <toRun name="kagami" type="PythonConfigurationType" />
+    <toRun name="Lavalink" type="ShConfigurationType" />
+    <toRun name="discord_log" type="ShConfigurationType" />
+    <method v="2" />
+  </configuration>
+</component>

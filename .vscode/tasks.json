@@ -2,11 +2,61 @@
     // See https://go.microsoft.com/fwlink/?LinkId=733558
     // for the documentation about the tasks.json format
     "version": "2.0.0",
+    
     "tasks": [
         {
-            "label": "echo",
+            "label": "Start Bot",
             "type": "shell",
-            "command": "echo Hello"
-        }
+            "windows": {
+                "command": "source ${workspaceFolder}/.venv/bin/activate.ps1; python main.py"
+            },
+            "linux": {
+                "command": "source ${workspaceFolder}/.venv/bin/activate; python main.py"
+            },
+            "options": {
+                "cwd": "${workspaceFolder}/kagami",
+            }
+        },
+        {
+            "label": "Start Lavalink",
+            "type": "shell",
+            "command": "java -jar Lavalink.jar",
+            "options": {
+                "cwd": "${workspaceFolder}/lavalink",
+            }
+        },
+        {
+            "label": "Start Project",
+            "dependsOn": ["StartBot", "StartLavalink"]
+        },
+        {
+            "label": "Docker Compose",
+            "type": "shell",
+            "command": "docker compose up -d",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "Build Kagami amd64",
+            "type": "shell",
+            "command": "sudo docker buildx build -t nova8x/kagami_bot:amd64 --platform=linux/amd64 .",
+            "options": {
+                "cwd": "${workspaceFolder}/kagami"
+            }
+        },
+        {
+            "label": "Build Kagami arm64",
+            "type": "shell",
+            "command": "sudo docker buildx build -t nova8x/kagami_bot:arm64 --platform=linux/arm64/v8 .",
+            "options": {
+                "cwd": "${workspaceFolder}/kagami"
+            }
+        },
+        {
+            "label": "Build Kagami Images",
+            "dependsOn": ["Build Kagami amd64", "Build Kagami arm64"]
+        },
+        
     ]
 }

@@ -8,5 +8,5 @@
 /.env
 /compose.yaml
 __pycache__
-.venv
-.env
+/.venv
+/lavalink/logs/*
