@@ -56,6 +56,10 @@ class Kagami(commands.Bot):
         tree.on_error = errors.on_app_command_error
 
 
+    def databaseInit(self):
+
+
+
     # DATA_PATH = "bot/data/old_data.json"
     def newLoadData(self):
         data_path = self.config.local_data_path
