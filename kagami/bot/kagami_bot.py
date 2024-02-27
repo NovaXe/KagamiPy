@@ -2,9 +2,12 @@ import json
 import logging
 import os
 import sys
+import aiosqlite
 import wavelink
 from discord.utils import MISSING
 from wavelink.ext import spotify
+from utils import database
+
 
 import discord
 import discord.utils
@@ -56,7 +59,32 @@ class Kagami(commands.Bot):
         tree.on_error = errors.on_app_command_error
 
 
-    def databaseInit(self):
+    async def databaseInit(self):
+        async with aiosqlite.connect(self.config.db_path) as db:
+            await db.execute("""
+            CREATE TABLE IF NOT EXISTS Servers (
+            id INTEGER PRIMARY KEY,
+            name TEXT DEFAULT 'Unknown')
+            """)
+            await db.execute("""
+            CREATE TABLE IF NOT EXISTS ServerSettings (
+            server_id INTEGER FOREIGN KEY REFERENCES Servers.id,
+            fish_mode INTEGER DEFAULT 0)
+            """)
+            await db.execute("""
+            CREATE TABLE IF NOT EXISTS Global (
+            id INTEGER PRIMARY KEY
+            )
+            """)
+
+            # createServerTable
+            # createGlobalTable
+            pass
+
+
+
+
+
 
 
 

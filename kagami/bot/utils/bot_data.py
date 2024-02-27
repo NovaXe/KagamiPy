@@ -314,6 +314,9 @@ class BotConfiguration:
     owner_id: int
     local_data_path: str
     real_data_path: str
+    global_db_path: str
+    server_db_path: str
+    db_path: str
     lavalink: dict[str, str] = None
     spotify: dict[str, str] = None
 
@@ -334,6 +337,9 @@ class BotConfiguration:
             owner_id=int(env.get("OWNER_ID")),
             local_data_path="bot/data",
             real_data_path=env.get("DATA_PATH"),
+            global_db_path=env.get("GLOBAL_DB_PATH"),
+            server_db_path=env.get("SERVER_DB_PATH"),
+            db_path=env.get("DB_PATH"),
             lavalink={
                 "uri": env.get("LAVALINK_URI"),
                 "password": env.get("LAVALINK_PASSWORD")

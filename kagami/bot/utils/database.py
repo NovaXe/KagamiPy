@@ -64,9 +64,78 @@ That way you can't put an empty sentinel into the table
 """
 
 
+"""
+SERVER
+GLOBAL
+
+Tags
+Sentinels
+Sounds
+Playlists
+Tracks
+"""
+
+"""
+In cog_load, alter the settings tables to add the specific settings
+def cog_load():
+    await self.bot.database.alter_table("table_name", "")
+    
+def cog_load():
+    async with aiosql.connect(self.bot.config.db_path) as db:
+        
+
+"""
 
 
-async def initializeServerTables(database_file: str):
+@dataclass
+class ServerSettings:
+    pass
+
+@dataclass
+class Server:
+    id: int
+    name: str
+    settings: ServerSettings
+
+
+
+class Global:
+    id: str
+    name: str
+
+class GlobalSettings:
+    enable_sentinels: bool
+    enable_tags: bool
+
+class Database:
+    def __init__(self, database_path: str):
+        self.file_path: str = database_path
+
+    async def createServerTables(self):
+        async with aiosql.connect(self.file_path) as db:
+            await db.execute("""
+            CREATE TABLE IF NOT EXISTS Servers (
+            id INTEGER PRIMARY KEY,
+            name TEXT DEFAULT 'Unknown')
+            """)
+
+            await db.execute("""
+            CREATE TABLE IF NOT EXISTS ServerSettings (
+            server_id INTEGER FOREIGN KEY REFERENCES Servers.id,
+            fish_mode INTEGER DEFAULT 0)
+            """)
+
+    async def createGlobalTable(self):
+        async with aiosql.connect(self.file_path) as db:
+            await db.execute("""
+            CREATE TABLE IF NOT EXISTS Global (
+            id INTEGER PRIMARY KEY
+            )
+            """)
+
+
+
+async def createServerTables(database_file: str):
     async with aiosql.connect(database_file) as db:
         await db.execute("""
         CREATE TABLE IF NOT EXISTS Servers (
@@ -79,17 +148,13 @@ async def initializeServerTables(database_file: str):
         server_id INTEGER FOREIGN KEY REFERENCES Servers.id,
         fish_mode INTEGER DEFAULT 0)
         """)
-
         await db.commit()
-
-
 
 
 
 async def addServer(database_file: str, server_id: int, server_name: str):
     async with aiosql.connect(database_file) as db:
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS
-            
-            """)
+        await db.execute("""
+        INSERT INTO TABLE Servers
+        (server_id, )
+        """)

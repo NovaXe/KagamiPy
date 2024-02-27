@@ -1,6 +1,7 @@
 import dataclasses
 from math import ceil
 
+import aiosqlite
 import discord
 import wavelink
 from wavelink import TrackEventPayload
@@ -127,7 +128,37 @@ class Music(GroupCog,
     music_group = app_commands
     # music_group = Group(name="m", description="commands relating to the music player")
 
+
+    async def createPlaylistTables(self):
+        async with aiosqlite.connect(self.bot.config.db_path) as db:
+            await db.execute("""
+            CREATE TABLE IF NOT EXISTS Playlists(
+            server_id INTEGER FOREIGN KEY REFERENCES Servers.id
+            id INTEGER AUTO INCREMENT PRIMARY KEY
+            name TEXT DEFAULT 'Unnamed'
+            description TEXT DEFAULT 'No Description')
+            """)
+            await db.execute("""
+            CREATE TABLE IF NOT EXISTS Tracks(
+            playlist_id INTEGER FOREIGN KEY REFERENCE Playlists.id
+            id INTEGER AUTO INCREMENT
+            title TEXT DEFAULT 'Untitled'
+            duration INTEGER DEFAULT 0
+            encoded TEXT NOT NULL)
+            """)
+
+    async def fetchPlaylistInfo(self, title: str, limit: int=1):
+        async with aiosqlite.connect(self.bot.config.db_path) as db:
+            async with db.execute("""
+            SELECT * FROM Playlists
+            WHERE title LIKE '%?%'
+            LIMIT ?""", title, limit) as cursor: # Find out how to order the output by likeness
+                async for row in cursor:
+                    yield row
+
+
     def cog_load(self):
+
         # self.connectNodes.start()
         pass
         # tree = self.bot.tree
