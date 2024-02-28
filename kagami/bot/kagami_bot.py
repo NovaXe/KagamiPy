@@ -6,7 +6,7 @@ import aiosqlite
 import wavelink
 from discord.utils import MISSING
 from wavelink.ext import spotify
-from utils import database
+from bot.utils import database
 
 
 import discord
@@ -51,42 +51,41 @@ class Kagami(commands.Bot):
         self.load_data()
         self.newLoadData()
         bot_var.value = self
-
+        self.database = database.Database(self.config.db_path)
 
     def changeCmdError(self):
         tree = self.tree
         self._old_tree_error = tree.on_error
         tree.on_error = errors.on_app_command_error
 
+    async def connectWavelinkNodes(self):
+        spotify_client = spotify.SpotifyClient(**self.config.spotify)
+        node = wavelink.Node(**self.config.lavalink)
+        await wavelink.NodePool.connect(
+            client=self,
+            nodes=[node],
+            spotify=spotify_client
+        )
+    async def setup_hook(self):
+        await self.connectWavelinkNodes()
+        await self.database.init()
+        await self.database.upsertSyncGuilds(list(self.guilds))
 
-    async def databaseInit(self):
-        async with aiosqlite.connect(self.config.db_path) as db:
-            await db.execute("""
-            CREATE TABLE IF NOT EXISTS Servers (
-            id INTEGER PRIMARY KEY,
-            name TEXT DEFAULT 'Unknown')
-            """)
-            await db.execute("""
-            CREATE TABLE IF NOT EXISTS ServerSettings (
-            server_id INTEGER FOREIGN KEY REFERENCES Servers.id,
-            fish_mode INTEGER DEFAULT 0)
-            """)
-            await db.execute("""
-            CREATE TABLE IF NOT EXISTS Global (
-            id INTEGER PRIMARY KEY
-            )
-            """)
+        for file in os.listdir("bot/cogs"):
+            if file.endswith(".py"):
+                name = file[:-3]
+                path = f"bot.cogs.{name}"
+                await self.load_extension(path)
 
-            # createServerTable
-            # createGlobalTable
-            pass
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        await self.database.upsertGuild(guild.id, guild.name)
 
+    async def on_guild_leave(self, guild: discord.Guild) -> None:
+        await self.database.removeGuild(guild.id)
 
-
-
-
-
-
+    async def on_guild_update(self, before: discord.Guild, after: discord.Guild):
+        if before.name != after.name:
+            await self.database.upsertGuild(guild_id=after.id, guild_name=after.name)
 
     # DATA_PATH = "bot/data/old_data.json"
     def newLoadData(self):
@@ -289,25 +288,7 @@ class Kagami(commands.Bot):
         await super().close()
 
     # @tasks.loop(seconds=10)
-    async def connectWavelinkNodes(self):
-        spotify_client = spotify.SpotifyClient(**self.config.spotify)
-        node = wavelink.Node(**self.config.lavalink)
 
-        await wavelink.NodePool.connect(
-            client=self,
-            nodes=[node],
-            spotify=spotify_client
-        )
-
-
-    async def setup_hook(self):
-        for file in os.listdir("bot/cogs"):
-            if file.endswith(".py"):
-                name = file[:-3]
-                path = f"bot.cogs.{name}"
-                await self.load_extension(path)
-
-        await self.connectWavelinkNodes()
 
     LOG_CHANNEL = 825529492982333461
     # TODO change the config system to utilize a dataclass

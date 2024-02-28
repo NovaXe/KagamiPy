@@ -1,5 +1,7 @@
-import aiosqlite as aiosql
+import aiosqlite
 from dataclasses import dataclass
+from enum import Enum, Flag, IntFlag, auto
+import discord
 
 
 """
@@ -52,7 +54,7 @@ name TEXT NOT NULL,
 
 Sentinel Object
 id INTEGER AUTO INCREMENT,
-group_id INTEGER FOREIGN KEY REFERENCES SentinelGroup.id,
+group_id INTEGER FOREIGN KEY REFERENCES SentinelGroup(id),
 trigger_type INTEGER DEFAULT 0,
 trigger TEXT,
 response_type INTEGER DEFAULT 0,
@@ -85,76 +87,93 @@ def cog_load():
         
 
 """
+# class GuildFlags(IntFlag):
+#     enable_sentinels = auto()
+#     enable_tags = auto()
+#     public_tags = auto()
+#     global_tags = auto()
+#     fish_mode = auto()
+
+# @dataclass
+# class GuildSettings:
+#     guild_id: int
+#     flags: GuildFlags = (GuildFlags.enable_sentinels |
+#                          GuildFlags.enable_tags)
+#
+#     # other bits of data can be here too
 
 
-@dataclass
-class ServerSettings:
-    pass
-
-@dataclass
-class Server:
-    id: int
-    name: str
-    settings: ServerSettings
-
-
-
-class Global:
-    id: str
-    name: str
-
-class GlobalSettings:
-    enable_sentinels: bool
-    enable_tags: bool
 
 class Database:
     def __init__(self, database_path: str):
         self.file_path: str = database_path
 
-    async def createServerTables(self):
-        async with aiosql.connect(self.file_path) as db:
+    async def init(self):
+        await self.createGuildTables()
+        # await self.createGlobalTable()
+
+    async def createGuildTables(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute("DROP TABLE IF EXISTS GuildSettings")
             await db.execute("""
-            CREATE TABLE IF NOT EXISTS Servers (
+            CREATE TABLE IF NOT EXISTS Guilds (
             id INTEGER PRIMARY KEY,
             name TEXT DEFAULT 'Unknown')
             """)
-
             await db.execute("""
-            CREATE TABLE IF NOT EXISTS ServerSettings (
-            server_id INTEGER FOREIGN KEY REFERENCES Servers.id,
-            fish_mode INTEGER DEFAULT 0)
+            CREATE TABLE IF NOT EXISTS GuildSettings (
+            guild_id INTEGER,
+            FOREIGN KEY(guild_id) REFERENCES Guilds(id))
             """)
+            await db.commit()
+
+    async def upsertGuild(self, guild_id: int, guild_name: str):
+        """
+        Attempts to insert a new guild but if it already exists, simply update the fields
+        """
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute_insert("""
+            INSERT INTO Guilds (id, name)
+            VALUES (:id, :name)
+            ON CONFLICT (id)
+            DO UPDATE SET name = :name
+            """, {"id": guild_id, "name": guild_name})
+            await db.commit()
+
+    async def upsertSyncGuilds(self, guilds: list[discord.Guild]):
+        async with aiosqlite.connect(self.file_path) as db:
+            guild_list = [{"id": guild.id, "name": guild.name} for guild in guilds]
+            guild_ids = tuple(guild["id"] for guild in guild_list)
+            await db.execute(f"""
+            DELETE FROM Guilds
+            WHERE id NOT IN {guild_ids}
+            """)
+
+            await db.executemany("""
+            INSERT INTO Guilds (id, name) 
+            VALUES (:id, :name)
+            ON CONFLICT(id) 
+            DO UPDATE SET name = :name
+            """, guild_list)
+            await db.commit()
+
+    async def removeGuild(self, guild_id: int):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute("""
+            DELETE FROM TABLE
+            WHERE id = ?
+            """, (guild_id,))
+            await db.commit()
+
 
     async def createGlobalTable(self):
-        async with aiosql.connect(self.file_path) as db:
+        async with aiosqlite.connect(self.file_path) as db:
             await db.execute("""
             CREATE TABLE IF NOT EXISTS Global (
-            id INTEGER PRIMARY KEY
             )
             """)
+            await db.commit()
 
 
 
-async def createServerTables(database_file: str):
-    async with aiosql.connect(database_file) as db:
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS Servers (
-        id INTEGER PRIMARY KEY,
-        name TEXT DEFAULT 'Unknown')
-        """)
 
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS ServerSettings (
-        server_id INTEGER FOREIGN KEY REFERENCES Servers.id,
-        fish_mode INTEGER DEFAULT 0)
-        """)
-        await db.commit()
-
-
-
-async def addServer(database_file: str, server_id: int, server_name: str):
-    async with aiosql.connect(database_file) as db:
-        await db.execute("""
-        INSERT INTO TABLE Servers
-        (server_id, )
-        """)

@@ -131,41 +131,142 @@ class Music(GroupCog,
 
     async def createPlaylistTables(self):
         async with aiosqlite.connect(self.bot.config.db_path) as db:
+            await db.execute("DROP TABLE IF EXISTS Playlists")
+            await db.execute("DROP TABLE IF EXISTS Tracks")
+
             await db.execute("""
             CREATE TABLE IF NOT EXISTS Playlists(
-            server_id INTEGER FOREIGN KEY REFERENCES Servers.id
-            id INTEGER AUTO INCREMENT PRIMARY KEY
-            name TEXT DEFAULT 'Unnamed'
-            description TEXT DEFAULT 'No Description')
+            guild_id INTEGER,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT 'No Description',
+            FOREIGN KEY(guild_id) REFERENCES Guilds(id))
             """)
             await db.execute("""
             CREATE TABLE IF NOT EXISTS Tracks(
-            playlist_id INTEGER FOREIGN KEY REFERENCE Playlists.id
-            id INTEGER AUTO INCREMENT
-            title TEXT DEFAULT 'Untitled'
-            duration INTEGER DEFAULT 0
-            encoded TEXT NOT NULL)
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            playlist_id INTEGER,
+            title TEXT DEFAULT 'Untitled',
+            duration INTEGER DEFAULT 0,
+            encoded TEXT NOT NULL,
+            FOREIGN KEY(playlist_id) REFERENCES Playlists(id))
             """)
+            await db.commit()
 
-    async def fetchPlaylistInfo(self, title: str, limit: int=1):
+    async def alterGuildSettingsTable(self):
         async with aiosqlite.connect(self.bot.config.db_path) as db:
-            async with db.execute("""
+            try:
+                await db.execute("""
+                ALTER TABLE GuildSettings
+                ADD COLUMN IF NOT EXISTS enable_music INTEGER DEFAULT 1
+                """)
+                await db.execute("""
+                ALTER TABLE GuildSettings
+                ADD COLUMN IF NOT EXISTS enable_playlists INTEGER DEFAULT 1
+                """)
+                await db.commit()
+            except aiosqlite.OperationalError:
+                pass
+
+
+    async def upsertGuildSettings(self, guild_id: int, enable_music: bool, enable_playlists: bool):
+        async with aiosqlite.connect(self.bot.config.db_path) as db:
+            await db.execute("""
+            INSERT INTO GuildSettings (guild_id, enable_music, enable_playlists)
+            VALUES (:guild_id, :em, :ep)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET enable_music = :em, enable_playlists = :ep
+            """, {"guild_id": guild_id, "em": enable_music, "ep": enable_playlists})
+            await db.commit()
+
+    async def fetchPlaylistInfo(self, guild_id: int, playlist_name: str, limit: int=1):
+        async with aiosqlite.connect(self.bot.config.db_path) as db:
+            results = await db.execute_fetchall("""
             SELECT * FROM Playlists
-            WHERE title LIKE '%?%'
-            LIMIT ?""", title, limit) as cursor: # Find out how to order the output by likeness
-                async for row in cursor:
-                    yield row
+            WHERE guild_id = ? AND name LIKE '%?%'
+            LIMIT ?""", (guild_id, playlist_name, limit,)) # Find out how to order the output by likeness
+        return results
+
+    async def fetchPlaylistTracks(self, playlist_id: int):
+        async with aiosqlite.connect(self.bot.config.db_path) as db:
+            results = await db.execute_fetchall("""
+            SELECT * FROM Tracks
+            WHERE id = ?
+            """, (playlist_id,))
+
+    async def upsertPlaylistInfo(self, guild_id: int, playlist_name: str, playlist_id: int=None):
+        async with aiosqlite.connect(self.bot.config.db_path) as db:
+            row = await db.execute_insert("""
+            INSERT INTO Playlists (guild_id, name) 
+            VALUES (:guild_id, :name)
+            ON CONFLICT (id)
+            DO UPDATE SET name=:name
+            """, {"guild_id": guild_id, "name": playlist_name, "id": playlist_id})
+            await db.commit()
+            return row[0]
+
+    async def getPlaylistInfo(self, guild_id: int, playlist_name: int):
+        async with aiosqlite.connect(self.bot.config.db_path) as db:
+            rows = await db.execute_fetchall("""
+            SELECT * FROM Playlists
+            WHERE name = ':name'
+            """, {"name": playlist_name})
+        return rows[0]
+
+    async def insertPlaylistTracks(self, guild_id: int, playlist_id: int, tracks: list[Track]):
+        async with aiosqlite.connect(self.bot.config.db_path) as db:
+            track_list = [{"playlist_id": playlist_id,
+                           "title": track.title,
+                           "duration": track.duration,
+                           "encoded": track.encoded}
+                          for track in tracks]
+            await db.executemany("""
+            INSERT OR IGNORE INTO Tracks
+            (playlist_id, title, duration, encoded)
+            VALUES (:playlist_id, :title, :duration, :encoded)
+            """, track_list)
+            await db.commit()
 
 
-    def cog_load(self):
+    # await db.execute("""
+    #             CREATE TABLE IF NOT EXISTS Tracks(
+    #             playlist_id INTEGER FOREIGN KEY REFERENCE Playlists.id
+    #             id INTEGER AUTO INCREMENT
+    #             title TEXT DEFAULT 'Untitled'
+    #             duration INTEGER DEFAULT 0
+    #             encoded TEXT NOT NULL)
+    #             """)
 
-        # self.connectNodes.start()
+    """
+    Insert a new server, do this as soon as possible so that 
+    fetch a server whenever it is needed using a discord 
+    """
+
+
+    async def cog_load(self) -> None:
+        await self.createPlaylistTables()
+        await self.alterGuildSettingsTable()
+        await self.migrateMusicData()
+        for guild in self.bot.guilds:
+            await self.upsertGuildSettings(guild.id, True, True)
+
+
+    async def migrateMusicData(self):
+        for server_id, server in self.bot.data.servers.items():
+            server_id = int(server_id)
+            guild = await self.bot.fetch_guild(server_id)
+            await self.bot.database.upsertGuild(server_id, guild.name)
+            for playlist_name, playlist in server.playlists.items():
+                primary_key = await self.upsertPlaylistInfo(server_id, playlist_name)
+                await self.insertPlaylistTracks(server_id, primary_key, playlist.tracks)
+
+
+
+    async def cog_unload(self) -> None:
+        # await self.migrateMusicData()
         pass
-        # tree = self.bot.tree
-        # self._old_tree_error = tree.on_error
-        # tree.on_error = on_app_command_error
 
-        # self.bot.loop.create_task(self.connectNodes())
+
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, node: wavelink.Node):
