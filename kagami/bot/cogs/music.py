@@ -137,7 +137,7 @@ class MusicDB(Database):
         QUERY_INSERT = """
         INSERT INTO MusicSettings (guild_id, music_enabled, playlists_enabled)
         VALUES (:guild_id, :music_enabled, :playlists_enabled)
-        ON CONFLICT
+        ON CONFLICT (guild_id)
         DO UPDATE SET music_enabled = :music_enabled, playlists_enabled = :playlists_enabled
         """
         QUERY_SELECT = """
