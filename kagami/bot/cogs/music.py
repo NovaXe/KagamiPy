@@ -1,7 +1,8 @@
 import dataclasses
 from math import ceil
-
+from dataclasses import dataclass, asdict, astuple
 import aiosqlite
+from bot.utils.database import Database
 import discord
 import wavelink
 from wavelink import TrackEventPayload
@@ -16,8 +17,11 @@ from discord.ui import Modal, Select, TextInput
 
 from bot.ext.ui.custom_view import MessageInfo
 from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks, ITL
-from bot.utils.bot_data import Playlist, server_data, Track
-
+from bot.utils import database
+from bot.utils import bot_data
+OldPlaylist = bot_data.Playlist
+old_server_data = bot_data.server_data
+OldTrack = bot_data.Track
 # context vars
 from bot.kagami_bot import bot_var
 
@@ -106,7 +110,7 @@ def requireOptionalParams(params=list[str], min_count: int=1):
 
 def setCommandChannel():
     async def predicate(interaction: Interaction):
-        server_data.value.last_music_command_channel = interaction.channel
+        old_server_data.value.last_music_command_channel = interaction.channel
         return True
     return app_commands.check(predicate)
 
@@ -116,6 +120,175 @@ def setCommandChannel():
 #         await respond(interaction)
 #         return True
 #     return app_commands.check(predicate)
+class MusicDB(Database):
+    @dataclass
+    class MusicSettings(Database.Row):
+        guild_id: int
+        music_enabled: bool = True
+        playlists_enabled: bool = True
+        QUERY_CREATE_TABLE = """
+        CREATE TABLE IF NOT EXISTS MusicSettings(
+        guild_id INTEGER,
+        music_enabled INTEGER DEFAULT 1,
+        playlists_enabled INTEGER DEFAULT 1,
+        FOREIGN KEY(guild_id) REFERENCES Guild(id)
+        ON UPDATE CASCADE ON DELETE CASCADE)
+        """
+        QUERY_INSERT = """
+        INSERT INTO MusicSettings (guild_id, music_enabled, playlists_enabled)
+        VALUES (:guild_id, :music_enabled, :playlists_enabled)
+        ON CONFLICT
+        DO UPDATE SET music_enabled = :music_enabled, playlists_enabled = :playlists_enabled
+        """
+        QUERY_SELECT = """
+        SELECT * FROM MusicSettings
+        WHERE guild_id = ?
+        """
+        QUERY_DELETE = """
+        DELETE FROM MusicSettings
+        WHERE guild_id = ?
+        """
+
+    @dataclass
+    class Playlist(Database.Row):
+        guild_id: int
+        name: str
+        description: str = None
+        QUERY_CREATE_TABLE = """
+        CREATE TABLE IF NOT EXISTS Playlist(
+        guild_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT DEFAULT NULL,
+        PRIMARY KEY (guild_id, name),
+        FOREIGN KEY (guild_id) REFERENCES Guild(id) 
+        ON UPDATE CASCADE ON DELETE CASCADE)
+        """
+        QUERY_INSERT = """
+        INSERT INTO Playlist (guild_id, name, description)
+        VALUES (:guild_id, :name, :description)
+        ON CONFLICT (guild_id, name)
+        DO UPDATE SET description = :description
+        """
+        QUERY_SELECT = """
+        SELECT * FROM Playlist
+        WHERE guild_id = ? AND name = ?
+        """
+        QUERY_DELETE = """
+        DELETE FROM Playlist
+        WHERE guild_id = ? AND name = ?
+        """
+        QUERY_SELECT_MULTIPLE = """
+        SELECT * FROM Playlist
+        WHERE guild_id = ?
+        LIMIT = ? OFFSET = ?
+        """
+        QUERY_DELETE_MULTIPLE = """
+        DELETE FROM Playlist
+        WHERE guild_id = ?
+        LIMIT = ? OFFSET = ?
+        """
+        QUERY_SELECT_LIKE = """
+        SELECT * FROM Playlist
+        WHERE guild_id = ? AND name LIKE ?
+        """
+
+
+    @dataclass
+    class Track(Database.Row):
+        guild_id: int
+        playlist_name: str
+        title: str
+        duration: int
+        encoded: str
+        # Constant representing an execution query for the track table
+        QUERY_CREATE_TABLE = """
+        CREATE TABLE IF NOT EXISTS Track(
+        guild_id INTEGER NOT NULL,
+        playlist_name TEXT NOT NULL,
+        title TEXT DEFAULT 'Untitled',
+        duration INTEGER DEFAULT 0,
+        encoded TEXT NOT NULL,
+        FOREIGN KEY(guild_id, playlist_name) REFERENCES Playlists(guild_id, name))
+        """
+        QUERY_INSERT = """
+        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded)
+        VALUES (:guild_id, :playlist_name, :title, :duration, :encoded)
+        """
+        QUERY_SELECT_MULTIPLE = """
+        SELECT * FROM Track
+        WHERE guild_id = ? AND playlist_name = ?
+        LIMIT = ? OFFSET = ?
+        """
+        QUERY_DELETE_MULTIPLE = """
+        DELETE FROM Track
+        WHERE guild_id = ? AND playlist_name = ?
+        LIMIT = ? OFFSET = ?
+        """
+
+    async def init(self):
+        await self.dropTables()
+        await self.createTables()
+
+    async def dropTables(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            # await db.execute("DROP TABLE IF EXISTS Playlist")
+            await db.execute("DROP TABLE IF EXISTS Track")
+            # await db.execute("DROP TABLE IF EXISTS MusicSettings")
+            await db.commit()
+
+    async def createTables(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(MusicDB.MusicSettings.QUERY_CREATE_TABLE)
+            await db.execute(MusicDB.Playlist.QUERY_CREATE_TABLE)
+            await db.execute(MusicDB.Track.QUERY_CREATE_TABLE)
+            await db.commit()
+
+    async def upsertPlaylist(self, playlist: Playlist):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(playlist.QUERY_INSERT, playlist.asdict())
+            await db.commit()
+
+    async def upsertTrack(self, track: Track):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(track.QUERY_INSERT, track.asdict())
+            await db.commit()
+
+    async def upsertTracks(self, tracks: list[Track]):
+        tracks = [track.astuple() for track in tracks]
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.executemany(MusicDB.Track.QUERY_INSERT, tracks)
+            await db.commit()
+
+    async def upsertMusicSettings(self, music_settings: MusicSettings):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(music_settings.QUERY_INSERT, music_settings.asdict())
+            await db.commit()
+
+    async def fetchPlaylist(self, guild_id: int, playlist_name: str) -> Playlist:
+        async with aiosqlite.connect(self.file_path) as db:
+            playlist: MusicDB.Playlist = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT, (guild_id, playlist_name))
+            await db.commit()
+        return playlist
+
+    async def fetchPlaylists(self, guild_id: int, playlist_name: str, limit: int=1, offset: int=0) -> list[Playlist]:
+        async with aiosqlite.connect(self.file_path) as db:
+            playlists: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT_MULTIPLE,
+                                                                          (guild_id, playlist_name, offset, limit))
+        return playlists
+
+    async def fetchSimilarPlaylists(self, guild_id: int, playlist_name: str, limit: int = 1, offset: int = 0) -> list[Playlist]:
+        async with aiosqlite.connect(self.file_path) as db:
+            playlists: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT_MULTIPLE,
+                                                                          (guild_id, f"%{playlist_name}%", offset, limit))
+        return playlists
+
+    async def fetchTracks(self, guild_id: int, playlist_name: str, limit: int=1, offset: int=0) -> list[Track]:
+        async with aiosqlite.connect(self.file_path) as db:
+            tracks: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_SELECT_MULTIPLE,
+                                                                    (guild_id, playlist_name, limit, offset))
+            return tracks
+
+
 
 class Music(GroupCog,
             group_name="m",
@@ -123,109 +296,14 @@ class Music(GroupCog,
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
+        self.database = MusicDB(bot.config.db_path)
 
     # music_group = app_commands.Group(name="m", description="commands relating to music playback")
     music_group = app_commands
     # music_group = Group(name="m", description="commands relating to the music player")
 
 
-    async def createPlaylistTables(self):
-        async with aiosqlite.connect(self.bot.config.db_path) as db:
-            await db.execute("DROP TABLE IF EXISTS Playlists")
-            await db.execute("DROP TABLE IF EXISTS Tracks")
 
-            await db.execute("""
-            CREATE TABLE IF NOT EXISTS Playlists(
-            guild_id INTEGER,
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT DEFAULT 'No Description',
-            FOREIGN KEY(guild_id) REFERENCES Guilds(id))
-            """)
-            await db.execute("""
-            CREATE TABLE IF NOT EXISTS Tracks(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            playlist_id INTEGER,
-            title TEXT DEFAULT 'Untitled',
-            duration INTEGER DEFAULT 0,
-            encoded TEXT NOT NULL,
-            FOREIGN KEY(playlist_id) REFERENCES Playlists(id))
-            """)
-            await db.commit()
-
-    async def alterGuildSettingsTable(self):
-        async with aiosqlite.connect(self.bot.config.db_path) as db:
-            try:
-                await db.execute("""
-                ALTER TABLE GuildSettings
-                ADD COLUMN IF NOT EXISTS enable_music INTEGER DEFAULT 1
-                """)
-                await db.execute("""
-                ALTER TABLE GuildSettings
-                ADD COLUMN IF NOT EXISTS enable_playlists INTEGER DEFAULT 1
-                """)
-                await db.commit()
-            except aiosqlite.OperationalError:
-                pass
-
-
-    async def upsertGuildSettings(self, guild_id: int, enable_music: bool, enable_playlists: bool):
-        async with aiosqlite.connect(self.bot.config.db_path) as db:
-            await db.execute("""
-            INSERT INTO GuildSettings (guild_id, enable_music, enable_playlists)
-            VALUES (:guild_id, :em, :ep)
-            ON CONFLICT (guild_id)
-            DO UPDATE SET enable_music = :em, enable_playlists = :ep
-            """, {"guild_id": guild_id, "em": enable_music, "ep": enable_playlists})
-            await db.commit()
-
-    async def fetchPlaylistInfo(self, guild_id: int, playlist_name: str, limit: int=1):
-        async with aiosqlite.connect(self.bot.config.db_path) as db:
-            results = await db.execute_fetchall("""
-            SELECT * FROM Playlists
-            WHERE guild_id = ? AND name LIKE '%?%'
-            LIMIT ?""", (guild_id, playlist_name, limit,)) # Find out how to order the output by likeness
-        return results
-
-    async def fetchPlaylistTracks(self, playlist_id: int):
-        async with aiosqlite.connect(self.bot.config.db_path) as db:
-            results = await db.execute_fetchall("""
-            SELECT * FROM Tracks
-            WHERE id = ?
-            """, (playlist_id,))
-
-    async def upsertPlaylistInfo(self, guild_id: int, playlist_name: str, playlist_id: int=None):
-        async with aiosqlite.connect(self.bot.config.db_path) as db:
-            row = await db.execute_insert("""
-            INSERT INTO Playlists (guild_id, name) 
-            VALUES (:guild_id, :name)
-            ON CONFLICT (id)
-            DO UPDATE SET name=:name
-            """, {"guild_id": guild_id, "name": playlist_name, "id": playlist_id})
-            await db.commit()
-            return row[0]
-
-    async def getPlaylistInfo(self, guild_id: int, playlist_name: int):
-        async with aiosqlite.connect(self.bot.config.db_path) as db:
-            rows = await db.execute_fetchall("""
-            SELECT * FROM Playlists
-            WHERE name = ':name'
-            """, {"name": playlist_name})
-        return rows[0]
-
-    async def insertPlaylistTracks(self, guild_id: int, playlist_id: int, tracks: list[Track]):
-        async with aiosqlite.connect(self.bot.config.db_path) as db:
-            track_list = [{"playlist_id": playlist_id,
-                           "title": track.title,
-                           "duration": track.duration,
-                           "encoded": track.encoded}
-                          for track in tracks]
-            await db.executemany("""
-            INSERT OR IGNORE INTO Tracks
-            (playlist_id, title, duration, encoded)
-            VALUES (:playlist_id, :title, :duration, :encoded)
-            """, track_list)
-            await db.commit()
 
 
     # await db.execute("""
@@ -242,31 +320,28 @@ class Music(GroupCog,
     fetch a server whenever it is needed using a discord 
     """
 
-
     async def cog_load(self) -> None:
-        await self.createPlaylistTables()
-        await self.alterGuildSettingsTable()
+        await self.database.init()
         await self.migrateMusicData()
-        for guild in self.bot.guilds:
-            await self.upsertGuildSettings(guild.id, True, True)
-
 
     async def migrateMusicData(self):
         for server_id, server in self.bot.data.servers.items():
             server_id = int(server_id)
-            guild = await self.bot.fetch_guild(server_id)
-            await self.bot.database.upsertGuild(server_id, guild.name)
+            try: guild = await self.bot.fetch_guild(server_id)
+            except discord.NotFound: continue
+            music_settings = MusicDB.MusicSettings(guild_id=guild.id, music_enabled=True, playlists_enabled=True)
+            await self.database.upsertMusicSettings(music_settings)
+
+            await self.database.upsertGuild(self.database.Guild.fromDiscord(guild))
             for playlist_name, playlist in server.playlists.items():
-                primary_key = await self.upsertPlaylistInfo(server_id, playlist_name)
-                await self.insertPlaylistTracks(server_id, primary_key, playlist.tracks)
-
-
+                new_playlist = MusicDB.Playlist(server_id, playlist_name, playlist.description)
+                tracks = [MusicDB.Track(server_id, playlist_name, track.title, track.duration, track.encoded) for track in playlist.tracks]
+                await self.database.upsertPlaylist(new_playlist)
+                await self.database.upsertTracks(tracks)
 
     async def cog_unload(self) -> None:
         # await self.migrateMusicData()
         pass
-
-
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, node: wavelink.Node):
@@ -637,11 +712,11 @@ class Music(GroupCog,
             pass
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
-        server_data.value = self.bot.getServerData(interaction.guild_id)
+        old_server_data.value = self.bot.getServerData(interaction.guild_id)
         if interaction.guild.voice_client and not isinstance(interaction.guild.voice_client, Player):
             raise errors.WrongVoiceClient("`Incorrect command for Player, Try /<command> instead`")
 
-        server_data.value.last_music_command_channel = interaction.channel
+        old_server_data.value.last_music_command_channel = interaction.channel
 
         return True
 
@@ -731,16 +806,16 @@ class PlaylistTransformer(Transformer):
                            value: Union[int, float, str], /) -> List[Choice[str]]:
 
         # close_matches: dict[str, Playlist] = find_closely_matching_dict_keys(value, server_data.playlists, 25)
-        server_data.value = bot_var.value.getServerData(interaction.guild_id)
-        playlists = server_data.value.playlists
+        old_server_data.value = bot_var.value.getServerData(interaction.guild_id)
+        playlists = old_server_data.value.playlists
         keys = list(playlists.keys()) if len(playlists) else []
         options = similaritySort(keys, value)
 
         choices = [Choice(name=key, value=key) for key in options][:25]
         return choices
 
-    async def transform(self, interaction: Interaction, value: Any, /) -> Playlist:
-        playlists = server_data.value.playlists
+    async def transform(self, interaction: Interaction, value: Any, /) -> OldPlaylist:
+        playlists = old_server_data.value.playlists
         if playlists and value in playlists.keys():
             return playlists[value]
         else:
@@ -763,14 +838,14 @@ def createNewPlaylist(name: str, description: str="", tracks: list[WavelinkTrack
     # Future functionality have a YES / NO choice for overwriting the old one
     # Send as an ephemeral followup to the original response with a view attached
     # Wait for a view response and timeout default to No after a little bit
-    playlists = server_data.value.playlists
+    playlists = old_server_data.value.playlists
     if name in playlists.keys():
         raise errors.PlaylistAlreadyExists
     else:
         if tracks:
-            new_playlist = Playlist.initFromTracks(tracks)
+            new_playlist = OldPlaylist.initFromTracks(tracks)
         else:
-            new_playlist = Playlist()
+            new_playlist = OldPlaylist()
     new_playlist.description = description
     playlists[name] = new_playlist
     return new_playlist
@@ -791,8 +866,8 @@ class PlaylistCog(GroupCog,
     view = Group(name="view", description="view playlists and tracks")
     edit = Group(name="edit", description="edit playlist info and tracks")
 
-    Playlist_Transformer = Transform[Playlist, PlaylistTransformer]
-    Playlist_Transformer_NoError = Transform[Playlist, PlaylistTransformer(raise_error=False)]
+    Playlist_Transformer = Transform[OldPlaylist, PlaylistTransformer]
+    Playlist_Transformer_NoError = Transform[OldPlaylist, PlaylistTransformer(raise_error=False)]
 
     @create.command(name="new",
                     description="create a new empty playlist")
@@ -829,7 +904,7 @@ class PlaylistCog(GroupCog,
         # voice_client = interaction.guild.voice_client
         playlist_name = interaction.namespace.playlist
         if playlist is not None:
-            server_data.value.playlists.pop(playlist_name)
+            old_server_data.value.playlists.pop(playlist_name)
             await respond(interaction, f"**Deleted Playlist `{playlist_name}`**", delete_after=3)
         else:
             await respond(interaction, f"**Playlist `{playlist_name}` does not exist**", delete_after=3)
@@ -928,7 +1003,7 @@ class PlaylistCog(GroupCog,
             return page
 
         def edgeIndices(interaction: Interaction) -> EdgeIndices:
-            playlist_count = len(server_data.value.playlists)
+            playlist_count = len(old_server_data.value.playlists)
             page_count = ceil(playlist_count/10)
             return EdgeIndices(left=0, right=page_count-1)
 
@@ -1013,11 +1088,11 @@ class PlaylistCog(GroupCog,
         if not await edit_modal.wait():
             new_desc = edit_modal.fields.get("description")
             new_name = edit_modal.fields.get("name")
-            if new_name in server_data.value.playlists: raise errors.PlaylistAlreadyExists
+            if new_name in old_server_data.value.playlists: raise errors.PlaylistAlreadyExists
             playlist.description = new_desc
             if new_name != playlist_name:
-                server_data.value.playlists[new_name] = playlist
-                server_data.value.playlists.pop(playlist_name)
+                old_server_data.value.playlists[new_name] = playlist
+                old_server_data.value.playlists.pop(playlist_name)
 
 
             await respond(interaction, f"Edited playist details", ephemeral=True, delete_after=3)
@@ -1060,13 +1135,13 @@ class PlaylistCog(GroupCog,
 
 
     def setContextVars(self, interaction: Interaction):
-        server_data.value = self.bot.getServerData(interaction.guild_id)
+        old_server_data.value = self.bot.getServerData(interaction.guild_id)
         player_instance.value = interaction.guild.voice_client
         pass
 
     async def interaction_check(self, interaction: Interaction):
         self.setContextVars(interaction)
-        server_data.value.last_music_command_channel = interaction.channel
+        old_server_data.value.last_music_command_channel = interaction.channel
 
         return True
     # async def autocomplete_check

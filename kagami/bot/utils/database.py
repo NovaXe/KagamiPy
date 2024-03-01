@@ -1,5 +1,7 @@
+import abc
+
 import aiosqlite
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict, astuple
 from enum import Enum, Flag, IntFlag, auto
 import discord
 
@@ -105,75 +107,135 @@ def cog_load():
 
 
 class Database:
+    @dataclass
+    class Row:
+        QUERY_CREATE_TABLE = ""
+        QUERY_INSERT = ""
+        QUERY_SELECT = ""
+        def __init__(self, *args, **kwargs): pass
+        def asdict(self): return asdict(self)
+
+        def astuple(self): return astuple(self)
+        @classmethod
+        def rowFactory(cls, cur: aiosqlite.Cursor, row: tuple):
+            """Instantiates the dataclass from a row in the SQL table"""
+            return cls(**{col[0]: row[idx] for idx, col in enumerate(cur.description)})
+
+    @dataclass
+    class Guild(Row):
+        id: int
+        name: str
+        QUERY_CREATE_TABLE = """
+        CREATE TABLE IF NOT EXISTS Guild (
+        id INTEGER,
+        name TEXT DEFAULT 'Unknown',
+        PRIMARY KEY (id))
+        """
+        QUERY_INSERT = """
+        INSERT INTO Guild (id, name)
+        VALUES (:id, :name)
+        ON CONFLICT (id)
+        DO UPDATE SET name = :name
+        RETURNING *
+        """
+        QUERY_SELECT = """
+        SELECT * FROM Guild
+        WHERE id = ?
+        """
+        QUERY_DELETE = """
+        DELETE FROM Guild
+        WHERE id = ?
+        RETURNING *
+        """
+
+        @classmethod
+        def fromDiscord(cls, guild=discord.Guild):
+            return cls(id=guild.id, name=guild.name)
+
+    @dataclass
+    class GuildSettings(Row):
+        guild_id: int
+        QUERY_CREATE_TABLE = """
+        CREATE TABLE IF NOT EXISTS GuildSettings(
+        guild_id INTEGER,
+        FOREIGN KEY (guild_id) REFERENCES Guild(id)
+        ON UPDATE CASCADE ON DELETE CASCADE)
+        """
+        QUERY_INSERT = """
+        INSERT INTO GuildSettings (guild_id)
+        VALUES (:guild_id)
+        ON CONFLICT (id)
+        DO NOTHING
+        RETURNING *
+        """
+        QUERY_SELECT = """
+        SELECT * FROM GuildSettings
+        WHERE guild_id = ?
+        """
+        QUERY_DELETE = """
+        DELETE FROM GuildSettings
+        WHERE guild_id = ?
+        RETURNING *
+        """
+
     def __init__(self, database_path: str):
         self.file_path: str = database_path
 
     async def init(self):
-        await self.createGuildTables()
+        await self.dropTables()
+        await self.createTables()
         # await self.createGlobalTable()
 
-    async def createGuildTables(self):
+    async def dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute("DROP TABLE IF EXISTS GuildSettings")
-            await db.execute("""
-            CREATE TABLE IF NOT EXISTS Guilds (
-            id INTEGER PRIMARY KEY,
-            name TEXT DEFAULT 'Unknown')
-            """)
-            await db.execute("""
-            CREATE TABLE IF NOT EXISTS GuildSettings (
-            guild_id INTEGER,
-            FOREIGN KEY(guild_id) REFERENCES Guilds(id))
-            """)
+            await db.execute("DROP TABLE IF EXISTS Guilds")
             await db.commit()
 
-    async def upsertGuild(self, guild_id: int, guild_name: str):
-        """
-        Attempts to insert a new guild but if it already exists, simply update the fields
-        """
+    async def createTables(self):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute_insert("""
-            INSERT INTO Guilds (id, name)
-            VALUES (:id, :name)
-            ON CONFLICT (id)
-            DO UPDATE SET name = :name
-            """, {"id": guild_id, "name": guild_name})
+            await db.execute(Database.Guild.QUERY_CREATE_TABLE)
+            await db.execute(Database.GuildSettings.QUERY_CREATE_TABLE)
             await db.commit()
 
-    async def upsertSyncGuilds(self, guilds: list[discord.Guild]):
+    async def upsertGuild(self, guild: Guild) -> Guild:
         async with aiosqlite.connect(self.file_path) as db:
-            guild_list = [{"id": guild.id, "name": guild.name} for guild in guilds]
-            guild_ids = tuple(guild["id"] for guild in guild_list)
-            await db.execute(f"""
-            DELETE FROM Guilds
-            WHERE id NOT IN {guild_ids}
-            """)
-
-            await db.executemany("""
-            INSERT INTO Guilds (id, name) 
-            VALUES (:id, :name)
-            ON CONFLICT(id) 
-            DO UPDATE SET name = :name
-            """, guild_list)
+            db.row_factory = guild.rowFactory
+            new_guild: Database.Guild = await db.execute_fetchall(guild.QUERY_INSERT, guild.asdict())
             await db.commit()
+        return new_guild
 
-    async def removeGuild(self, guild_id: int):
+    async def upsertGuilds(self, guilds: list[Guild]) -> list[Guild]:
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute("""
-            DELETE FROM TABLE
-            WHERE id = ?
-            """, (guild_id,))
+            db.row_factory = Database.Guild.rowFactory
+            guilds: list[Database.Guild] = await db.executemany(Database.Guild.QUERY_INSERT, guilds)
             await db.commit()
+        return guilds
 
-
-    async def createGlobalTable(self):
+    async def upsertGuildSettings(self, guild_settings: GuildSettings) -> GuildSettings:
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute("""
-            CREATE TABLE IF NOT EXISTS Global (
-            )
-            """)
+            db.row_factory = guild_settings.rowFactory
+            new_settings: Database.GuildSettings = await db.execute_fetchall(guild_settings.QUERY_INSERT, guild_settings.asdict())
             await db.commit()
+        return new_settings
 
+    async def fetchGuild(self, guild_id: int) -> Guild:
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = Database.Guild.rowFactory
+            guild: Database.Guild = await db.execute_fetchall(Database.Guild.QUERY_SELECT, (guild_id,))
+            await db.commit()
+            return guild
 
+    async def deleteGuild(self, guild_id: int):
+        async with aiosqlite.connect(self.file_path) as db:
+            deleted_guild = await db.execute_fetchall(Database.Guild.QUERY_DELETE, (guild_id,))
+            await db.commit()
+            return deleted_guild
+
+    async def deleteGuildSettings(self, guild_id: int):
+        async with aiosqlite.connect(self.file_path) as db:
+            deleted_settings = await db.execute_fetchall(Database.GuildSettings.QUERY_DELETE, (guild_id,))
+            await db.commit()
+            return deleted_settings
 
 

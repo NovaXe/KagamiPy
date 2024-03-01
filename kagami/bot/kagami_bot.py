@@ -66,10 +66,11 @@ class Kagami(commands.Bot):
             nodes=[node],
             spotify=spotify_client
         )
+
     async def setup_hook(self):
         await self.connectWavelinkNodes()
         await self.database.init()
-        await self.database.upsertSyncGuilds(list(self.guilds))
+        await self.database.upsertGuilds([self.database.Guild.fromDiscord(guild) for guild in self.guilds])
 
         for file in os.listdir("bot/cogs"):
             if file.endswith(".py"):
@@ -78,14 +79,14 @@ class Kagami(commands.Bot):
                 await self.load_extension(path)
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
-        await self.database.upsertGuild(guild.id, guild.name)
+        await self.database.upsertGuild(self.database.Guild.fromDiscord(guild))
 
     async def on_guild_leave(self, guild: discord.Guild) -> None:
-        await self.database.removeGuild(guild.id)
+        await self.database.deleteGuild(guild.id)
 
     async def on_guild_update(self, before: discord.Guild, after: discord.Guild):
         if before.name != after.name:
-            await self.database.upsertGuild(guild_id=after.id, guild_name=after.name)
+            await self.database.upsertGuild(self.database.Guild.fromDiscord(after))
 
     # DATA_PATH = "bot/data/old_data.json"
     def newLoadData(self):
@@ -235,7 +236,6 @@ class Kagami(commands.Bot):
 
 
         self.old_data = data
-
 
     async def start(self, token, reconnect=True):
         await super().start(token, reconnect=reconnect)
