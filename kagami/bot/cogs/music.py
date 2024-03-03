@@ -134,7 +134,7 @@ class MusicDB(Database):
         FOREIGN KEY(guild_id) REFERENCES Guild(id)
         ON UPDATE CASCADE ON DELETE CASCADE)
         """
-        QUERY_INSERT = """
+        QUERY_UPSERT = """
         INSERT INTO MusicSettings (guild_id, music_enabled, playlists_enabled)
         VALUES (:guild_id, :music_enabled, :playlists_enabled)
         ON CONFLICT (guild_id)
@@ -163,7 +163,7 @@ class MusicDB(Database):
         FOREIGN KEY (guild_id) REFERENCES Guild(id) 
         ON UPDATE CASCADE ON DELETE CASCADE)
         """
-        QUERY_INSERT = """
+        QUERY_UPSERT = """
         INSERT INTO Playlist (guild_id, name, description)
         VALUES (:guild_id, :name, :description)
         ON CONFLICT (guild_id, name)
@@ -191,9 +191,13 @@ class MusicDB(Database):
             LIMIT ? OFFSET ?
         ) RETURNING *
         """
-
         QUERY_SELECT_LIKE = """
         SELECT * FROM Playlist
+        WHERE guild_id = ? AND name LIKE ?
+        LIMIT ? OFFSET ?
+        """
+        QUERY_SELECT_LIKE_NAMES = """
+        SELECT name FROM Playlist
         WHERE guild_id = ? AND name LIKE ?
         LIMIT ? OFFSET ?
         """
@@ -239,6 +243,13 @@ class MusicDB(Database):
         ) RETURNING *
         """
 
+    class MusicDisabled(errors.CustomCheck):
+        MESSAGE = "The muisc feature is disabled"
+
+    class PlaylistsDisabled(errors.CustomCheck):
+        MESSAGE = "The playlist feature is not enabled"
+
+
     async def init(self):
         await self.dropTables()
         await self.createTables()
@@ -259,8 +270,9 @@ class MusicDB(Database):
 
     async def upsertPlaylist(self, playlist: Playlist):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(playlist.QUERY_INSERT, playlist.asdict())
+            await db.execute(playlist.QUERY_UPSERT, playlist.asdict())
             await db.commit()
+
 
     async def upsertTrack(self, track: Track):
         async with aiosqlite.connect(self.file_path) as db:
@@ -275,7 +287,12 @@ class MusicDB(Database):
 
     async def upsertMusicSettings(self, music_settings: MusicSettings):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(music_settings.QUERY_INSERT, music_settings.asdict())
+            await db.execute(music_settings.QUERY_UPSERT, music_settings.asdict())
+            await db.commit()
+
+    async def fetchMusicSettings(self, guild_id: int) -> MusicSettings:
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(MusicDB.MusicSettings.QUERY_SELECT, (guild_id,))
             await db.commit()
 
     async def fetchPlaylist(self, guild_id: int, playlist_name: str) -> Playlist:
@@ -296,11 +313,20 @@ class MusicDB(Database):
                                                                           (guild_id, f"%{playlist_name}%", offset, limit))
         return playlists
 
+    async def fetchSimilarPlaylistNames(self, guild_id: int, playlist_name: str, limit: int = 1, offset: int = 0
+                                        ) -> list[str]:
+        async with aiosqlite.connect(self.file_path) as db:
+            names = list[str] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT_LIKE_NAMES,
+                                                          (guild_id, playlist_name, limit, offset))
+            return names
+
+
     async def fetchTracks(self, guild_id: int, playlist_name: str, limit: int=1, offset: int=0) -> list[Track]:
         async with aiosqlite.connect(self.file_path) as db:
             tracks: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_SELECT_MULTIPLE,
                                                                     (guild_id, playlist_name, limit, offset))
             return tracks
+
 
 
 
@@ -726,6 +752,9 @@ class Music(GroupCog,
             pass
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
+        music_settings = await self.database.fetchMusicSettings(interaction.guild_id)
+        if not music_settings.music_enabled:
+            raise MusicDB.MusicSettings
         old_server_data.value = self.bot.getServerData(interaction.guild_id)
         if interaction.guild.voice_client and not isinstance(interaction.guild.voice_client, Player):
             raise errors.WrongVoiceClient("`Incorrect command for Player, Try /<command> instead`")
@@ -807,7 +836,7 @@ class Music(GroupCog,
 
 # assert isinstance(server_data, ServerData)
 
-class PlaylistTransformer(Transformer):
+class OldPlaylistTransformer(Transformer):
     # def __init__(self, create_new: bool=False):
     #     self.create_new: bool = create_new
     # def __init__(self, bot: Kagami):
@@ -843,7 +872,24 @@ class PlaylistTransformer(Transformer):
             #     raise errors.PlaylistNotFound
 
 
+class PlaylistTransformer(Transformer):
+    def __init__(self, database: MusicDB):
+        self.db = database
 
+    async def autocomplete(self,
+                           interaction: Interaction, value: str, /
+                           ) -> list[Choice[str]]:
+
+        names = await self.db.fetchSimilarPlaylistNames(guild_id=interaction.guild_id,
+                                                            playlist_name=value,
+                                                            limit=25)
+        choices = [Choice(name=name, value=name) for name in names]
+        return choices
+
+    async def transform(self, interaction: Interaction, value: str, /) -> MusicDB.Playlist:
+        playlist = await self.db.fetchPlaylist(guild_id=interaction.guild_id,
+                                               playlist_name=value)
+        return playlist
 
 
 
@@ -865,6 +911,9 @@ def createNewPlaylist(name: str, description: str="", tracks: list[WavelinkTrack
     return new_playlist
 
 
+
+
+
 # TODO Confirmation dialogues sent ephemerally for deletions and edits and such, anything important like that
 class PlaylistCog(GroupCog,
                   group_name="p",
@@ -872,6 +921,7 @@ class PlaylistCog(GroupCog,
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
+        self.database = MusicDB(bot.config.db_path)
         # self.playlist_transform = Transform[Playlist, PlaylistTransformer(bot=bot)]
 
     create = Group(name="create", description="creating playlists")
@@ -880,26 +930,30 @@ class PlaylistCog(GroupCog,
     view = Group(name="view", description="view playlists and tracks")
     edit = Group(name="edit", description="edit playlist info and tracks")
 
-    Playlist_Transformer = Transform[OldPlaylist, PlaylistTransformer]
-    Playlist_Transformer_NoError = Transform[OldPlaylist, PlaylistTransformer(raise_error=False)]
+    # Playlist_Transformer = Transform[OldPlaylist, OldPlaylistTransformer]
+    # Playlist_Transformer_NoError = Transform[OldPlaylist, OldPlaylistTransformer(raise_error=False)]
+
+    Playlist_Transformer = Transform[MusicDB.Playlist, PlaylistTransformer]
+    # Playlist_Transformer_NoError = Transform[OldPlaylist, OldPlaylistTransformer(raise_error=False)]
+
 
     @create.command(name="new",
                     description="create a new empty playlist")
     # @app_commands.rename(playlist_tuple="playlist")
     async def p_create_new(self, interaction: Interaction,
-                           playlist: Playlist_Transformer_NoError,
+                           playlist,
                            description: str=""):
         await respond(interaction, ephemeral=True)
         voice_client: Player = interaction.guild.voice_client
-        playlist_name = interaction.namespace.playlist
-        createNewPlaylist(name=playlist_name, description=description)
-        await respond(interaction, f"Created playlist `{playlist_name}`", ephemeral=True, delete_after=3)
+        try: await self.database.upsertPlaylist(playlist)
+        except aiosqlite.IntegrityError: raise errors.PlaylistAlreadyExists
+        await respond(interaction, f"Created playlist `{playlist.name}`", ephemeral=True, delete_after=3)
 
     @requireVoiceclient()
     @create.command(name="queue",
                     description="creates a new playlist using the current queue as a base")
     async def p_create_queue(self, interaction: Interaction,
-                             playlist: Playlist_Transformer_NoError,
+                             playlist,
                              description: str=""):
         playlist_name = interaction.namespace.playlist
         voice_client: Player = interaction.guild.voice_client
@@ -916,7 +970,7 @@ class PlaylistCog(GroupCog,
                        playlist: Playlist_Transformer):
         await respond(interaction)
         # voice_client = interaction.guild.voice_client
-        playlist_name = interaction.namespace.playlist
+        playlist_name = playlist.name
         if playlist is not None:
             old_server_data.value.playlists.pop(playlist_name)
             await respond(interaction, f"**Deleted Playlist `{playlist_name}`**", delete_after=3)
@@ -1154,6 +1208,10 @@ class PlaylistCog(GroupCog,
         pass
 
     async def interaction_check(self, interaction: Interaction):
+        music_settings = await self.database.fetchMusicSettings(interaction.guild_id)
+        if not music_settings.playlists_enabled:
+            raise MusicDB.PlaylistsDisabled
+
         self.setContextVars(interaction)
         old_server_data.value.last_music_command_channel = interaction.channel
 

@@ -110,6 +110,7 @@ class Database:
     @dataclass
     class Row:
         QUERY_CREATE_TABLE = ""
+        QUERY_UPSERT = ""
         QUERY_INSERT = ""
         QUERY_SELECT = ""
         def __init__(self, *args, **kwargs): pass
@@ -131,7 +132,7 @@ class Database:
         name TEXT DEFAULT 'Unknown',
         PRIMARY KEY (id))
         """
-        QUERY_INSERT = """
+        QUERY_UPSERT = """
         INSERT INTO Guild (id, name)
         VALUES (:id, :name)
         ON CONFLICT (id)
@@ -161,7 +162,7 @@ class Database:
         FOREIGN KEY (guild_id) REFERENCES Guild(id)
         ON UPDATE CASCADE ON DELETE CASCADE)
         """
-        QUERY_INSERT = """
+        QUERY_UPSERT = """
         INSERT INTO GuildSettings (guild_id)
         VALUES (:guild_id)
         ON CONFLICT (id)
@@ -201,21 +202,21 @@ class Database:
     async def upsertGuild(self, guild: Guild) -> Guild:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = guild.rowFactory
-            new_guild: Database.Guild = await db.execute_fetchall(guild.QUERY_INSERT, guild.asdict())
+            new_guild: Database.Guild = await db.execute_fetchall(guild.QUERY_UPSERT, guild.asdict())
             await db.commit()
         return new_guild
 
     async def upsertGuilds(self, guilds: list[Guild]) -> list[Guild]:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = Database.Guild.rowFactory
-            guilds: list[Database.Guild] = await db.executemany(Database.Guild.QUERY_INSERT, guilds)
+            guilds: list[Database.Guild] = await db.executemany(Database.Guild.QUERY_UPSERT, guilds)
             await db.commit()
         return guilds
 
     async def upsertGuildSettings(self, guild_settings: GuildSettings) -> GuildSettings:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = guild_settings.rowFactory
-            new_settings: Database.GuildSettings = await db.execute_fetchall(guild_settings.QUERY_INSERT, guild_settings.asdict())
+            new_settings: Database.GuildSettings = await db.execute_fetchall(guild_settings.QUERY_UPSERT, guild_settings.asdict())
             await db.commit()
         return new_settings
 
