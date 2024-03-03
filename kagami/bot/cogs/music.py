@@ -1,24 +1,24 @@
-import dataclasses
 from math import ceil
-from dataclasses import dataclass, asdict, astuple
+from dataclasses import dataclass
+from math import ceil
+from typing import (Literal, Any, Union, List)
+
 import aiosqlite
-from bot.utils.database import Database
 import discord
 import wavelink
-from wavelink import TrackEventPayload
-from wavelink.ext import spotify
-from typing import (Literal, Any, Union, List)
 from discord import (app_commands, Interaction, VoiceChannel, Message, Member, VoiceState)
 from discord.app_commands import Group, Transformer, Transform, Choice, Range
+from discord.ext import (commands)
 from discord.ext.commands import GroupCog, Cog
-from discord.ext import (commands, tasks)
+from discord.ui import Modal, TextInput
 from discord.utils import MISSING
-from discord.ui import Modal, Select, TextInput
+from wavelink import TrackEventPayload
 
 from bot.ext.ui.custom_view import MessageInfo
 from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks, ITL
-from bot.utils import database
 from bot.utils import bot_data
+from bot.utils.database import Database
+
 OldPlaylist = bot_data.Playlist
 old_server_data = bot_data.server_data
 OldTrack = bot_data.Track
@@ -36,8 +36,8 @@ from bot.ext.ui.music import PlayerController
 from bot.ext.responses import (PersistentMessage, MessageElements)
 from bot.utils.interactions import respond
 from bot.ext import errors
-from bot.utils.pages import EdgeIndices, getQueueEdgeIndices, InfoTextElem, InfoSeparators, createPages, CustomRepr, \
-    PageBehavior, simplePageScroller, createSinglePage, PageIndices
+from bot.utils.pages import EdgeIndices, getQueueEdgeIndices, InfoTextElem, InfoSeparators, CustomRepr, \
+    PageBehavior, createSinglePage, PageIndices
 from bot.utils.utils import similaritySort
 
 
@@ -176,20 +176,26 @@ class MusicDB(Database):
         QUERY_DELETE = """
         DELETE FROM Playlist
         WHERE guild_id = ? AND name = ?
+        RETURNING *
         """
         QUERY_SELECT_MULTIPLE = """
         SELECT * FROM Playlist
         WHERE guild_id = ?
-        LIMIT = ? OFFSET = ?
+        LIMIT ? OFFSET ?
         """
         QUERY_DELETE_MULTIPLE = """
         DELETE FROM Playlist
-        WHERE guild_id = ?
-        LIMIT = ? OFFSET = ?
+        WHERE ROWID in (
+            SELECT ROWID FROM Playlist 
+            WHERE guild_id = ? 
+            LIMIT ? OFFSET ?
+        ) RETURNING *
         """
+
         QUERY_SELECT_LIKE = """
         SELECT * FROM Playlist
         WHERE guild_id = ? AND name LIKE ?
+        LIMIT ? OFFSET ?
         """
 
 
@@ -217,12 +223,20 @@ class MusicDB(Database):
         QUERY_SELECT_MULTIPLE = """
         SELECT * FROM Track
         WHERE guild_id = ? AND playlist_name = ?
-        LIMIT = ? OFFSET = ?
+        LIMIT ? OFFSET ?
         """
+        # QUERY_DELETE_MULTIPLE = """
+        # DELETE FROM Track
+        # WHERE guild_id = ? AND playlist_name = ?
+        # LIMIT ? OFFSET ?
+        # """
         QUERY_DELETE_MULTIPLE = """
         DELETE FROM Track
-        WHERE guild_id = ? AND playlist_name = ?
-        LIMIT = ? OFFSET = ?
+        WHERE ROWID in (
+            SELECT ROWID FROM Track 
+            WHERE guild_id = ? AND playlist_name = ? 
+            LIMIT ? OFFSET ?
+        ) RETURNING *
         """
 
     async def init(self):
