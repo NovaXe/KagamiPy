@@ -143,6 +143,7 @@ class Playlist(DictFromToDictMixin):
     async def buildTracks(self)->list[WavelinkTrack]:
         tracks = [await track.buildWavelinkTrack() for track in self.tracks]
         return tracks
+
     @classmethod
     def initFromTracks(cls, tracks: list[WavelinkTrack] | list[Track]):
         new_tracks: list[Track] = []
