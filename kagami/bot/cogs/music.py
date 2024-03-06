@@ -128,9 +128,10 @@ class MusicDB(Database):
         playlists_enabled: bool = True
         QUERY_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS MusicSettings(
-        guild_id INTEGER,
+        guild_id INTEGER NOT NULL,
         music_enabled INTEGER DEFAULT 1,
         playlists_enabled INTEGER DEFAULT 1,
+        PRIMARY KEY (guild_id),
         FOREIGN KEY(guild_id) REFERENCES Guild(id)
         ON UPDATE CASCADE ON DELETE CASCADE)
         """
@@ -220,7 +221,7 @@ class MusicDB(Database):
         title: str
         duration: int
         encoded: str
-        index: int
+        track_index: int = None
         # Constant representing an execution query for the track table
         QUERY_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS Track(
@@ -229,30 +230,55 @@ class MusicDB(Database):
         title TEXT DEFAULT 'Untitled',
         duration INTEGER DEFAULT 0,
         encoded TEXT NOT NULL,
-        index INTEGER NOT NULL,
+        track_index INTEGER NOT NULL,
         FOREIGN KEY(guild_id, playlist_name) REFERENCES Playlists(guild_id, name)
         ON UPDATE CASCADE ON DELETE CASCADE)
         """
         QUERY_INSERT = """
-        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, index)
+        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
         VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, 
-        (SELECT COALESCE(MAX(index), 0) + 1 
-        FROM Track WHERE guild_id = :guild_id AND playlist_name = :playlist_name)
-        ) RETURNING *
+        (
+            CASE 
+            WHEN ( 
+                COALESCE(:track_index, -1) >= 0 
+                AND :track_index <= ( SELECT COALESCE(MAX(track_index), 0) 
+                                      FROM Track WHERE guild_id = :guild_id AND playlist_name = :playlist_name ) ) 
+            THEN :track_index
+            ELSE (
+                SELECT COALESCE(MAX(track_index), -1) + 1
+                FROM Track WHERE guild_id = :guild_id AND playlist_name = :playlist_name
+            )
+            END
+        ) RETURNING *;
+        
+        UPDATE Track SET track_index = 
+        CASE
+            WHEN ( SELECT COALESCE(:track_index, -1) >= 0 AND :track_index <= ( SELECT COALESCE(MAX(track_index), 0) 
+                   FROM Track WHERE guild_id = :guild_id AND playlist_name = :playlist_name ) ) 
+            )
+            ELSE track_index
+        END
+        WHERE track_index >= :track_index AND guild_id = :guild_id AND playlist_name = :playlist_name;
         """
+        # hoping this works, update it does not work b/c it needs to be execute script but I have many tracks so executemany
+        # Need to figure out the paradigm for inserting into the middle and adjusting the rest
+        # This issue affects the move method too because it has two queries to be run as a script
+
         QUERY_MOVE = """
-        UPDATE Track SET index = index + :new_index - :track_index
-        WHERE guild_id = :guild_id 
+        UPDATE Track SET track_index = track_index + :new_index - :track_index
+        WHERE guild_id = :guild_id
         AND playlist_name = :playlist_name
-        AND index >= :track_index
-        AND index < :new_index + :count;
+        AND track_index >= :track_index
+        AND track_index < :new_index + :count;
         
         UPDATE Track 
-        SET index = 
-        CASE WHEN ( (:new_index > :track_index) AND (index >= :track_index) AND (index <= :new_index) ) 
-        THEN (index + :count)
-        CASE WHEN ( (:new_index < :track_index) AND (index <= :track_index) AND (index >= :new_index) )
-        THEN (index - :count)
+        SET track_index = 
+        CASE 
+            WHEN ( (:new_index > :track_index) AND (track_index >= :track_index) AND (track_index <= :new_index) ) 
+            THEN (track_index + :count)
+            WHEN ( (:new_index < :track_index) AND (track_index <= :track_index) AND (track_index >= :new_index) )
+            THEN (track_index - :count) 
+        END
         WHERE guild_id = :guild_id
         AND playlist_name = :playlist_name;
         """
@@ -304,9 +330,9 @@ class MusicDB(Database):
 
     async def dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
-            # await db.execute("DROP TABLE IF EXISTS Playlist")
+            await db.execute("DROP TABLE IF EXISTS Playlist")
             await db.execute("DROP TABLE IF EXISTS Track")
-            # await db.execute("DROP TABLE IF EXISTS MusicSettings")
+            await db.execute("DROP TABLE IF EXISTS MusicSettings")
             await db.commit()
 
     async def createTables(self):
@@ -370,7 +396,6 @@ class MusicDB(Database):
             #         INSERT INTO Track (guild_id, playlist_name, title, duration, encoded)
             #         VALUES (:guild_id, :playlist_name, :title, :duration, :encoded)
             #         """
-
 
     async def upsertMusicSettings(self, music_settings: MusicSettings):
         async with aiosqlite.connect(self.file_path) as db:
@@ -970,22 +995,22 @@ class OldPlaylistTransformer(Transformer):
 
 
 class PlaylistTransformer(Transformer):
-    def __init__(self, database: MusicDB):
-        self.db = database
-
     async def autocomplete(self,
                            interaction: Interaction, value: str, /
                            ) -> list[Choice[str]]:
-
-        names = await self.db.fetchSimilarPlaylistNames(guild_id=interaction.guild_id,
-                                                        playlist_name=value,
-                                                        limit=25)
+        bot: Kagami = interaction.client
+        db = MusicDB(bot.config.db_path)
+        names = await db.fetchSimilarPlaylistNames(guild_id=interaction.guild_id,
+                                                   playlist_name=value,
+                                                   limit=25)
         choices = [Choice(name=name, value=name) for name in names]
         return choices
 
     async def transform(self, interaction: Interaction, value: str, /) -> MusicDB.Playlist:
-        playlist = await self.db.fetchPlaylist(guild_id=interaction.guild_id,
-                                               playlist_name=value)
+        bot: Kagami = interaction.client
+        db = MusicDB(bot.config.db_path)
+        playlist = await db.fetchPlaylist(guild_id=interaction.guild_id,
+                                          playlist_name=value)
         # if playlist is None: raise MusicDB.PlaylistNotFound
         return playlist
 
@@ -1024,7 +1049,7 @@ class PlaylistCog(GroupCog,
 
     create = Group(name="create", description="creating playlists")
     add = Group(name="add", description="adding tracks to playlists")
-    # remove = Group(name="remove", description="removeing tracks or playlists")
+    # remove = Group(name="remove", description="removing tracks or playlists")
     view = Group(name="view", description="view playlists and tracks")
     edit = Group(name="edit", description="edit playlist info and tracks")
 
