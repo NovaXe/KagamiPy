@@ -165,7 +165,7 @@ class MusicDB(Database):
         ON UPDATE CASCADE ON DELETE CASCADE)
         """
         QUERY_INSERT = """
-        INSERT INTO Playlist (guild_id, name, desription)
+        INSERT INTO Playlist (guild_id, name, description)
         VALUES (:guild_id, :name, :description)
         ON CONFLICT DO NOTHING
         """
@@ -194,6 +194,10 @@ class MusicDB(Database):
         WHERE guild_id = ?
         LIMIT ? OFFSET ?
         """
+        QUERY_SELECT_ALL = """
+        SELECT * FROM Playlist
+        WHERE guild_id = ?
+        """
         QUERY_DELETE_MULTIPLE = """
         DELETE FROM Playlist
         WHERE ROWID in (
@@ -209,7 +213,7 @@ class MusicDB(Database):
         """
         QUERY_SELECT_LIKE_NAMES = """
         SELECT name FROM Playlist
-        WHERE guild_id = ? AND name LIKE ?
+        WHERE (guild_id = ?) AND (name LIKE ?)
         LIMIT ? OFFSET ?
         """
 
@@ -254,9 +258,14 @@ class MusicDB(Database):
             )
         WHERE NOT EXISTS (
             SELECT 1 FROM Track
-            WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (encoded = :encoded)
+            WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name) AND (encoded=:encoded)
         ) RETURNING *
         """
+        # WHERE NOT EXISTS (
+        #             SELECT 1 FROM Track
+        #             WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (encoded = :encoded)
+        #         )
+
         # QUERY_INSERT_NO_DUPLICATES = """
         #     INSERT INTO Track (guild_id, playlist_name, title, duration, encoded)
         #     SELECT :guild_id, :playlist_name, :title, :duration, :encoded
@@ -387,7 +396,7 @@ class MusicDB(Database):
 
         QUERY_SELECT_MULTIPLE = """
         SELECT * FROM Track
-        WHERE guild_id = ? AND playlist_name = ?
+        WHERE (guild_id = ?) AND (playlist_name = ?)
         LIMIT ? OFFSET ?
         """
         # QUERY_DELETE_MULTIPLE = """
@@ -395,6 +404,11 @@ class MusicDB(Database):
         # WHERE guild_id = ? AND playlist_name = ?
         # LIMIT ? OFFSET ?
         # """
+        QUERY_SELECT_ALL = """
+        SELECT * FROM Track
+        WHERE (guild_id = ?) AND (playlist_name = ?)
+        """
+
         QUERY_DELETE_MULTIPLE = """
         DELETE FROM Track
         WHERE ROWID in (
@@ -444,7 +458,7 @@ class MusicDB(Database):
 
     async def insertPlaylist(self, playlist: Playlist) -> bool:
         async with aiosqlite.connect(self.file_path) as db:
-            cursor = await db.execute(MusicDB.Playlist.QUERY_INSERT)
+            cursor = await db.execute(MusicDB.Playlist.QUERY_INSERT, playlist.astuple())
             row_count = cursor.rowcount
             await db.commit()
         return row_count > 0
@@ -452,7 +466,7 @@ class MusicDB(Database):
     async def updatePlaylist(self, guild_id: int, playlist_name: str, new_playlist: Playlist):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(MusicDB.Playlist.QUERY_UPDATE, {
-                "guild_id": guild_id, "playlist_name": playlist_name,
+                "guild_id": guild_id, "name": playlist_name,
                 "new_name": new_playlist.name, "new_description": new_playlist.description
             })
             await db.commit()
@@ -482,13 +496,14 @@ class MusicDB(Database):
         # tracks = [dict(track.asdict().items()[:-1]) for track in tracks]
         tracks = [track.asdict() for track in tracks]
         async with aiosqlite.connect(self.file_path) as db:
-            unique_tracks = await db.executemany(MusicDB.Track.QUERY_APPEND_IF_UNIQUE, tracks)
-            return len(unique_tracks)
-
-            # """
-            #         INSERT INTO Track (guild_id, playlist_name, title, duration, encoded)
-            #         VALUES (:guild_id, :playlist_name, :title, :duration, :encoded)
-            #         """
+            db.row_factory = MusicDB.Track.rowFactory
+            cursor: aiosqlite.Cursor = await db.executemany(MusicDB.Track.QUERY_APPEND_IF_UNIQUE, tracks)
+            unique_tracks: MusicDB.Track = await cursor.fetchall()
+        return len(unique_tracks), sum([t.duration for t in unique_tracks])
+        # """
+        # INSERT INTO Track (guild_id, playlist_name, title, duration, encoded)
+        # VALUES (:guild_id, :playlist_name, :title, :duration, :encoded)
+        # """
 
     async def upsertMusicSettings(self, music_settings: MusicSettings):
         async with aiosqlite.connect(self.file_path) as db:
@@ -497,23 +512,31 @@ class MusicDB(Database):
 
     async def fetchMusicSettings(self, guild_id: int) -> MusicSettings:
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(MusicDB.MusicSettings.QUERY_SELECT, (guild_id,))
-            await db.commit()
+            db.row_factory = MusicDB.MusicSettings.rowFactory
+            settings = await db.execute_fetchall(MusicDB.MusicSettings.QUERY_SELECT, (guild_id,))
+            settings = settings[0]
+            # await db.commit()
+        return settings
 
     async def fetchPlaylist(self, guild_id: int, playlist_name: str) -> Playlist:
         async with aiosqlite.connect(self.file_path) as db:
-            playlist: MusicDB.Playlist = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT, (guild_id, playlist_name))
+            db.row_factory = MusicDB.Playlist.rowFactory
+            playlist: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT, (guild_id, playlist_name))
+            if playlist: playlist: MusicDB.Playlist = playlist[0]
             await db.commit()
+
         return playlist
 
     async def fetchPlaylists(self, guild_id: int, playlist_name: str, limit: int=1, offset: int=0) -> list[Playlist]:
         async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = MusicDB.Playlist.rowFactory
             playlists: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT_MULTIPLE,
                                                                           (guild_id, playlist_name, offset, limit))
         return playlists
 
     async def fetchSimilarPlaylists(self, guild_id: int, playlist_name: str, limit: int = 1, offset: int = 0) -> list[Playlist]:
         async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = MusicDB.Playlist.rowFactory
             playlists: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT_MULTIPLE,
                                                                           (guild_id, f"%{playlist_name}%", offset, limit))
         return playlists
@@ -521,22 +544,31 @@ class MusicDB(Database):
     async def fetchSimilarPlaylistNames(self, guild_id: int, playlist_name: str, limit: int = 1, offset: int = 0
                                         ) -> list[str]:
         async with aiosqlite.connect(self.file_path) as db:
-            names = list[str] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT_LIKE_NAMES,
-                                                          (guild_id, playlist_name, limit, offset))
-            return names
-
+            names: list[str] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT_LIKE_NAMES,
+                                                         (guild_id, f"%{playlist_name}%", limit, offset))
+            names = [n[0] for n in names]
+        return names
 
     async def fetchTracks(self, guild_id: int, playlist_name: str, limit: int=1, offset: int=0) -> list[Track]:
         async with aiosqlite.connect(self.file_path) as db:
-            tracks: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_SELECT_MULTIPLE,
-                                                                    (guild_id, playlist_name, limit, offset))
-            return tracks
+            db.row_factory = MusicDB.Track.rowFactory
+            if limit:
+                query = MusicDB.Track.QUERY_SELECT_MULTIPLE
+                bindings = (guild_id, playlist_name, limit, offset)
+            else:
+                query = MusicDB.Track.QUERY_SELECT_ALL
+                bindings = (guild_id, playlist_name)
+            tracks: list[MusicDB.Track] = await db.execute_fetchall(query, bindings)
+        return tracks
 
     async def deletePlaylist(self, guild_id: int, playlist_name: str):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(MusicDB.Playlist.QUERY_DELETE,
-                             (guild_id, playlist_name))
+            db.row_factory = MusicDB.Playlist.rowFactory
+            playlist: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.QUERY_DELETE,
+                                                                         (guild_id, playlist_name))
+            playlist: MusicDB.Playlist = playlist[0]
             await db.commit()
+        return playlist
 
     async def moveTracks(self, track_index: int, new_index: int, track_count: int=1):
         async with aiosqlite.connect(self.file_path) as db:
@@ -544,6 +576,7 @@ class MusicDB(Database):
                 "track_index": track_index, "new_index": new_index, "track_count": track_count
             })
             await db.commit()
+
 
 class Music(GroupCog,
             group_name="m",
@@ -1096,6 +1129,9 @@ class PlaylistTransformer(Transformer):
         names = await db.fetchSimilarPlaylistNames(guild_id=interaction.guild_id,
                                                    playlist_name=value,
                                                    limit=25)
+        # names = list(map(lambda n: n[0], names))
+        # Equivalent map statement
+        # names = [n[0] for n in names]
         choices = [Choice(name=name, value=name) for name in names]
         return choices
 
@@ -1127,9 +1163,6 @@ def createNewPlaylist(name: str, description: str="", tracks: list[WavelinkTrack
     return new_playlist
 
 
-
-
-
 # TODO Confirmation dialogues sent ephemerally for deletions and edits and such, anything important like that
 class PlaylistCog(GroupCog,
                   group_name="p",
@@ -1151,7 +1184,6 @@ class PlaylistCog(GroupCog,
 
     Playlist_Transformer = Transform[MusicDB.Playlist, PlaylistTransformer]
     # Playlist_Transformer_NoError = Transform[OldPlaylist, OldPlaylistTransformer(raise_error=False)]
-
 
     @create.command(name="new",
                     description="create a new empty playlist")
@@ -1176,16 +1208,18 @@ class PlaylistCog(GroupCog,
     async def p_create_queue(self, interaction: Interaction,
                              playlist: Playlist_Transformer,
                              description: str=""):
+        await respond(interaction, ephemeral=True)
         if playlist: raise MusicDB.PlaylistAlreadyExists
         else:
-            playlsit = MusicDB.Playlist(guild_id=interaction.guild_id,
+            playlist = MusicDB.Playlist(guild_id=interaction.guild_id,
                                         name=interaction.namespace.playlist,
                                         description=description)
 
         voice_client: Player = interaction.guild.voice_client
         # voice_client = player_instance.value
-        tracks = voice_client.allTracks()
-
+        wavelink_tracks = voice_client.allTracks()
+        tracks = [MusicDB.Track.fromWavelink(guild_id=playlist.guild_id, playlist_name=playlist.name, track=track)
+                  for track in wavelink_tracks]
         await self.database.insertPlaylist(playlist)
         await self.database.insertTracks(tracks)
         info_text = f"Created playlist `{playlist.name}` with `{len(tracks)} tracks`"
@@ -1199,7 +1233,7 @@ class PlaylistCog(GroupCog,
                           description="deletes a playlist")
     async def p_delete(self, interaction: Interaction,
                        playlist: Playlist_Transformer):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if not playlist: raise MusicDB.PlaylistNotFound
         # voice_client = interaction.guild.voice_client
         await self.database.deletePlaylist(guild_id=interaction.guild_id,
@@ -1212,6 +1246,7 @@ class PlaylistCog(GroupCog,
     async def p_play(self, interaction: Interaction,
                      playlist: Playlist_Transformer,
                      interrupt: bool=False):
+        await respond(interaction)
         voice_client: Player = interaction.guild.voice_client
 
         if not playlist: raise MusicDB.PlaylistNotFound
@@ -1227,7 +1262,7 @@ class PlaylistCog(GroupCog,
 
         await respond(interaction, f"Added {track_count} tracks "
                                    f"with a duration of {secondsToTime(duration//1000)} "
-                                   f"from playlist `{playlist.name}`", delete_after=3)
+                                   f"from playlist `{playlist.name}`", delete_after=5)
 
         # info_text = addedToQueueMessage(track_count, duration)
         # await respondWithTracks(self.bot, interaction, tracks)
@@ -1235,6 +1270,7 @@ class PlaylistCog(GroupCog,
 
     # TODO Alias play command without the m before it in global space for ease of use
 
+    @requireVoiceclient()
     @add.command(name="queue",
                  description="adds the queue to a playlist")
     async def p_add_queue(self, interaction: Interaction,
@@ -1246,7 +1282,12 @@ class PlaylistCog(GroupCog,
         wavelink_tracks = voice_client.allTracks()
         tracks = [MusicDB.Track.fromWavelink(interaction.guild_id, playlist.name, track) for track in wavelink_tracks]
 
-        track_count, duration = self.database.appendTracksNoDuplicates(tracks)
+        if allow_duplicates:
+            await self.database.insertTracks(tracks)
+            track_count = len(tracks)
+            duration = sum([t.duration for t in tracks])
+        else:
+            track_count, duration = await self.database.appendTracksNoDuplicates(tracks)
 
         await respond(interaction, f"Added `{track_count}` tracks with a duration of `{secondsToTime(duration//1000)}`"
                                    f"to the playlist: {playlist.name}", delete_after=3)
@@ -1283,7 +1324,8 @@ class PlaylistCog(GroupCog,
                   description="view all playlists")
     async def p_view_all(self, interaction: Interaction):
 
-        await respond("This command is currently non functional", delete_after=3) # TODO reimplement this command using sql
+        await respond(interaction, "This command is currently non functional", delete_after=3)
+        # TODO reimplement this command using sql
 
         """
         og_response = await respond(interaction)
@@ -1345,7 +1387,7 @@ class PlaylistCog(GroupCog,
                   description="view all tracks in a playlist")
     async def p_view_tracks(self, interaction: Interaction,
                             playlist: Playlist_Transformer):
-        await respond("This command is currently non functional", delete_after=3) # TODO reimplement this command using sql
+        await respond(interaction, "This command is currently non functional", delete_after=3) # TODO reimplement this command using sql
 
         """
         og_response = await respond(interaction)
@@ -1402,12 +1444,18 @@ class PlaylistCog(GroupCog,
                   description="edits playlist details eg. title & description")
     @app_commands.rename(new_playlist="name")
     async def p_edit_details(self, interaction: Interaction,
-                             playlist: Playlist_Transformer, new_playlist: Playlist_Transformer, description: str):
+                             playlist: Playlist_Transformer, new_playlist: Playlist_Transformer=None, description: str=None):
         # await respond(interaction, ephemeral=True)
         await respond(interaction, delete_after=3)
         if not playlist: raise MusicDB.PlaylistNotFound
         if new_playlist: raise MusicDB.PlaylistAlreadyExists
-        new_playlist.description = description
+        if not description: description = playlist.description
+        name = interaction.namespace.name or playlist.name
+        description = description or playlist.description
+        new_playlist = self.database.Playlist(guild_id=interaction.guild_id,
+                                              name=name,
+                                              description=description)
+
         await self.database.updatePlaylist(guild_id=interaction.guild_id, playlist_name=playlist.name, new_playlist=new_playlist)
         await respond(interaction, "Successfully edited the playlist", delete_after=3)
 
