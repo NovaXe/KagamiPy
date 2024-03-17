@@ -251,20 +251,87 @@ class MusicDB(Database):
         """
         QUERY_APPEND_IF_UNIQUE = """
         INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
-        SELECT :guild_id, :playlist_name, :title, :duration, :encoded, 
-            (
+        SELECT :guild_id, :playlist_name, :title, :duration, :encoded, (
                 SELECT COALESCE(MAX(track_index), 0) + 1 
                 FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
             )
         WHERE NOT EXISTS (
             SELECT 1 FROM Track
-            WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name) AND (encoded=:encoded)
+            WHERE guild_id = :guild_id AND playlist_name = :playlist_name AND encoded = :encoded
         ) RETURNING *
         """
-        # WHERE NOT EXISTS (
+        # """
+        # INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
+        # SELECT :guild_id, :playlist_name, :title, :duration, :encoded, (
+        #         SELECT COALESCE(MAX(track_index), 0) + 1
+        #         FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
+        #     )
+        # EXCEPT
+        # SELECT guild_id, playlist_name, title, duration, encoded, (
+        #         SELECT COALESCE(MAX(track_index), 0) + 1
+        #         FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
+        #     )
+        # FROM Track WHERE :encoded IN (
+        #     SELECT encoded FROM Track
+        #     WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name)
+        # )
+        # """
+
+
+
+
+        # """
+        # VALUES (:guild_id, :playlist_name, :title, :duration, :encoded,
+        #     CASE COALESCE((
+        #         SELECT track_index FROM Track
+        #         WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name) AND (encoded=:encoded)
+        #     ), -1)
+        #     WHEN -1
+        #     THEN (
+        #         SELECT COALESCE(MAX(track_index), 0) + 1
+        #         FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
+        #     )
+        #     END
+        # )
+        # """
+
+        # """
+        # VALUES (:guild_id, :playlist_name, :title, :duration, :encoded,
+        # CASE found_index
+        # WHEN NULL
+        # THEN (
+        #         SELECT COALESCE(MAX(track_index), 0) + 1
+        #         FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
+        # )
+        # ELSE found_index
+        # END)
+        # SELECT track_index AS found_index FROM Track
+        # WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (encoded=:encoded)
+        #
+        #
+        # RETURNING *
+        # """
+
+
+        # VALUES (:guild_id, :playlist_name, :title, :duration, :encoded,
+        #     (
+        #         SELECT track_index FROM Track
+        #         WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (encoded=:encoded)
+        #     )
+        # ) RETURNING *
+
+        # """
+        #         INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
+        #         SELECT :guild_id, :playlist_name, :title, :duration, :encoded,
+        #             (
+        #                 SELECT COALESCE(MAX(track_index), 0) + 1
+        #                 FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
+        #             )
+        #         WHERE NOT EXISTS (
         #             SELECT 1 FROM Track
-        #             WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (encoded = :encoded)
-        #         )
+        #             WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name) AND (encoded=:encoded)
+        #         ) RETURNING *
+        #         """
 
         # QUERY_INSERT_NO_DUPLICATES = """
         #     INSERT INTO Track (guild_id, playlist_name, title, duration, encoded)
