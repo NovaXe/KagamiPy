@@ -224,6 +224,7 @@ class Sentinel(DictFromToDictMixin):
     response: str = ""
     reactions: list[str] = default_factory(list)
     uses: int = 0
+    users: dict = default_factory(dict)
     enabled: bool = True
 
     @classmethod
@@ -235,6 +236,7 @@ class Sentinel(DictFromToDictMixin):
             "response": self.response,
             "reactions": self.reactions,
             "uses": self.uses,
+            "users": self.users,
             "enabled": self.enabled
         }
 

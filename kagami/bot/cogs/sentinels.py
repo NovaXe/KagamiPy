@@ -379,3 +379,4 @@ class SentinelEditorModal(discord.ui.Modal, title='Edit Sentinels'):
 
 async def setup(bot):
     await bot.add_cog(Sentinels(bot))
+

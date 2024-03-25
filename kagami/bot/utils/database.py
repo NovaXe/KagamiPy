@@ -1,4 +1,5 @@
 import abc
+import sqlite3
 
 import aiosqlite
 from dataclasses import dataclass, asdict, astuple
@@ -183,6 +184,8 @@ class Database:
         self.file_path: str = database_path
 
     async def init(self):
+        # with sqlite3.connect(self.file_path) as db:
+        #     pass
         await self.dropTables()
         await self.createTables()
         # await self.createGlobalTable()

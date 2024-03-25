@@ -260,92 +260,11 @@ class MusicDB(Database):
             WHERE guild_id = :guild_id AND playlist_name = :playlist_name AND encoded = :encoded
         ) RETURNING *
         """
-        # """
-        # INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
-        # SELECT :guild_id, :playlist_name, :title, :duration, :encoded, (
-        #         SELECT COALESCE(MAX(track_index), 0) + 1
-        #         FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
-        #     )
-        # EXCEPT
-        # SELECT guild_id, playlist_name, title, duration, encoded, (
-        #         SELECT COALESCE(MAX(track_index), 0) + 1
-        #         FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
-        #     )
-        # FROM Track WHERE :encoded IN (
-        #     SELECT encoded FROM Track
-        #     WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name)
-        # )
-        # """
-
-
-
-
-        # """
-        # VALUES (:guild_id, :playlist_name, :title, :duration, :encoded,
-        #     CASE COALESCE((
-        #         SELECT track_index FROM Track
-        #         WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name) AND (encoded=:encoded)
-        #     ), -1)
-        #     WHEN -1
-        #     THEN (
-        #         SELECT COALESCE(MAX(track_index), 0) + 1
-        #         FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
-        #     )
-        #     END
-        # )
-        # """
-
-        # """
-        # VALUES (:guild_id, :playlist_name, :title, :duration, :encoded,
-        # CASE found_index
-        # WHEN NULL
-        # THEN (
-        #         SELECT COALESCE(MAX(track_index), 0) + 1
-        #         FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
-        # )
-        # ELSE found_index
-        # END)
-        # SELECT track_index AS found_index FROM Track
-        # WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (encoded=:encoded)
-        #
-        #
-        # RETURNING *
-        # """
-
-
-        # VALUES (:guild_id, :playlist_name, :title, :duration, :encoded,
-        #     (
-        #         SELECT track_index FROM Track
-        #         WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (encoded=:encoded)
-        #     )
-        # ) RETURNING *
-
-        # """
-        #         INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
-        #         SELECT :guild_id, :playlist_name, :title, :duration, :encoded,
-        #             (
-        #                 SELECT COALESCE(MAX(track_index), 0) + 1
-        #                 FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
-        #             )
-        #         WHERE NOT EXISTS (
-        #             SELECT 1 FROM Track
-        #             WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name) AND (encoded=:encoded)
-        #         ) RETURNING *
-        #         """
-
-        # QUERY_INSERT_NO_DUPLICATES = """
-        #     INSERT INTO Track (guild_id, playlist_name, title, duration, encoded)
-        #     SELECT :guild_id, :playlist_name, :title, :duration, :encoded
-        #     WHERE NOT EXISTS (
-        #         SELECT 1 FROM Track
-        #         WHERE guild_id = :guild_id AND playlist_name = :playlist_name AND encoded = :encoded
-        #     ) RETURNING COUNT(*), SUM(duration)
-        #     """
 
         QUERY_UPDATE = """
         UPDATE Track
+        SET title=:title, duration=:duration, encoded=:encoded
         WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name) AND (track_index=:track_index)
-        SET (title=:title, duration=:duration, encoded:encoded)
         """
 
         QUERY_INSERT_AT = """
@@ -356,89 +275,6 @@ class MusicDB(Database):
         QUERY_SHIFT_TRACKS = """
         
         """
-
-        # QUERY_MOVE = """
-        # UPDATE Track SET track_index = track_index + :new_index - :track_index
-        # WHERE guild_id = :guild_id
-        # AND playlist_name = :playlist_name
-        # AND track_index >= :track_index
-        # AND track_index < :new_index + :count;
-        #
-        # UPDATE Track
-        # SET track_index =
-        # CASE
-        #     WHEN ( (:new_index > :track_index) AND (track_index >= :track_index) AND (track_index <= :new_index) )
-        #     THEN (track_index + :count)
-        #     WHEN ( (:new_index < :track_index) AND (track_index <= :track_index) AND (track_index >= :new_index) )
-        #     THEN (track_index - :count)
-        # END
-        # WHERE guild_id = :guild_id
-        # AND playlist_name = :playlist_name;
-        # """
-
-        # QUERY_UPSERT_DUMB = """
-        #         INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
-        #         VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, :track_index)
-        #         ON CONFLICT (guild_id, playlist_name, track_index)
-        #         DO UPDATE SET (title=:title, duration=:duration, encoded:encoded)
-        # """
-
-        QUERY_INSERT_ = ["""
-        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
-        VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, 
-        (
-            CASE 
-            WHEN ( 
-                COALESCE(:track_index, -1) >= 0 
-                AND :track_index <= ( SELECT COALESCE(MAX(track_index), 0) 
-                                      FROM Track WHERE guild_id = :guild_id AND playlist_name = :playlist_name ) ) 
-            THEN :track_index
-            ELSE (
-                SELECT COALESCE(MAX(track_index), -1) + 1
-                FROM Track WHERE guild_id = :guild_id AND playlist_name = :playlist_name
-            )
-            END
-        ) RETURNING *;
-        """, """
-        UPDATE Track SET track_index = 
-        CASE
-            WHEN ( SELECT COALESCE(:track_index, -1) >= 0 AND :track_index <= ( SELECT COALESCE(MAX(track_index), 0) 
-                   FROM Track WHERE guild_id = :guild_id AND playlist_name = :playlist_name ) ) 
-            )
-            ELSE track_index
-        END
-        WHERE track_index >= :track_index AND guild_id = :guild_id AND playlist_name = :playlist_name;
-        """]
-
-        QUERY_INSERT_UPDATE = """
-            INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
-            VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, 
-            (
-                CASE 
-                WHEN ( 
-                    COALESCE(:track_index, -1) >= 0 
-                    AND :track_index <= ( SELECT COALESCE(MAX(track_index), 0) 
-                                          FROM Track WHERE guild_id = :guild_id AND playlist_name = :playlist_name ) ) 
-                THEN :track_index
-                ELSE (
-                    SELECT COALESCE(MAX(track_index), -1) + 1
-                    FROM Track WHERE guild_id = :guild_id AND playlist_name = :playlist_name
-                )
-                END
-            ) RETURNING *;
-
-            UPDATE Track SET track_index = 
-            CASE
-                WHEN ( SELECT COALESCE(:track_index, -1) >= 0 AND :track_index <= ( SELECT COALESCE(MAX(track_index), 0) 
-                       FROM Track WHERE guild_id = :guild_id AND playlist_name = :playlist_name ) ) 
-                )
-                ELSE track_index
-            END
-            WHERE track_index >= :track_index AND guild_id = :guild_id AND playlist_name = :playlist_name;
-            """
-        # hoping this works, update it does not work b/c it needs to be execute script but I have many tracks so executemany
-        # Need to figure out the paradigm for inserting into the middle and adjusting the rest
-        # This issue affects the move method too because it has two queries to be run as a script
 
         QUERY_MOVE = """
         UPDATE Track SET track_index = track_index + :new_index - :track_index
@@ -471,18 +307,35 @@ class MusicDB(Database):
         # WHERE guild_id = ? AND playlist_name = ?
         # LIMIT ? OFFSET ?
         # """
+        QUERY_SELECT_WITH_ENCODED = """
+        SELECT * FROM Track
+        WHERE (guild_id = ?) AND (playlist_name = ?) AND (encoded = ?)
+        """
+
+        QUERY_CHECK_DUPLICATE = """
+        SELECT EXISTS(
+        SELECT 1 FROM Track 
+        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (encoded = :encoded)
+        )
+        """
+
         QUERY_SELECT_ALL = """
         SELECT * FROM Track
         WHERE (guild_id = ?) AND (playlist_name = ?)
         """
 
-        QUERY_DELETE_MULTIPLE = """
+        QUERY_DELETE_BULK = """
         DELETE FROM Track
         WHERE ROWID in (
             SELECT ROWID FROM Track 
             WHERE guild_id = ? AND playlist_name = ? 
             LIMIT ? OFFSET ?
         ) RETURNING *
+        """
+
+        QUERY_DELETE_MULTIPLE = """
+        DELETE FROM Track
+        WHERE :track_index
         """
 
         @classmethod
@@ -563,10 +416,17 @@ class MusicDB(Database):
         # tracks = [dict(track.asdict().items()[:-1]) for track in tracks]
         tracks = [track.asdict() for track in tracks]
         async with aiosqlite.connect(self.file_path) as db:
-            db.row_factory = MusicDB.Track.rowFactory
-            cursor: aiosqlite.Cursor = await db.executemany(MusicDB.Track.QUERY_APPEND_IF_UNIQUE, tracks)
-            unique_tracks: MusicDB.Track = await cursor.fetchall()
-        return len(unique_tracks), sum([t.duration for t in unique_tracks])
+            # db.row_factory = aiosqlite.Cursor.row_factory
+            unique_tracks = []
+            for track in tracks:
+                query_result = await db.execute_fetchall(MusicDB.Track.QUERY_CHECK_DUPLICATE, track)
+                is_duplicate = list(query_result)[0][0]
+                if not is_duplicate: unique_tracks.append(track)
+            await db.executemany(MusicDB.Track.QUERY_INSERT, unique_tracks)
+            await db.commit()
+            # cursor: aiosqlite.Cursor = await db.executemany(MusicDB.Track.QUERY_APPEND_IF_UNIQUE, tracks)
+            # unique_tracks: MusicDB.Track = await cursor.fetchall()
+        return len(unique_tracks), sum([t["duration"] for t in unique_tracks])
         # """
         # INSERT INTO Track (guild_id, playlist_name, title, duration, encoded)
         # VALUES (:guild_id, :playlist_name, :title, :duration, :encoded)
@@ -636,6 +496,13 @@ class MusicDB(Database):
             playlist: MusicDB.Playlist = playlist[0]
             await db.commit()
         return playlist
+
+    async def deleteTrack(self, guild_id: int, playlist_name: str, track_index: int, count: int=1):
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = MusicDB.Track.rowFactory
+            tracks: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE_MULTIPLE, )
+            # need to fix the indices of the tracks that are left either do it in the delete query or afterward
+
 
     async def moveTracks(self, track_index: int, new_index: int, track_count: int=1):
         async with aiosqlite.connect(self.file_path) as db:
@@ -1290,9 +1157,10 @@ class PlaylistCog(GroupCog,
         await self.database.insertPlaylist(playlist)
         await self.database.insertTracks(tracks)
         info_text = f"Created playlist `{playlist.name}` with `{len(tracks)} tracks`"
-        await respond(interaction, f"```swift"
-                                   f"{info_text}\n"
-                                   f"```")
+        await respond(interaction, info_text)
+        # await respond(interaction, f"```swift"
+        #                            f"{info_text}\n"
+        #                            f"```")
         # await respondWithTracks(bot=self.bot, interaction=interaction, tracks=tracks, info_text=info_text)
 
 
@@ -1380,7 +1248,12 @@ class PlaylistCog(GroupCog,
         voice_client: Player = interaction.guild.voice_client
         wavelink_tracks, _ = await searchForTracks(search)
         tracks = [MusicDB.Track.fromWavelink(interaction.guild_id, playlist.name, track) for track in wavelink_tracks]
-        track_count, duration = self.database.appendTracksNoDuplicates(tracks)
+        if allow_duplicates:
+            await self.database.insertTracks(tracks)
+            track_count = 1
+            duration = sum([track.duration for track in tracks])
+        else:
+            track_count, duration = await self.database.appendTracksNoDuplicates(tracks)
 
         info_text = f"Added {len(wavelink_tracks)} with duration: {secondsToTime(duration//1000)} " \
                     f"to the playlist: {playlist.name}"
@@ -1559,8 +1432,12 @@ class PlaylistCog(GroupCog,
                             track_pos: Range[int, 1, None], count: Range[int, 1, None]=1,
                             delete: bool=False, new_pos: Range[int, 1, None]=None):
         # , new_track: str=None probably put in its own command
-        playlist_name = interaction.namespace.playlist
         await respond(interaction, ephemeral=True)
+        guild_id = interaction.guild_id
+        playlist_name = interaction.namespace.playlist
+
+        if delete:
+            await self.database.deleteTrack(guild_id, playlist_name, track_pos, count)
 
         await self.database.moveTracks(track_index=track_pos-1, new_index=new_pos-1, track_count=count)
         """
