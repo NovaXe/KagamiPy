@@ -272,17 +272,7 @@ class MusicDB(Database):
         VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, :track_index)
         """
 
-        QUERY_SHIFT_TRACKS = """
-        
-        """
-
-        QUERY_MOVE = """
-        UPDATE Track SET track_index = track_index + :new_index - :track_index
-        WHERE guild_id = :guild_id
-        AND playlist_name = :playlist_name
-        AND track_index >= :track_index
-        AND track_index < :new_index + :count;
-        
+        QUERY_SHIFT_INDEXES = """
         UPDATE Track 
         SET track_index = 
         CASE 
@@ -294,6 +284,33 @@ class MusicDB(Database):
         WHERE guild_id = :guild_id
         AND playlist_name = :playlist_name;
         """
+
+        QUERY_MOVE = """
+        UPDATE Track SET track_index = track_index + :new_index - :track_index
+        WHERE guild_id = :guild_id
+        AND playlist_name = :playlist_name
+        AND track_index >= :track_index
+        AND track_index < :new_index + :count
+        """
+
+        # QUERY_MOVE = """
+        # UPDATE Track SET track_index = track_index + :new_index - :track_index
+        # WHERE guild_id = :guild_id
+        # AND playlist_name = :playlist_name
+        # AND track_index >= :track_index
+        # AND track_index < :new_index + :count;
+        #
+        # UPDATE Track
+        # SET track_index =
+        # CASE
+        #     WHEN ( (:new_index > :track_index) AND (track_index >= :track_index) AND (track_index <= :new_index) )
+        #     THEN (track_index + :count)
+        #     WHEN ( (:new_index < :track_index) AND (track_index <= :track_index) AND (track_index >= :new_index) )
+        #     THEN (track_index - :count)
+        # END
+        # WHERE guild_id = :guild_id
+        # AND playlist_name = :playlist_name;
+        # """
         # when increasing the index, decrement the indices of the tracks between the old position and the new
         # when decreasing the index, increment the indices of the tracks between the old position and the new
 
@@ -333,9 +350,12 @@ class MusicDB(Database):
         ) RETURNING *
         """
 
+
+
         QUERY_DELETE_MULTIPLE = """
         DELETE FROM Track
-        WHERE :track_index
+        WHERE (track_index >= :track_index) AND (track_index < :track_index + :count)
+        RETURNING *
         """
 
         @classmethod
@@ -497,11 +517,20 @@ class MusicDB(Database):
             await db.commit()
         return playlist
 
-    async def deleteTrack(self, guild_id: int, playlist_name: str, track_index: int, count: int=1):
+    async def deleteTracks(self, guild_id: int, playlist_name: str, track_index: int, count: int=1):
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.Track.rowFactory
+
             tracks: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE_MULTIPLE, )
             # need to fix the indices of the tracks that are left either do it in the delete query or afterward
+
+    async def deleteSeperateTracks(self, guild_id: int, playlist_name: str, track_indices: list[int]):
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = MusicDB.Track.rowFactory
+            tracks = []
+            for idx in track_indices:
+                result = await db.execute_fetchall(MusicDB.Track.)
+                tracks.append()
 
 
     async def moveTracks(self, track_index: int, new_index: int, track_count: int=1):
