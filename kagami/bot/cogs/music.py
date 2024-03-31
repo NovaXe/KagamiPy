@@ -239,6 +239,36 @@ class MusicDB(Database):
         FOREIGN KEY(guild_id, playlist_name) REFERENCES Playlists(guild_id, name)
         ON UPDATE CASCADE ON DELETE CASCADE)
         """
+        QUERY_BEFORE_INSERT_TRIGGER = """
+        CREATE TRIGGER IF NOT EXISTS shift_indices_before_insert
+        BEFORE INSERT ON Tracks
+        BEGIN
+        UPDATE Tracks
+        SET track_index = track_index + 1
+        WHERE track_index >= NEW.track_index;
+        END
+        """ # AND rowid != NEW.rowid
+        QUERY_AFTER_UPDATE_TRIGGER = """
+        CREATE TRIGGER IF NOT EXISTS shift_indices_before_update
+        AFTER UPDATE OF track_index ON Tracks
+        BEGIN
+        UPDATE Tracks
+        SET track_index = track_index + 1
+        WHERE track_index >= NEW.track_index AND track_index < OLD.track_index AND rowid != OLD.rowid;
+        UPDATE Tracks
+        SET track_index = track_index - 1
+        WHERE track_index > OLD.track_index AND track_index <= NEW.track_index AND rowid != OLD.rowid;
+        END
+        """
+        QUERY_AFTER_DELETE_TRIGGER = """
+        CREATE TRIGGER IF NOT EXISTS shift_indices_before_delete
+        AFTER DELETE ON Tracks
+        BEGIN
+        UPDATE Tracks
+        SET track_index = track_index - 1
+        WHERE track_index > OLD.track_index;
+        END
+        """
         QUERY_INSERT = """
         INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
         VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, 
@@ -248,6 +278,10 @@ class MusicDB(Database):
             )
         )
         RETURNING track_index
+        """
+        QUERY_INSERT_AT = """
+        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
+        VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, :track_index)
         """
         QUERY_APPEND_IF_UNIQUE = """
         INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
@@ -267,10 +301,7 @@ class MusicDB(Database):
         WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name) AND (track_index=:track_index)
         """
 
-        QUERY_INSERT_AT = """
-        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
-        VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, :track_index)
-        """
+
 
         QUERY_SHIFT_INDEXES = """
         UPDATE Track 
@@ -285,12 +316,24 @@ class MusicDB(Database):
         AND playlist_name = :playlist_name;
         """
 
-        QUERY_MOVE = """
+        _QUERY_MOVE = """
         UPDATE Track SET track_index = track_index + :new_index - :track_index
         WHERE guild_id = :guild_id
         AND playlist_name = :playlist_name
         AND track_index >= :track_index
         AND track_index < :new_index + :count
+        """
+
+        """
+        where (index >= start_index) and (index < start_index + count)
+        do (index = )
+        """
+
+        QUERY_MOVE = """
+        UPDATE Track 
+        SET track_index = track_index + (:new_index - :track_index)
+        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) 
+        AND (track_index >= :track_index) AND (track_index < :track_index + :count)
         """
 
         # QUERY_MOVE = """
@@ -350,11 +393,9 @@ class MusicDB(Database):
         ) RETURNING *
         """
 
-
-
-        QUERY_DELETE_MULTIPLE = """
+        QUERY_DELETE = """
         DELETE FROM Track
-        WHERE (track_index >= :track_index) AND (track_index < :track_index + :count)
+        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (track_index >= :track_index) AND (track_index < :track_index + :count)
         RETURNING *
         """
 
@@ -381,6 +422,7 @@ class MusicDB(Database):
     async def init(self):
         await self.dropTables()
         await self.createTables()
+        await self.createTriggers()
 
     async def dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
@@ -394,6 +436,13 @@ class MusicDB(Database):
             await db.execute(MusicDB.MusicSettings.QUERY_CREATE_TABLE)
             await db.execute(MusicDB.Playlist.QUERY_CREATE_TABLE)
             await db.execute(MusicDB.Track.QUERY_CREATE_TABLE)
+            await db.commit()
+
+    async def createTriggers(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(MusicDB.Track.QUERY_BEFORE_INSERT_TRIGGER)
+            await db.execute(MusicDB.Track.QUERY_AFTER_UPDATE_TRIGGER)
+            await db.execute(MusicDB.Track.QUERY_AFTER_DELETE_TRIGGER)
             await db.commit()
 
     async def insertPlaylist(self, playlist: Playlist) -> bool:
@@ -471,7 +520,6 @@ class MusicDB(Database):
             playlist: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT, (guild_id, playlist_name))
             if playlist: playlist: MusicDB.Playlist = playlist[0]
             await db.commit()
-
         return playlist
 
     async def fetchPlaylists(self, guild_id: int, playlist_name: str, limit: int=1, offset: int=0) -> list[Playlist]:
@@ -517,27 +565,40 @@ class MusicDB(Database):
             await db.commit()
         return playlist
 
-    async def deleteTracks(self, guild_id: int, playlist_name: str, track_index: int, count: int=1):
+    async def deleteTrack(self, guild_id: int, playlist_name: str, track_index: int, count: int=1):
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.Track.rowFactory
-
-            tracks: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE_MULTIPLE, )
+            params = {"guild_id": guild_id,
+                      "playist_name": playlist_name,
+                      "track_index": track_index,
+                      "count": count}
+            tracks: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE, params)
+            await db.commit()
+        return tracks
             # need to fix the indices of the tracks that are left either do it in the delete query or afterward
 
-    async def deleteSeperateTracks(self, guild_id: int, playlist_name: str, track_indices: list[int]):
+    async def deleteTracks(self, guild_id: int, playlist_name: str, track_positions: list[int]) -> list[Track]:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.Track.rowFactory
             tracks = []
-            for idx in track_indices:
-                result = await db.execute_fetchall(MusicDB.Track.)
-                tracks.append()
+            for idx in track_positions:
+                params = {"guild_id": guild_id,
+                          "playist_name": playlist_name,
+                          "track_index": idx,
+                          "count": 1}
+                result = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE, params)
+                tracks.append(result)
+            await db.commit()
+        return tracks
 
-
-    async def moveTracks(self, track_index: int, new_index: int, track_count: int=1):
+    async def moveTracks(self, guild_id: int, playlist_name: str, track_index: int, new_index: int, track_count: int=1):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(MusicDB.Track.QUERY_MOVE, {
-                "track_index": track_index, "new_index": new_index, "track_count": track_count
-            })
+            params = {"guild_id": guild_id,
+                      "playlist_name": playlist_name,
+                      "track_index": track_index,
+                      "new_index": new_index,
+                      "count": track_count}
+            await db.execute(MusicDB.Track.QUERY_MOVE, params)
             await db.commit()
 
 
@@ -1141,6 +1202,7 @@ class PlaylistCog(GroupCog,
     # remove = Group(name="remove", description="removing tracks or playlists")
     view = Group(name="view", description="view playlists and tracks")
     edit = Group(name="edit", description="edit playlist info and tracks")
+    tracks = Group(name="tracks", description="handles playlist tracks")
 
     # Playlist_Transformer = Transform[OldPlaylist, OldPlaylistTransformer]
     # Playlist_Transformer_NoError = Transform[OldPlaylist, OldPlaylistTransformer(raise_error=False)]
@@ -1454,21 +1516,24 @@ class PlaylistCog(GroupCog,
         """
 
 
-    @requireOptionalParams(params=["new_pos", "delete"])
-    @edit.command(name="tracks", description="move or replace a track in a playlist")
-    async def p_edit_tracks(self, interaction: Interaction,
-                            playlist: Playlist_Transformer,
-                            track_pos: Range[int, 1, None], count: Range[int, 1, None]=1,
-                            delete: bool=False, new_pos: Range[int, 1, None]=None):
-        # , new_track: str=None probably put in its own command
-        await respond(interaction, ephemeral=True)
-        guild_id = interaction.guild_id
-        playlist_name = interaction.namespace.playlist
-
-        if delete:
-            await self.database.deleteTrack(guild_id, playlist_name, track_pos, count)
-
-        await self.database.moveTracks(track_index=track_pos-1, new_index=new_pos-1, track_count=count)
+    # @requireOptionalParams(params=["new_pos", "delete"])
+    # @edit.command(name="tracks", description="move or replace a track in a playlist")
+    # async def p_edit_tracks(self, interaction: Interaction,
+    #                         playlist: Playlist_Transformer,
+    #                         track_pos: Range[int, 1, None], count: Range[int, 1, None]=1,
+    #                         delete: bool=False, new_pos: Range[int, 1, None]=None):
+    #     # , new_track: str=None probably put in its own command
+    #     await respond(interaction, ephemeral=True)
+    #     guild_id = interaction.guild_id
+    #     playlist_name = interaction.namespace.playlist
+    #
+    #     if delete:
+    #         tracks: list[MusicDB.Track] = await self.database.deleteTrack(guild_id, playlist_name, track_pos, count)
+    #         await respond(interaction, f"`Removed {len(tracks)} tracks from {playlist_name}`", delete_after=5)
+    #
+    #     await self.database.moveTracks(guild_id=guild_id, playlist_name=playlist_name,
+    #                                    track_index=track_pos, new_index=new_pos, track_count=count)
+    #     await respond(interaction, f"`Moved {count} tracks`", delete_after=5)
         """
         if track_pos > len(playlist.tracks): raise errors.CustomCheck("`track_pos` outside of plaaylist range")
         new_track_index = (new_pos if new_pos else track_pos)
@@ -1493,6 +1558,29 @@ class PlaylistCog(GroupCog,
         await respondWithTracks(self.bot, interaction, tracks, info_text)
         """
 
+    @tracks.command(name="move", description="move tracks within a playlist")
+    async def p_tracks_move(self, interaction: Interaction, playlist: Playlist_Transformer,
+                            track_pos: Range[int, 1, None], new_pos: Range[int, 1, None], count: Range[int, 1, None]=1):
+        if not playlist: raise errors.PlaylistNotFound
+
+        await respond(interaction)
+        guild_id = interaction.guild_id
+        playlist_name = interaction.namespace.playlist
+        await self.database.moveTracks(guild_id=guild_id, playlist_name=playlist_name,
+                                       track_index=track_pos, new_index=new_pos, track_count=count)
+        await respond(interaction, f"`Moved {count} tracks`", delete_after=5)
+
+    @tracks.command(name="delete", description="delete tracks within a playlist")
+    async def p_tracks_delete(self, interaction: Interaction, playlist: Playlist_Transformer,
+                              track_pos: Range[int, 1, None], count: Range[int, 1, None]=1):
+        await respond(interaction, "Comming with music rewrite", delete_after=5)
+        guild_id = interaction.guild_id
+        playlist_name = interaction.namespace.playlist
+
+        tracks: list[MusicDB.Track] = await self.database.deleteTrack(guild_id, playlist_name, track_pos, count)
+        await respond(interaction, f"`Removed {len(tracks)} tracks from {playlist_name}`", delete_after=5)
+
+
     def setContextVars(self, interaction: Interaction):
         old_server_data.value = self.bot.getServerData(interaction.guild_id)
         player_instance.value = interaction.guild.voice_client
@@ -1508,6 +1596,7 @@ class PlaylistCog(GroupCog,
 
         return True
     # async def autocomplete_check
+
 
 
 
