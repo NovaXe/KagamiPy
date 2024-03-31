@@ -241,32 +241,34 @@ class MusicDB(Database):
         """
         QUERY_BEFORE_INSERT_TRIGGER = """
         CREATE TRIGGER IF NOT EXISTS shift_indices_before_insert
-        BEFORE INSERT ON Tracks
+        BEFORE INSERT ON Track
         BEGIN
-        UPDATE Tracks
+        UPDATE Track
         SET track_index = track_index + 1
-        WHERE track_index >= NEW.track_index;
+        WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) AND (track_index >= NEW.track_index);
         END
         """ # AND rowid != NEW.rowid
         QUERY_AFTER_UPDATE_TRIGGER = """
         CREATE TRIGGER IF NOT EXISTS shift_indices_before_update
-        AFTER UPDATE OF track_index ON Tracks
+        AFTER UPDATE OF track_index ON Track
         BEGIN
-        UPDATE Tracks
+        UPDATE Track
         SET track_index = track_index + 1
-        WHERE track_index >= NEW.track_index AND track_index < OLD.track_index AND rowid != OLD.rowid;
-        UPDATE Tracks
+        WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) 
+        AND (track_index >= NEW.track_index) AND (track_index < OLD.track_index) AND (rowid != OLD.rowid);
+        UPDATE Track
         SET track_index = track_index - 1
-        WHERE track_index > OLD.track_index AND track_index <= NEW.track_index AND rowid != OLD.rowid;
+        WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) 
+        AND (track_index > OLD.track_index) AND (track_index <= NEW.track_index) AND (rowid != OLD.rowid);
         END
         """
         QUERY_AFTER_DELETE_TRIGGER = """
         CREATE TRIGGER IF NOT EXISTS shift_indices_before_delete
-        AFTER DELETE ON Tracks
+        AFTER DELETE ON Track
         BEGIN
-        UPDATE Tracks
+        UPDATE Track
         SET track_index = track_index - 1
-        WHERE track_index > OLD.track_index;
+        WHERE (guild_id = OLD.guild_id) AND (playlist_name = OLD.playlist_name) AND (track_index > OLD.track_index);
         END
         """
         QUERY_INSERT = """
@@ -569,7 +571,7 @@ class MusicDB(Database):
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.Track.rowFactory
             params = {"guild_id": guild_id,
-                      "playist_name": playlist_name,
+                      "playlist_name": playlist_name,
                       "track_index": track_index,
                       "count": count}
             tracks: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE, params)
@@ -583,7 +585,7 @@ class MusicDB(Database):
             tracks = []
             for idx in track_positions:
                 params = {"guild_id": guild_id,
-                          "playist_name": playlist_name,
+                          "playlist_name": playlist_name,
                           "track_index": idx,
                           "count": 1}
                 result = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE, params)
@@ -1419,7 +1421,7 @@ class PlaylistCog(GroupCog,
     async def p_view_tracks(self, interaction: Interaction,
                             playlist: Playlist_Transformer):
         await respond(interaction, "This command is currently non functional", delete_after=3) # TODO reimplement this command using sql
-
+        #
         """
         og_response = await respond(interaction)
         playlist_name = interaction.namespace.playlist
