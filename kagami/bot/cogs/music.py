@@ -248,8 +248,45 @@ class MusicDB(Database):
         WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) AND (track_index >= NEW.track_index);
         END
         """ # AND rowid != NEW.rowid
-        QUERY_AFTER_UPDATE_TRIGGER = """
+        QUERY_BEFORE_UPDATE_TRIGGER = """
         CREATE TRIGGER IF NOT EXISTS shift_indices_before_update
+        BEFORE UPDATE OF track_index ON Track
+        BEGIN
+        UPDATE Track
+        SET track_index = -1 * (track_index + 1)
+        WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) 
+        AND (track_index >= NEW.track_index) AND (track_index < OLD.track_index);
+        UPDATE Track
+        SET track_index = -1 * (track_index - 1)
+        WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) 
+        AND (track_index > OLD.track_index) AND (track_index <= NEW.track_index);
+        END
+        """ # AND (rowid != OLD.rowid)
+        QUERY_AFTER_UPDATE_TRIGGER = """
+        CREATE TRIGGER IF NOT EXISTS shift_indices_after_update
+        AFTER UPDATE OF track_index ON Track
+        BEGIN
+        UPDATE Track
+        SET track_index = -1 * track_index
+        WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) AND (track_index < 0);
+        END
+        """
+
+        QUERY_SHIFT_INDICES_RIGHT = """
+        UPDATE Track
+        SET track_index = track_index + 1
+        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) 
+        AND (track_index >= :new_index) AND (track_index < :old_index)
+        """
+        QUERY_SHIFT_INDICES_LEFT = """
+        UPDATE Track
+        SET track_index = track_index - 1
+        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) 
+        AND (track_index > :old_index) AND (track_index <= :new_index)
+        """
+
+        """
+        CREATE TRIGGER IF NOT EXISTS shift_indices_after_update
         AFTER UPDATE OF track_index ON Track
         BEGIN
         UPDATE Track
@@ -262,6 +299,8 @@ class MusicDB(Database):
         AND (track_index > OLD.track_index) AND (track_index <= NEW.track_index) AND (rowid != OLD.rowid);
         END
         """
+
+
         QUERY_AFTER_DELETE_TRIGGER = """
         CREATE TRIGGER IF NOT EXISTS shift_indices_before_delete
         AFTER DELETE ON Track
@@ -329,6 +368,11 @@ class MusicDB(Database):
         """
         where (index >= start_index) and (index < start_index + count)
         do (index = )
+        """
+        QUERY_MOVE_SINGLE = """
+        UPDATE Track
+        SET track_index = :new_index
+        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (track_index = :track_index)
         """
 
         QUERY_MOVE = """
@@ -442,8 +486,9 @@ class MusicDB(Database):
 
     async def createTriggers(self):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(MusicDB.Track.QUERY_BEFORE_INSERT_TRIGGER)
-            await db.execute(MusicDB.Track.QUERY_AFTER_UPDATE_TRIGGER)
+            # await db.execute(MusicDB.Track.QUERY_BEFORE_INSERT_TRIGGER)
+            # await db.execute(MusicDB.Track.QUERY_BEFORE_UPDATE_TRIGGER)
+            # await db.execute(MusicDB.Track.QUERY_AFTER_UPDATE_TRIGGER)
             await db.execute(MusicDB.Track.QUERY_AFTER_DELETE_TRIGGER)
             await db.commit()
 
@@ -567,16 +612,17 @@ class MusicDB(Database):
             await db.commit()
         return playlist
 
-    async def deleteTrack(self, guild_id: int, playlist_name: str, track_index: int, count: int=1):
+    async def deleteTrack(self, guild_id: int, playlist_name: str, track_index: int, track_count: int) -> Track:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.Track.rowFactory
             params = {"guild_id": guild_id,
                       "playlist_name": playlist_name,
                       "track_index": track_index,
-                      "count": count}
-            tracks: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE, params)
+                      "count": 1}
+            result: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE, params)
+            track = result[0]
             await db.commit()
-        return tracks
+        return track
             # need to fix the indices of the tracks that are left either do it in the delete query or afterward
 
     async def deleteTracks(self, guild_id: int, playlist_name: str, track_positions: list[int]) -> list[Track]:
@@ -593,15 +639,41 @@ class MusicDB(Database):
             await db.commit()
         return tracks
 
-    async def moveTracks(self, guild_id: int, playlist_name: str, track_index: int, new_index: int, track_count: int=1):
+    async def moveTrack_single_query_method(self, guild_id: int, playlist_name: str, track_index: int,
+                                            new_index: int, track_count: int): # single_query_method
         async with aiosqlite.connect(self.file_path) as db:
             params = {"guild_id": guild_id,
                       "playlist_name": playlist_name,
                       "track_index": track_index,
-                      "new_index": new_index,
-                      "count": track_count}
-            await db.execute(MusicDB.Track.QUERY_MOVE, params)
+                      "new_index": new_index}
+            await db.execute(MusicDB.Track.QUERY_MOVE_SINGLE, params)
             await db.commit()
+
+    async def moveTrack(self, guild_id: int, playlist_name: str, track_index: int,
+                        new_index: int, track_count: int): # DeleteInsertMethod
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = MusicDB.Track.rowFactory
+            delete_params = {"guild_id": guild_id,
+                             "playlist_name": playlist_name,
+                             "track_index": track_index,
+                             "count": 1}
+            result: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE, delete_params)
+            await db.commit()
+            track: MusicDB.Track = result[0]
+            shift_params = {"guild_id": guild_id,
+                            "playlist_name": playlist_name,
+                            "old_index": track_index,
+                            "new_index": new_index}
+            track.track_index = new_index
+
+            if new_index < track_index:
+                await db.execute(MusicDB.Track.QUERY_SHIFT_INDICES_RIGHT, shift_params)
+            elif new_index > track_index:
+                await db.execute(MusicDB.Track.QUERY_SHIFT_INDICES_LEFT, shift_params)
+            await db.commit()
+            await db.execute(MusicDB.Track.QUERY_INSERT_AT, track.asdict())
+            await db.commit()
+
 
 
 class Music(GroupCog,
@@ -1568,8 +1640,8 @@ class PlaylistCog(GroupCog,
         await respond(interaction)
         guild_id = interaction.guild_id
         playlist_name = interaction.namespace.playlist
-        await self.database.moveTracks(guild_id=guild_id, playlist_name=playlist_name,
-                                       track_index=track_pos, new_index=new_pos, track_count=count)
+        await self.database.moveTrack(guild_id=guild_id, playlist_name=playlist_name,
+                                      track_index=track_pos, new_index=new_pos, track_count=count)
         await respond(interaction, f"`Moved {count} tracks`", delete_after=5)
 
     @tracks.command(name="delete", description="delete tracks within a playlist")
