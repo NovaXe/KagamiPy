@@ -13,6 +13,7 @@ from discord.ext.commands import GroupCog, Cog
 from discord.ui import Modal, TextInput
 from discord.utils import MISSING
 from wavelink import TrackEventPayload
+from wavelink.exceptions import WavelinkException, InvalidLavalinkResponse
 
 from bot.ext.ui.custom_view import MessageInfo
 from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks, ITL
@@ -46,7 +47,6 @@ async def searchAndQueue(voice_client: Player, search):
     tracks, source = await searchForTracks(search, 1)
     await voice_client.waitAddToQueue(tracks)
     return tracks, source
-
 
 
 async def joinVoice(interaction: Interaction, voice_channel: VoiceChannel):
@@ -93,6 +93,7 @@ def requireVoiceclient(begin_session=False, defer_response=True, ephemeral=False
             return True
 
     return app_commands.check(predicate)
+
 
 def requireOptionalParams(params=list[str], min_count: int=1):
     async def predicate(interaction: Interaction):
@@ -179,7 +180,6 @@ class MusicDB(Database):
         UPDATE Playlist SET name = :new_name, description = :new_description
         WHERE guild_id = :guild_id AND name = :name
         """
-
         QUERY_SELECT = """
         SELECT * FROM Playlist
         WHERE guild_id = ? AND name = ?
@@ -225,16 +225,18 @@ class MusicDB(Database):
         title: str
         duration: int
         encoded: str
+        uri: str
         track_index: int = None
         # Constant representing an execution query for the track table
         QUERY_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS Track(
         guild_id INTEGER NOT NULL,
         playlist_name TEXT NOT NULL,
+        track_index INTEGER NOT NULL,
         title TEXT DEFAULT 'Untitled',
         duration INTEGER DEFAULT 0,
         encoded TEXT NOT NULL,
-        track_index INTEGER NOT NULL,
+        uri TEXT,
         FOREIGN KEY(guild_id, playlist_name) REFERENCES Playlists(guild_id, name)
         ON UPDATE CASCADE ON DELETE CASCADE)
         """ # PRIMARY KEY(guild_id, playlist_name, track_index),
@@ -295,7 +297,6 @@ class MusicDB(Database):
             AND (track_index > OLD.track_index) AND (track_index <= NEW.track_index) AND (rowid != OLD.rowid);
         END
         """
-
         QUERY_SHIFT_INDICES_RIGHT = """
         UPDATE Track
         SET track_index = track_index + 1
@@ -308,10 +309,6 @@ class MusicDB(Database):
         WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) 
         AND (track_index > :old_index) AND (track_index <= :new_index)
         """
-
-
-
-
         QUERY_AFTER_DELETE_TRIGGER = """
         CREATE TRIGGER IF NOT EXISTS shift_indices_before_delete
         AFTER DELETE ON Track
@@ -322,8 +319,8 @@ class MusicDB(Database):
         END
         """
         QUERY_INSERT = """
-        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
-        VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, 
+        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, uri, track_index)
+        VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, :uri,
             (
                 SELECT COALESCE(MAX(track_index), 0) + 1 
                 FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
@@ -332,12 +329,12 @@ class MusicDB(Database):
         RETURNING track_index
         """
         QUERY_INSERT_AT = """
-        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
-        VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, :track_index)
+        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, uri, track_index)
+        VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, :uri, :track_index)
         """
         QUERY_APPEND_IF_UNIQUE = """
-        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, track_index)
-        SELECT :guild_id, :playlist_name, :title, :duration, :encoded, (
+        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, uri, track_index)
+        SELECT :guild_id, :playlist_name, :title, :duration, :encoded, :uri, (
                 SELECT COALESCE(MAX(track_index), 0) + 1 
                 FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
             )
@@ -346,15 +343,11 @@ class MusicDB(Database):
             WHERE guild_id = :guild_id AND playlist_name = :playlist_name AND encoded = :encoded
         ) RETURNING *
         """
-
         QUERY_UPDATE = """
         UPDATE Track
         SET title=:title, duration=:duration, encoded=:encoded
         WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name) AND (track_index=:track_index)
         """
-
-
-
         QUERY_SHIFT_INDEXES = """
         UPDATE Track 
         SET track_index = 
@@ -367,7 +360,6 @@ class MusicDB(Database):
         WHERE guild_id = :guild_id
         AND playlist_name = :playlist_name;
         """
-
         _QUERY_MOVE = """
         UPDATE Track SET track_index = track_index + :new_index - :track_index
         WHERE guild_id = :guild_id
@@ -375,72 +367,36 @@ class MusicDB(Database):
         AND track_index >= :track_index
         AND track_index < :new_index + :count
         """
-
-        """
-        where (index >= start_index) and (index < start_index + count)
-        do (index = )
-        """
         QUERY_MOVE_SINGLE = """
         UPDATE Track
         SET track_index = :new_index
         WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (track_index = :track_index)
         """
-
         QUERY_MOVE = """
         UPDATE Track 
         SET track_index = track_index + (:new_index - :track_index)
         WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) 
         AND (track_index >= :track_index) AND (track_index < :track_index + :count)
         """
-
-        # QUERY_MOVE = """
-        # UPDATE Track SET track_index = track_index + :new_index - :track_index
-        # WHERE guild_id = :guild_id
-        # AND playlist_name = :playlist_name
-        # AND track_index >= :track_index
-        # AND track_index < :new_index + :count;
-        #
-        # UPDATE Track
-        # SET track_index =
-        # CASE
-        #     WHEN ( (:new_index > :track_index) AND (track_index >= :track_index) AND (track_index <= :new_index) )
-        #     THEN (track_index + :count)
-        #     WHEN ( (:new_index < :track_index) AND (track_index <= :track_index) AND (track_index >= :new_index) )
-        #     THEN (track_index - :count)
-        # END
-        # WHERE guild_id = :guild_id
-        # AND playlist_name = :playlist_name;
-        # """
-        # when increasing the index, decrement the indices of the tracks between the old position and the new
-        # when decreasing the index, increment the indices of the tracks between the old position and the new
-
         QUERY_SELECT_MULTIPLE = """
         SELECT * FROM Track
         WHERE (guild_id = ?) AND (playlist_name = ?)
         LIMIT ? OFFSET ?
         """
-        # QUERY_DELETE_MULTIPLE = """
-        # DELETE FROM Track
-        # WHERE guild_id = ? AND playlist_name = ?
-        # LIMIT ? OFFSET ?
-        # """
         QUERY_SELECT_WITH_ENCODED = """
         SELECT * FROM Track
         WHERE (guild_id = ?) AND (playlist_name = ?) AND (encoded = ?)
         """
-
         QUERY_CHECK_DUPLICATE = """
         SELECT EXISTS(
         SELECT 1 FROM Track 
         WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (encoded = :encoded)
         )
         """
-
         QUERY_SELECT_ALL = """
         SELECT * FROM Track
         WHERE (guild_id = ?) AND (playlist_name = ?)
         """
-
         QUERY_DELETE_BULK = """
         DELETE FROM Track
         WHERE ROWID in (
@@ -449,7 +405,6 @@ class MusicDB(Database):
             LIMIT ? OFFSET ?
         ) RETURNING *
         """
-
         QUERY_DELETE = """
         DELETE FROM Track
         WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (track_index >= :track_index) AND (track_index < :track_index + :count)
@@ -462,7 +417,8 @@ class MusicDB(Database):
                        playlist_name=playlist_name,
                        title=track.title,
                        duration=track.duration,
-                       encoded=track.encoded)
+                       encoded=track.encoded,
+                       uri=track.uri)
 
     class MusicDisabled(errors.CustomCheck):
         MESSAGE = "The music feature is disabled"
@@ -477,7 +433,7 @@ class MusicDB(Database):
         MESSAGE = "There is already a playlist with that name"
 
     async def init(self):
-        await self.dropTables()
+        # await self.dropTables()
         await self.createTables()
         await self.createTriggers()
 
@@ -720,9 +676,23 @@ class Music(GroupCog,
 
     async def cog_load(self) -> None:
         await self.database.init()
-        await self.migrateMusicData()
+        # await self.migrateMusicData()
 
     async def migrateMusicData(self):
+        async def convertTracks(_guild_id: int, _playlist_name: str, _tracks: list[OldTrack]) -> list[MusicDB.Track]:
+            new_tracks: list[MusicDB.Track] = []
+            for track in _tracks:
+                try:
+                    wavelink_track = await buildTrack(track.encoded)
+                    _track = MusicDB.Track.fromWavelink(guild_id=_guild_id, playlist_name=_playlist_name,
+                                                        track=wavelink_track)
+                    new_tracks.append(_track)
+                except InvalidLavalinkResponse as e:
+                    print(e)
+                    print(_playlist_name, track.title)
+
+            return new_tracks
+
         for server_id, server in self.bot.data.servers.items():
             server_id = int(server_id)
             try: guild = await self.bot.fetch_guild(server_id)
@@ -733,7 +703,7 @@ class Music(GroupCog,
             await self.database.upsertGuild(self.database.Guild.fromDiscord(guild))
             for playlist_name, playlist in server.playlists.items():
                 new_playlist = MusicDB.Playlist(server_id, playlist_name, playlist.description)
-                tracks = [MusicDB.Track(server_id, playlist_name, track.title, track.duration, track.encoded) for track in playlist.tracks]
+                tracks = await convertTracks(server_id, playlist_name, playlist.tracks)
                 await self.database.upsertPlaylist(new_playlist)
                 await self.database.insertTracks(tracks)
 
@@ -1163,73 +1133,6 @@ class Music(GroupCog,
                 pass
 
 
-# TODO Playlist Functionality needs a reimplementation
-# Reuse as much stuff from the og implementation as it works quite well but try to clean it up
-# IE replace in function checks with decorator checks for parameters to be correct
-# New error types such as PlaylistDoesNotExist
-
-
-
-
-# playlist commands
-# create: Creates a new playlist
-# create new: empty playlist
-# create from_queue
-
-# delete: deletes the playlist
-# rename: change the playlist name
-# edit tracks, order, add / remove
-# add \/
-# add queue: puts the entire queue at the end of the playlist
-# add search: whatever search string is a passed is added
-# pop: remove a track at a specific index
-
-# play / queue: use priority param or something
-# show \/
-# show all
-# show tracks
-
-# def playlistExists(create_new=False):
-#     async def predicate(inteaction: Interaction):
-
-# assert isinstance(server_data, ServerData)
-
-class OldPlaylistTransformer(Transformer):
-    # def __init__(self, create_new: bool=False):
-    #     self.create_new: bool = create_new
-    # def __init__(self, bot: Kagami):
-    #     self.bot: Kagami = bot
-    def __init__(self, raise_error=True):
-        self.raise_error = raise_error
-
-    async def autocomplete(self,
-                           interaction: Interaction,
-                           value: Union[int, float, str], /) -> List[Choice[str]]:
-
-        # close_matches: dict[str, Playlist] = find_closely_matching_dict_keys(value, server_data.playlists, 25)
-        old_server_data.value = bot_var.value.getServerData(interaction.guild_id)
-        playlists = old_server_data.value.playlists
-        keys = list(playlists.keys()) if len(playlists) else []
-        options = similaritySort(keys, value)
-
-        choices = [Choice(name=key, value=key) for key in options][:25]
-        return choices
-
-    async def transform(self, interaction: Interaction, value: Any, /) -> OldPlaylist:
-        playlists = old_server_data.value.playlists
-        if playlists and value in playlists.keys():
-            return playlists[value]
-        else:
-            if self.raise_error: raise errors.PlaylistNotFound
-            else: return None
-            # if self.create_new:
-            #     server_data.playlists[value] = ServerData
-            #     createNewPlaylist(interaction, value)
-            #     await respond(interaction, f"Created Playlist `{value}`")
-            # else:
-            #     raise errors.PlaylistNotFound
-
-
 class PlaylistTransformer(Transformer):
     async def autocomplete(self,
                            interaction: Interaction, value: str, /
@@ -1254,25 +1157,6 @@ class PlaylistTransformer(Transformer):
         return playlist
 
 
-
-def createNewPlaylist(name: str, description: str="", tracks: list[WavelinkTrack]=None):
-    # TODO add a overwrite confirmation if a playlist already exists
-    # Future functionality have a YES / NO choice for overwriting the old one
-    # Send as an ephemeral followup to the original response with a view attached
-    # Wait for a view response and timeout default to No after a little bit
-    playlists = old_server_data.value.playlists
-    if name in playlists.keys():
-        raise errors.PlaylistAlreadyExists
-    else:
-        if tracks:
-            new_playlist = OldPlaylist.initFromTracks(tracks)
-        else:
-            new_playlist = OldPlaylist()
-    new_playlist.description = description
-    playlists[name] = new_playlist
-    return new_playlist
-
-
 # TODO Confirmation dialogues sent ephemerally for deletions and edits and such, anything important like that
 class PlaylistCog(GroupCog,
                   group_name="p",
@@ -1290,11 +1174,7 @@ class PlaylistCog(GroupCog,
     edit = Group(name="edit", description="edit playlist info and tracks")
     tracks = Group(name="tracks", description="handles playlist tracks")
 
-    # Playlist_Transformer = Transform[OldPlaylist, OldPlaylistTransformer]
-    # Playlist_Transformer_NoError = Transform[OldPlaylist, OldPlaylistTransformer(raise_error=False)]
-
     Playlist_Transformer = Transform[MusicDB.Playlist, PlaylistTransformer]
-    # Playlist_Transformer_NoError = Transform[OldPlaylist, OldPlaylistTransformer(raise_error=False)]
 
     @create.command(name="new",
                     description="create a new empty playlist")
@@ -1375,7 +1255,6 @@ class PlaylistCog(GroupCog,
         await respond(interaction, f"Added {track_count} tracks "
                                    f"with a duration of {secondsToTime(duration//1000)} "
                                    f"from playlist `{playlist.name}`", delete_after=5)
-
         # info_text = addedToQueueMessage(track_count, duration)
         # await respondWithTracks(self.bot, interaction, tracks)
         await attemptHaltResume(interaction)
@@ -1576,74 +1455,6 @@ class PlaylistCog(GroupCog,
         await self.database.updatePlaylist(guild_id=interaction.guild_id, playlist_name=playlist.name, new_playlist=new_playlist)
         await respond(interaction, "Successfully edited the playlist", delete_after=3)
 
-        """
-        playlist_name = interaction.namespace.playlist
-
-        edit_modal = SimpleEditModal(title="Edit Playlist Info",
-                                     fields={
-                                         "name": playlist_name,
-                                         "description": playlist.description},
-                                     optional=["description"])
-
-        await interaction.response.send_modal(edit_modal)
-        if not await edit_modal.wait():
-            new_desc = edit_modal.fields.get("description")
-            new_name = edit_modal.fields.get("name")
-            if new_name in old_server_data.value.playlists: raise errors.PlaylistAlreadyExists
-            playlist.description = new_desc
-            if new_name != playlist_name:
-                old_server_data.value.playlists[new_name] = playlist
-                old_server_data.value.playlists.pop(playlist_name)
-
-
-            await respond(interaction, f"Edited playist details", ephemeral=True, delete_after=3)
-        else:
-            await respond(interaction, "Error in modal submission", ephemeral=True, delete_after=3)
-        """
-
-
-    # @requireOptionalParams(params=["new_pos", "delete"])
-    # @edit.command(name="tracks", description="move or replace a track in a playlist")
-    # async def p_edit_tracks(self, interaction: Interaction,
-    #                         playlist: Playlist_Transformer,
-    #                         track_pos: Range[int, 1, None], count: Range[int, 1, None]=1,
-    #                         delete: bool=False, new_pos: Range[int, 1, None]=None):
-    #     # , new_track: str=None probably put in its own command
-    #     await respond(interaction, ephemeral=True)
-    #     guild_id = interaction.guild_id
-    #     playlist_name = interaction.namespace.playlist
-    #
-    #     if delete:
-    #         tracks: list[MusicDB.Track] = await self.database.deleteTrack(guild_id, playlist_name, track_pos, count)
-    #         await respond(interaction, f"`Removed {len(tracks)} tracks from {playlist_name}`", delete_after=5)
-    #
-    #     await self.database.moveTracks(guild_id=guild_id, playlist_name=playlist_name,
-    #                                    track_index=track_pos, new_index=new_pos, track_count=count)
-    #     await respond(interaction, f"`Moved {count} tracks`", delete_after=5)
-        """
-        if track_pos > len(playlist.tracks): raise errors.CustomCheck("`track_pos` outside of plaaylist range")
-        new_track_index = (new_pos if new_pos else track_pos)
-        if new_pos == track_pos: raise errors.CustomCheck("New position same as old position")
-        elif new_pos and new_pos > len(playlist.tracks): raise errors.CustomCheck("New position outside of playlist range")
-
-
-        track_index = track_pos-1
-        new_index = new_pos - 1 if new_pos else track_pos
-
-        # index_difference = new_index - track_index
-        # playlist.tracks = playlist.tracks[:track_index] + playlist.tracks[track_index + count:]
-
-        if not delete: # Move mode
-            tracks, _ = playlist.moveTrackRange(track_index, new_index, count)
-            info_text = f"Moved `{len(tracks)} tracks in playlist: {playlist_name} " \
-                        f"from position {track_pos} to {new_pos}"
-        else:
-            tracks, duration = playlist.removeTrackRange(track_index, count)
-            info_text = f"Deleted {len(tracks)} tracks " \
-                        f"with duration: {secondsToTime(duration//1000)} in playlist: {playlist_name}"
-        await respondWithTracks(self.bot, interaction, tracks, info_text)
-        """
-
     @tracks.command(name="move", description="move tracks within a playlist")
     async def p_tracks_move(self, interaction: Interaction, playlist: Playlist_Transformer,
                             track_pos: Range[int, 1, None], new_pos: Range[int, 1, None], count: Range[int, 1, None]=1):
@@ -1684,54 +1495,23 @@ class PlaylistCog(GroupCog,
     # async def autocomplete_check
 
 
-
-
-
-
-
-
-# Music Related Classes
-
-"""
-list of links to songs or song names or some shit
-maybe don't bother?
-basic edit commands maybe
-
-/p remove playlist
-/p remove track
-
-add an edit button to a playlist when viewing
-or a seperate command to default into edit mode as I don't want to edit the existing shit
-could have a select menu with the 10 tracks from a page as options that can be deselected
-deselecting them removes them
-switching to a new page changes the tracks
-
-
-
-"""
-
-class SimpleEditModal(Modal):
-    def __init__(self, title: str, fields: dict[str, str], optional: list[str]=None):
-        super().__init__(title=title)
-        if not optional: optional = []
-
-        self.fields = fields
-        for field_name, default_value in fields.items():
-            field = TextInput(label=field_name, default=default_value, required=(field_name not in optional))
-            self.add_item(field)
-            if len(self.children) == 5:
-                break
-
-
-    async def on_submit(self, interaction: Interaction) -> None:
-        item: TextInput
-        self.fields.update({item.label: item.value for item in self.children})
-        await respond(interaction)
-
-
-
-
-
+# class SimpleEditModal(Modal):
+#     def __init__(self, title: str, fields: dict[str, str], optional: list[str]=None):
+#         super().__init__(title=title)
+#         if not optional: optional = []
+#
+#         self.fields = fields
+#         for field_name, default_value in fields.items():
+#             field = TextInput(label=field_name, default=default_value, required=(field_name not in optional))
+#             self.add_item(field)
+#             if len(self.children) == 5:
+#                 break
+#
+#
+#     async def on_submit(self, interaction: Interaction) -> None:
+#         item: TextInput
+#         self.fields.update({item.label: item.value for item in self.children})
+#         await respond(interaction)
 
 
 async def setup(bot):
