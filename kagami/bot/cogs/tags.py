@@ -1,10 +1,16 @@
+from dataclasses import dataclass
+import aiosqlite
+
 import discord
-from discord import app_commands
+from discord import app_commands, Interaction, Message, Member
 from discord.ext import commands
+from discord.app_commands import Transformer, Group, Transform, Choice, Range
+from discord.ext.commands import GroupCog, Cog
 
 from bot.utils.bot_data import Server
+from bot.utils.database import Database
 from bot.utils.ui import MessageScroller
-from typing import Literal
+from typing import Literal, Union, List, Any
 from bot.kagami_bot import Kagami
 from datetime import date
 from bot.utils.utils import (
@@ -14,7 +20,128 @@ from bot.utils.utils import (
 from bot.utils.pages import createPageList, createPageInfoText, CustomRepr
 
 
-class Tags(commands.GroupCog, group_name="tag"):
+class TagDB(Database):
+    @dataclass
+    class TagSettings(Database.Row):
+        guild_id: int
+        tags_enabled: bool = True
+        QUERY_CREATE_TABLE = """
+        CREATE TABLE IF NOT EXISTS TagSettings(
+        guild_id INTEGER NOT NULL,
+        tags_enabled INTEGER DEFAULT 1,
+        PRIMARY KEY (guild_id),
+        FOREIGN KEY (guild_id) REFERENCES Guild(id)
+        ON UPDATE CASCADE ON DELETE CASCADE)
+        """
+        QUERY_UPSERT = """
+        INSERT INTO MusicSettings (guild_id, tags_enabled)
+        ON CONFLICT (guild_id)
+        DO UPDATE SET tags_enabled = :tags_enabled
+        """
+        QUERY_SELECT = """
+        SELECT * FROM TagSettings
+        WHERE guild_id = ?
+        """
+        QUERY_DELETE = """
+        DELETE FROM TagSettings
+        WHERE guild_id = ?
+        """
+
+    @dataclass
+    class Tag(Database.Row):
+        guild_id: int
+        name: str
+        content: str
+        embed: str # raw json representing a discord embed
+        author_id: int
+        creation_date: str
+        modified_date: str
+        QUERY_CREATE_TABLE = """
+        CREATE TABLE IF NOT EXISTS Tag(
+        guild_id INTEGER NOT NULL,
+        tag_name TEXT NOT NULL,
+        CONTENT TEXT,
+        EMBED TEXT,
+        author_id INTEGER NOT NULL,
+        PRIMARY KEY (guild_id, tag_name),
+        FOREIGN KEY (guild_id) REFERENCES Guild(id),
+        FOREIGN KEY (author_id) REFERENCES User(id)
+        CHECK (CONTENT NOT NULL OR EMBED NOT NULL)
+        """
+        QUERY_INSERT = """
+        INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date)
+        VALUES (:guild_id, :name, :content, :embed, :author_id, 
+                coalesce(:creation_date, date()), coalesce(:creation_date, date()))
+        ON CONFLICT DO NOTHING
+        """
+        QUERY_UPSERT = """
+        INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date)
+        VALUES (:guild_id, :name, :content, :embed, :author_id, 
+                coalesce(:creation_date, date()), coalesce(:creation_date, date()))
+        ON CONFLICT SET (guild_id, name)
+        DO UPDATE SET content = :content AND embed = :embed AND modified_date = now()
+        """
+        QUERY_UPDATE = """
+        UPDATE Tag SET content = :content AND embed = :embed AND modified_date = now()
+        WHERE guild_id = :guild_id AND name = :name
+        """
+        QUERY_SELECT = """
+        SELECT * FROM Tag
+        WHERE guild_id = ? AND name = ?
+        """
+        QUERY_DELETE = """
+        DELETE FROM Tag
+        WHERE guild_id = ? AND name = ?
+        RETURNING *
+        """
+        QUERY_DELETE_FROM_USER = """
+        DELETE FROM Tag
+        WHERE author_id = ?
+        RETURNING *
+        """
+        QUERY_SELECT_LIKE = """
+        SELECT * FROM Tag
+        WHERE guild_id = ? AND name LIKE ?
+        LIMIT ? OFFSET ?
+        """
+        QUERY_SELECT_LIKE_NAMES = """
+        SELECT name FROM Tag
+        WHERE (guild_id = ?) AND (name LIKE ?)
+        LIMIT ? OFFSET ?
+        """
+
+    async def fetchTag(self, guild_id: int, tag_name: str) -> Tag:
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = TagDB.Tag.rowFactory
+            result: list[TagDB.Tag] = await db.execute_fetchall(TagDB.Tag.QUERY_SELECT, (guild_id, tag_name))
+        return result[0] if result else None
+
+    async def fetchSimilarTagNames(self, guild_id: int, tag_name: str, limit: int=1, offset=0) -> list[str]:
+        async with aiosqlite.connect(self.file_path) as db:
+            names: list[str] = await db.execute_fetchall(TagDB.Tag.QUERY_SELECT_LIKE_NAMES,
+                                                         (guild_id, f"%{tag_name}%", limit, offset))
+            names = [n[0] for n in names]
+        return names
+
+
+class TagTransformer(Transformer):
+    async def autocomplete(self,
+                           interaction: Interaction, value: Union[int, float, str], /
+                           ) -> List[Choice[str]]:
+        bot: Kagami = interaction.client
+        db = TagDB(bot.config.db_path)
+        names = await db.fetchSimilarTagNames(guild_id=interaction.guild_id,
+                                              tag_name=value,
+                                              limit=25)
+
+    async def transform(self, interaction: Interaction, value: Any, /) -> TagDB.Tag:
+        bot: Kagami = interaction.client
+        db = TagDB(bot.config.db_path)
+        tag = await db.fetchTag(guild_id=interaction.guild_id,
+                                tag_name=value)
+
+
+class Tags(GroupCog, group_name="tag"):
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config

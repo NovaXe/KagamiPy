@@ -217,7 +217,6 @@ class MusicDB(Database):
         LIMIT ? OFFSET ?
         """
 
-
     @dataclass
     class Track(Database.Row):
         guild_id: int
