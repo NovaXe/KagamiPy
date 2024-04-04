@@ -180,6 +180,33 @@ class Database:
         RETURNING *
         """
 
+    @dataclass
+    class User(Row):
+        id: int
+        nickname: str
+        QUERY_CREATE_TABLE = """
+        CREATE TABLE IF NOT EXISTS User(
+        id: int,
+        nickname: str,
+        PRIMARY KEY (id)
+        ON UPDATE CASCADE ON DELETE CASCADE)
+        """
+        QUERY_UPSERT = """
+        INSERT INTO User (id)
+        VALUES (:id)
+        ON CONFLICT (id)
+        DO UPDATE SET nickname = :nickname
+        """
+        QUERY_SELECT = """
+        SELECT * FROM User
+        WHERE id = ?
+        """
+        QUERY_DELETE = """
+        DELETE FROM User
+        WHERE id = ?
+        RETURNING *
+        """
+
     def __init__(self, database_path: str):
         self.file_path: str = database_path
 
@@ -194,12 +221,14 @@ class Database:
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute("DROP TABLE IF EXISTS GuildSettings")
             await db.execute("DROP TABLE IF EXISTS Guilds")
+            await db.execute("DROP TABLE IF EXISTS User")
             await db.commit()
 
     async def createTables(self):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(Database.Guild.QUERY_CREATE_TABLE)
             await db.execute(Database.GuildSettings.QUERY_CREATE_TABLE)
+            await db.execute(Database.User.QUERY_CREATE_TABLE)
             await db.commit()
 
     async def upsertGuild(self, guild: Guild) -> Guild:
