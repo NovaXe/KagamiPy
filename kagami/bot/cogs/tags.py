@@ -7,8 +7,10 @@ from discord.ext import commands
 from discord.app_commands import Transformer, Group, Transform, Choice, Range
 from discord.ext.commands import GroupCog, Cog
 
-from bot.utils.bot_data import Server
+from bot.ext import errors
+from bot.utils.bot_data import Server, OldTag
 from bot.utils.database import Database
+from bot.utils.interactions import respond
 from bot.utils.ui import MessageScroller
 from typing import Literal, Union, List, Any
 from bot.kagami_bot import Kagami
@@ -33,6 +35,9 @@ class TagDB(Database):
         FOREIGN KEY (guild_id) REFERENCES Guild(id)
         ON UPDATE CASCADE ON DELETE CASCADE)
         """
+        QUERY_DROP_TABLE = """
+        DROP TABLE IF EXISTS TagSettings
+        """
         QUERY_UPSERT = """
         INSERT INTO MusicSettings (guild_id, tags_enabled)
         ON CONFLICT (guild_id)
@@ -54,8 +59,8 @@ class TagDB(Database):
         content: str
         embed: str # raw json representing a discord embed
         author_id: int
-        creation_date: str
-        modified_date: str
+        creation_date: str = None
+        modified_date: str = None
         QUERY_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS Tag(
         guild_id INTEGER NOT NULL,
@@ -63,26 +68,58 @@ class TagDB(Database):
         CONTENT TEXT,
         EMBED TEXT,
         author_id INTEGER NOT NULL,
+        creation_date TEXT NOT NULL ON CONFLICT REPLACE DEFAULT CURRENT_DATE,
+        modified_date TEXT DEFAULT CURRENT_DATE,
         PRIMARY KEY (guild_id, tag_name),
         FOREIGN KEY (guild_id) REFERENCES Guild(id),
-        FOREIGN KEY (author_id) REFERENCES User(id)
-        CHECK (CONTENT NOT NULL OR EMBED NOT NULL)
+        FOREIGN KEY (author_id) REFERENCES User(id) DEFERRABLE INITIALLY DEFERRED
+        ON UPDATE CASCADE ON DELETE CASCADE)
+        """ # CHECK (CONTENT NOT NULL OR EMBED NOT NULL)
+
+        QUERY_DROP_TABLE = """
+        DROP TABLE IF EXISTS Tag
+        """
+        QUERY_AFTER_INSERT_TRIGGER = """
+        CREATE TRIGGER IF NOT EXISTS set_creation_date_after_insert
+        AFTER INSERT ON Tag
+        """
+        QUERY_BEFORE_INSERT_TRIGGER = """
+        CREATE TRIGGER IF NOT EXISTS insert_user_before_insert
+        BEFORE INSERT ON Tag
+        BEGIN
+            INSERT INTO User(id)
+            id = NEW.author_id
+            ON CONFLICT DO NOTHING;
+        END
+        """
+        QUERY_AFTER_UPDATE_TRIGGER = """
+        CREATE TRIGGER IF NOT EXIST set_modified_data_after_update
+        AFTER UPDATE ON Tag
+        BEGIN
+            UPDATE Tag
+            SET modified_date = DEFAULT
+            WHERE (guild_id = :NEW.guild_id) AND (name = :NEW.name);
+        END
         """
         QUERY_INSERT = """
         INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date)
-        VALUES (:guild_id, :name, :content, :embed, :author_id, 
-                coalesce(:creation_date, date()), coalesce(:creation_date, date()))
+        VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date)
         ON CONFLICT DO NOTHING
         """
+        # QUERY_INSERT = """
+        # INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date)
+        # VALUES (:guild_id, :name, :content, :embed, :author_id,
+        #         coalesce(:creation_date, date()), coalesce(:creation_date, date()))
+        # ON CONFLICT DO NOTHING
+        # """
         QUERY_UPSERT = """
         INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date)
-        VALUES (:guild_id, :name, :content, :embed, :author_id, 
-                coalesce(:creation_date, date()), coalesce(:creation_date, date()))
+        VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date)
         ON CONFLICT SET (guild_id, name)
-        DO UPDATE SET content = :content AND embed = :embed AND modified_date = now()
+        DO UPDATE SET content = :content AND embed = :embed
         """
         QUERY_UPDATE = """
-        UPDATE Tag SET content = :content AND embed = :embed AND modified_date = now()
+        UPDATE Tag SET content = :content AND embed = :embed
         WHERE guild_id = :guild_id AND name = :name
         """
         QUERY_SELECT = """
@@ -109,6 +146,61 @@ class TagDB(Database):
         WHERE (guild_id = ?) AND (name LIKE ?)
         LIMIT ? OFFSET ?
         """
+
+    class TagsDisabled(errors.CustomCheck):
+        MESSAGE = "The tag feature is disabled"
+
+    class TagAlreadyExists(errors.CustomCheck):
+        MESSAGE = "There is already a tag with that name"
+
+    class TagNotFound(errors.CustomCheck):
+        MESSAGE = "There is no tag with that name"
+
+    async def init(self):
+        await self.dropTables()
+        await self.createTables()
+        await self.createTriggers()
+
+    async def createTables(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(TagDB.TagSettings.QUERY_CREATE_TABLE)
+            await db.execute(TagDB.Tag.QUERY_CREATE_TABLE)
+            await db.commit()
+
+    async def createTriggers(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(TagDB.Tag.QUERY_AFTER_UPDATE_TRIGGER)
+            await db.commit()
+
+    async def dropTables(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(TagDB.TagSettings.QUERY_DROP_TABLE)
+            await db.execute(TagDB.Tag.QUERY_DROP_TABLE)
+            await db.commit()
+
+    async def insertTag(self, tag: Tag) -> bool:
+        async with aiosqlite.connect(self.file_path) as db:
+            cursor = await db.execute(TagDB.Tag.QUERY_INSERT, tag.asdict())
+            row_count = cursor.rowcount
+            await db.commit()
+        return row_count > 0
+
+    async def insertTags(self, tags: list[Tag]):
+        async with aiosqlite.connect(self.file_path) as db:
+            data = [tag.asdict() for tag in tags]
+            await db.executemany(TagDB.Tag.QUERY_INSERT, data)
+            await db.commit()
+
+    async def updateTag(self, tag: Tag):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(TagDB.Tag.QUERY_UPDATE, tag.asdict())
+            await db.commit()
+
+    async def deleteTag(self, guild_id: int, name: str) -> Tag:
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = TagDB.Tag.rowFactory
+            result = await db.execute_fetchall(TagDB.Tag.QUERY_DELETE, (guild_id, name))
+        return result[0] if result else None
 
     async def fetchTag(self, guild_id: int, tag_name: str) -> Tag:
         async with aiosqlite.connect(self.file_path) as db:
@@ -141,10 +233,11 @@ class TagTransformer(Transformer):
                                 tag_name=value)
 
 
-class Tags(GroupCog, group_name="tag"):
+class Tags(GroupCog, group_name="t"):
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
+        self.database = TagDB(bot.config.db_path)
         self.ctx_menus = [
             app_commands.ContextMenu(
                 name="Create Local Tag",
@@ -168,9 +261,30 @@ class Tags(GroupCog, group_name="tag"):
 
     # ignored_key_values: list = ['content', 'attachments']
 
+    async def migrateTagData(self):
+        async def convertTag(_guild_id: int, _tag_name: str, _tag: OldTag) -> TagDB.Tag:
+            user = discord.utils.get(self.bot.get_all_members(), name=_tag.author)
+            user_id = user.id if user else 0
+            return TagDB.Tag(guild_id=_guild_id, name=_tag_name,
+                             content=_tag.content, embed=None, author_id=user_id,
+                             creation_date=_tag.creation_date)
+
+        for server_id, server in self.bot.data.servers.items():
+            server_id = int(server_id)
+            guild = await self.bot.fetch_guild(server_id)
+            new_tags = [await convertTag(server_id, tag_name, tag) for tag_name, tag in server.tags.items()]
+            await self.database.insertTags(new_tags)
+
+        new_global_tags = [await convertTag(0, tag_name, tag)
+                           for tag_name, tag in self.bot.data.globals.tags.items()]
+        await self.database.insertTags(new_global_tags)
+
     async def cog_unload(self) -> None:
         for ctx_menu in self.ctx_menus:
             self.bot.tree.remove_command(ctx_menu.name, type=ctx_menu.type)
+
+    async def cog_load(self) -> None:
+        await self.database.init()
 
     get_group = app_commands.Group(name="get", description="gets a tag")
     set_group = app_commands.Group(name="set", description="sets a tag")
@@ -178,6 +292,7 @@ class Tags(GroupCog, group_name="tag"):
     list_group = app_commands.Group(name="list", description="lists the tags")
     search_group = app_commands.Group(name="search", description="searches for tags")
 
+    Tag_Transformer = Transform[TagDB.Tag, TagTransformer]
     # Autocompletes
     async def server_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         user = interaction.user
@@ -234,6 +349,18 @@ class Tags(GroupCog, group_name="tag"):
         if count > 10:
             view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
             await interaction.edit_original_response(content=pages[0], view=view)
+
+    @set_group.command(name="global", description="add a new tag")
+    async def set_global(self, interaction: Interaction, tag: Tag_Transformer, content: str=None, embed: str=None):
+        await respond(interaction)
+        if tag: raise TagDB.TagAlreadyExists
+        else:
+            tag = TagDB.Tag(guild_id=interaction.guild_id,
+                            name=interaction.namespace.tag,
+                            content=content,
+                            embed=embed,
+                            author_id=interaction.user.id)
+
 
     @search_group.command(name="global", description="searches for a global tag")
     async def search_global(self, interaction: discord.Interaction, search: str, count: int = 10):

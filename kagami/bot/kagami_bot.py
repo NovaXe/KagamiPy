@@ -18,7 +18,7 @@ from typing import (
 )
 
 from bot.ext import errors
-from bot.utils.bot_data import Server, BotData, Tag, Sentinel, Track, Playlist, ServerData, server_data, \
+from bot.utils.bot_data import Server, BotData, OldTag, Sentinel, Track, Playlist, ServerData, server_data, \
     BotConfiguration
 from bot.utils.music_helpers import OldPlaylist
 from bot.utils.context_vars import CVar
@@ -116,7 +116,7 @@ class Kagami(commands.Bot):
         g_tags = _globals['tags']
         g_sentinels = _globals['sentinels']
 
-        self.data.globals.tags = {name: Tag(**data) for name, data in g_tags.items()}
+        self.data.globals.tags = {name: OldTag(**data) for name, data in g_tags.items()}
         self.data.globals.sentinels = {name: Sentinel(**data) for name, data in g_sentinels.items()}
         pass # eof
 
@@ -148,7 +148,7 @@ class Kagami(commands.Bot):
                 })
 
             soundboard = {s_name: s_id for s_name, s_id in s_soundboard.items()}
-            tags = {t_name: Tag(**t_data) for t_name, t_data in s_tags.items()}
+            tags = {t_name: OldTag(**t_data) for t_name, t_data in s_tags.items()}
             sentinels = {name: Sentinel(**data) for name, data in s_sentinels.items()}
 
             self.data.servers.update({

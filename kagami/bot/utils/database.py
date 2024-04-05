@@ -186,8 +186,8 @@ class Database:
         nickname: str
         QUERY_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS User(
-        id: int,
-        nickname: str,
+        id INTEGER NOT NULL,
+        nickname TEXT DEFAULT NULL,
         PRIMARY KEY (id)
         ON UPDATE CASCADE ON DELETE CASCADE)
         """

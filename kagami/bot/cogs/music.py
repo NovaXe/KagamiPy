@@ -232,10 +232,10 @@ class MusicDB(Database):
         guild_id INTEGER NOT NULL,
         playlist_name TEXT NOT NULL,
         track_index INTEGER NOT NULL,
-        title TEXT DEFAULT 'Untitled',
+        title TEXT DEFAULT '',
         duration INTEGER DEFAULT 0,
         encoded TEXT NOT NULL,
-        uri TEXT,
+        uri TEXT DEFAULT '',
         FOREIGN KEY(guild_id, playlist_name) REFERENCES Playlists(guild_id, name)
         ON UPDATE CASCADE ON DELETE CASCADE)
         """ # PRIMARY KEY(guild_id, playlist_name, track_index),
@@ -640,7 +640,6 @@ class MusicDB(Database):
             params = track.asdict()
             await db.execute(MusicDB.Track.QUERY_INSERT_AT, params)
             await db.commit()
-
 
 
 class Music(GroupCog,
