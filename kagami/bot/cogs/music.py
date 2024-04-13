@@ -617,7 +617,7 @@ class MusicDB(Database):
             await db.execute(MusicDB.Track.QUERY_MOVE_SINGLE, params)
             await db.commit()
 
-    async def moveTrack_(self, guild_id: int, playlist_name: str, track_index: int,
+    async def moveTrackDeleteInsert(self, guild_id: int, playlist_name: str, track_index: int,
                         new_index: int, track_count: int): # DeleteInsertMethod
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.Track.rowFactory
