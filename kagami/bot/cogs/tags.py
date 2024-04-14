@@ -350,16 +350,42 @@ class Tags(GroupCog, group_name="t"):
             view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
             await interaction.edit_original_response(content=pages[0], view=view)
 
+
+
     @set_group.command(name="global", description="add a new tag")
     async def set_global(self, interaction: Interaction, tag: Tag_Transformer, content: str=None, embed: str=None):
         await respond(interaction)
         if tag: raise TagDB.TagAlreadyExists
-        else:
-            tag = TagDB.Tag(guild_id=interaction.guild_id,
-                            name=interaction.namespace.tag,
-                            content=content,
-                            embed=embed,
-                            author_id=interaction.user.id)
+
+        tag = TagDB.Tag(guild_id=0,
+                        name=interaction.namespace.tag,
+                        content=content,
+                        embed=embed,
+                        author_id=interaction.user.id)
+        await self.database.insertTag(tag)
+
+    async def set_local(self, interaction: Interaction, tag: Tag_Transformer, content: str=None, embed: str=None):
+        await respond(interaction)
+        if tag: raise TagDB.TagAlreadyExists
+
+        tag = TagDB.Tag(guild_id=interaction.guild_id,
+                        name=interaction.namespace.tag,
+                        content=content,
+                        embed=embed,
+                        author_id=interaction.user.id)
+        await self.database.insertTag(tag)
+
+    # async def set_elsewhere(self, interaction: Interaction, tag: Tag_Transformer, content: str=None, embed: str=None):
+    #     await respond(interaction)
+    #     if tag: raise TagDB.TagAlreadyExists
+    #
+    #     tag = TagDB.Tag(guild_id=interaction.guild_id,
+    #                     name=interaction.namespace.tag,
+    #                     content=content,
+    #                     embed=embed,
+    #                     author_id=interaction.user.id)
+    #     await self.database.insertTag(tag)
+
 
 
     @search_group.command(name="global", description="searches for a global tag")
