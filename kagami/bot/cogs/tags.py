@@ -4,7 +4,7 @@ import aiosqlite
 import discord
 from discord import app_commands, Interaction, Message, Member
 from discord.ext import commands
-from discord.app_commands import Transformer, Group, Transform, Choice, Range
+from discord.app_commands import Transformer, Group, Transform, Choice, Range, autocomplete
 from discord.ext.commands import GroupCog, Cog
 
 from bot.ext import errors
@@ -216,7 +216,7 @@ class TagDB(Database):
         return names
 
 
-class TagTransformer(Transformer):
+class LocalTagTransformer(Transformer):
     async def autocomplete(self,
                            interaction: Interaction, value: Union[int, float, str], /
                            ) -> List[Choice[str]]:
@@ -225,12 +225,59 @@ class TagTransformer(Transformer):
         names = await db.fetchSimilarTagNames(guild_id=interaction.guild_id,
                                               tag_name=value,
                                               limit=25)
+        return names
 
     async def transform(self, interaction: Interaction, value: Any, /) -> TagDB.Tag:
         bot: Kagami = interaction.client
         db = TagDB(bot.config.db_path)
         tag = await db.fetchTag(guild_id=interaction.guild_id,
                                 tag_name=value)
+        return tag
+
+
+class GlobalTagTransformer(Transformer):
+    async def autocomplete(self, interaction: Interaction,
+                           value: Union[int, float, str], /
+                           ) -> List[Choice[str]]:
+        bot: Kagami = interaction.client
+        db = TagDB(bot.config.db_path)
+        names = await db.fetchSimilarTagNames(guild_id=0, tag_name=value, limit=25)
+        return names
+
+    async def transform(self, interaction: Interaction,
+                        value: Any, /) -> TagDB.Tag:
+        bot: Kagami = interaction.client
+        db = TagDB(bot.config.db_path)
+        tag = await db.fetchTag(guild_id=0, tag_name=value)
+        return tag
+
+
+class GuildTagTransformer(Transformer):
+    async def autocomplete(self, interaction: Interaction,
+                           value: Union[int, float, str], /
+                           ) -> List[Choice[Union[int, float, str]]]:
+        guild_id = interaction.namespace.guild
+        bot: Kagami = interaction.client
+        db = TagDB(bot.config.db_path)
+        names = await db.fetchSimilarTagNames(guild_id=guild_id,
+                                              tag_name=value,
+                                              limit=25)
+        return names
+    async def transform(self, interaction: Interaction,
+                        value: Any, /) -> TagDB.Tag:
+        guild_id = interaction.namespace.guild
+        bot: Kagami = interaction.client
+        db = TagDB(bot.config.db_path)
+        tag = await db.fetchTag(guild_id=guild_id, tag_name=value)
+        return tag
+
+
+async def guild_autocomplete(interaction: Interaction, current: str) -> list[Choice[str]]:
+    user = interaction.user
+    guilds = list(user.mutual_guilds)
+    choices = [Choice(name=guild.name, value=guild.id) for guild in guilds
+               if current.lower() in guild.name.lower()]
+    return choices
 
 
 class Tags(GroupCog, group_name="t"):
@@ -292,7 +339,10 @@ class Tags(GroupCog, group_name="t"):
     list_group = app_commands.Group(name="list", description="lists the tags")
     search_group = app_commands.Group(name="search", description="searches for tags")
 
-    Tag_Transformer = Transform[TagDB.Tag, TagTransformer]
+    LocalTag_Transform = Transform[TagDB.Tag, LocalTagTransformer]
+    GlobalTag_Transform = Transform[TagDB.Tag, GlobalTagTransformer]
+    GuildTag_Transform = Transform[TagDB.Tag, GuildTagTransformer]
+
     # Autocompletes
     async def server_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         user = interaction.user
@@ -350,10 +400,8 @@ class Tags(GroupCog, group_name="t"):
             view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
             await interaction.edit_original_response(content=pages[0], view=view)
 
-
-
-    @set_group.command(name="global", description="add a new tag")
-    async def set_global(self, interaction: Interaction, tag: Tag_Transformer, content: str=None, embed: str=None):
+    @set_group.command(name="global", description="add a new global tag")
+    async def set_global(self, interaction: Interaction, tag: GlobalTag_Transform, content: str=None, embed: str=None):
         await respond(interaction)
         if tag: raise TagDB.TagAlreadyExists
 
@@ -364,7 +412,8 @@ class Tags(GroupCog, group_name="t"):
                         author_id=interaction.user.id)
         await self.database.insertTag(tag)
 
-    async def set_local(self, interaction: Interaction, tag: Tag_Transformer, content: str=None, embed: str=None):
+    @set_group.command(name="here", description="add a new local tag")
+    async def set_here(self, interaction: Interaction, tag: LocalTag_Transform, content: str=None, embed: str=None):
         await respond(interaction)
         if tag: raise TagDB.TagAlreadyExists
 
@@ -375,16 +424,19 @@ class Tags(GroupCog, group_name="t"):
                         author_id=interaction.user.id)
         await self.database.insertTag(tag)
 
-    # async def set_elsewhere(self, interaction: Interaction, tag: Tag_Transformer, content: str=None, embed: str=None):
-    #     await respond(interaction)
-    #     if tag: raise TagDB.TagAlreadyExists
-    #
-    #     tag = TagDB.Tag(guild_id=interaction.guild_id,
-    #                     name=interaction.namespace.tag,
-    #                     content=content,
-    #                     embed=embed,
-    #                     author_id=interaction.user.id)
-    #     await self.database.insertTag(tag)
+    @autocomplete(guild=guild_autocomplete)
+    @set_group.command(name="elsewhere", description="add a new tag to another server")
+    async def set_elsewhere(self, interaction: Interaction,
+                            guild: int, tag: GuildTag_Transform, content: str=None, embed: str=None):
+        await respond(interaction)
+        if tag: raise TagDB.TagAlreadyExists
+
+        tag = TagDB.Tag(guild_id=interaction.guild_id,
+                        name=interaction.namespace.tag,
+                        content=content,
+                        embed=embed,
+                        author_id=interaction.user.id)
+        await self.database.insertTag(tag)
 
 
 
