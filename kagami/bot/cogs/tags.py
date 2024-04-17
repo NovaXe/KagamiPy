@@ -3,6 +3,7 @@ import aiosqlite
 
 import discord
 from discord import app_commands, Interaction, Message, Member
+from discord._types import ClientT
 from discord.ext import commands
 from discord.app_commands import Transformer, Group, Transform, Choice, Range, autocomplete
 from discord.ext.commands import GroupCog, Cog
@@ -64,16 +65,18 @@ class TagDB(Database):
         QUERY_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS Tag(
         guild_id INTEGER NOT NULL,
-        tag_name TEXT NOT NULL,
-        CONTENT TEXT,
-        EMBED TEXT,
+        name TEXT NOT NULL,
+        content TEXT,
+        embed TEXT,
         author_id INTEGER NOT NULL,
         creation_date TEXT NOT NULL ON CONFLICT REPLACE DEFAULT CURRENT_DATE,
-        modified_date TEXT DEFAULT CURRENT_DATE,
-        PRIMARY KEY (guild_id, tag_name),
-        FOREIGN KEY (guild_id) REFERENCES Guild(id),
-        FOREIGN KEY (author_id) REFERENCES User(id) DEFERRABLE INITIALLY DEFERRED
-        ON UPDATE CASCADE ON DELETE CASCADE)
+        modified_date TEXT NOT NULL ON CONFLICT REPLACE DEFAULT CURRENT_DATE,
+        PRIMARY KEY(guild_id, name),
+        FOREIGN KEY(guild_id) REFERENCES Guild(id)
+        ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+        FOREIGN KEY(author_id) REFERENCES User(id) 
+        ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        )
         """ # CHECK (CONTENT NOT NULL OR EMBED NOT NULL)
 
         QUERY_DROP_TABLE = """
@@ -83,27 +86,39 @@ class TagDB(Database):
         CREATE TRIGGER IF NOT EXISTS set_creation_date_after_insert
         AFTER INSERT ON Tag
         """
-        QUERY_BEFORE_INSERT_TRIGGER = """
+        # QUERY_BEFORE_INSERT_INSERT_GUILD_TRIGGER = """
+        # CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
+        # """
+        TRIGGER_BEFORE_INSERT_GUILD = """
+        CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
+        BEFORE INSERT ON Playlist
+        BEGIN
+            INSERT INTO Guild(id)
+            values(NEW.guild_id)
+            ON CONFLICT DO NOTHING;
+        END
+        """
+        QUERY_BEFORE_INSERT_USER_TRIGGER = """
         CREATE TRIGGER IF NOT EXISTS insert_user_before_insert
         BEFORE INSERT ON Tag
         BEGIN
             INSERT INTO User(id)
-            id = NEW.author_id
+            values(NEW.author_id)
             ON CONFLICT DO NOTHING;
         END
         """
         QUERY_AFTER_UPDATE_TRIGGER = """
-        CREATE TRIGGER IF NOT EXIST set_modified_data_after_update
+        CREATE TRIGGER IF NOT EXISTS set_modified_data_after_update
         AFTER UPDATE ON Tag
         BEGIN
             UPDATE Tag
-            SET modified_date = DEFAULT
-            WHERE (guild_id = :NEW.guild_id) AND (name = :NEW.name);
+            SET modified_date = NULL 
+            WHERE (guild_id = NEW.guild_id) AND (name = NEW.name);
         END
         """
         QUERY_INSERT = """
-        INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date)
-        VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date)
+        INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date, modified_date)
+        VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date, :creation_date)
         ON CONFLICT DO NOTHING
         """
         # QUERY_INSERT = """
@@ -123,8 +138,8 @@ class TagDB(Database):
         WHERE guild_id = :guild_id AND name = :name
         """
         QUERY_SELECT = """
-        SELECT * FROM Tag
-        WHERE guild_id = ? AND name = ?
+        SELECT * FROM Tag 
+        WHERE guild_id = ? AND name = ?;
         """
         QUERY_DELETE = """
         DELETE FROM Tag
@@ -156,8 +171,8 @@ class TagDB(Database):
     class TagNotFound(errors.CustomCheck):
         MESSAGE = "There is no tag with that name"
 
-    async def init(self):
-        await self.dropTables()
+    async def init(self, drop: bool=False):
+        if drop: await self.dropTables()
         await self.createTables()
         await self.createTriggers()
 
@@ -169,7 +184,8 @@ class TagDB(Database):
 
     async def createTriggers(self):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(TagDB.Tag.QUERY_AFTER_UPDATE_TRIGGER)
+            await db.execute(TagDB.Tag.QUERY_BEFORE_INSERT_USER_TRIGGER)
+            await db.execute(TagDB.Tag.TRIGGER_BEFORE_INSERT_GUILD)
             await db.commit()
 
     async def dropTables(self):
@@ -225,7 +241,7 @@ class LocalTagTransformer(Transformer):
         names = await db.fetchSimilarTagNames(guild_id=interaction.guild_id,
                                               tag_name=value,
                                               limit=25)
-        return names
+        return [Choice(name=name, value=name) for name in names]
 
     async def transform(self, interaction: Interaction, value: Any, /) -> TagDB.Tag:
         bot: Kagami = interaction.client
@@ -242,7 +258,7 @@ class GlobalTagTransformer(Transformer):
         bot: Kagami = interaction.client
         db = TagDB(bot.config.db_path)
         names = await db.fetchSimilarTagNames(guild_id=0, tag_name=value, limit=25)
-        return names
+        return [Choice(name=name, value=name) for name in names]
 
     async def transform(self, interaction: Interaction,
                         value: Any, /) -> TagDB.Tag:
@@ -256,28 +272,37 @@ class GuildTagTransformer(Transformer):
     async def autocomplete(self, interaction: Interaction,
                            value: Union[int, float, str], /
                            ) -> List[Choice[Union[int, float, str]]]:
-        guild_id = interaction.namespace.guild
+        guild_id = int(interaction.namespace.guild)
         bot: Kagami = interaction.client
         db = TagDB(bot.config.db_path)
         names = await db.fetchSimilarTagNames(guild_id=guild_id,
                                               tag_name=value,
                                               limit=25)
-        return names
+        return [Choice(name=name, value=name) for name in names]
+
     async def transform(self, interaction: Interaction,
-                        value: Any, /) -> TagDB.Tag:
-        guild_id = interaction.namespace.guild
+                        value: str, /) -> TagDB.Tag:
+        guild_id = int(interaction.namespace.guild)
         bot: Kagami = interaction.client
         db = TagDB(bot.config.db_path)
         tag = await db.fetchTag(guild_id=guild_id, tag_name=value)
         return tag
 
 
-async def guild_autocomplete(interaction: Interaction, current: str) -> list[Choice[str]]:
-    user = interaction.user
-    guilds = list(user.mutual_guilds)
-    choices = [Choice(name=guild.name, value=guild.id) for guild in guilds
-               if current.lower() in guild.name.lower()]
-    return choices
+class GuildTransformer(Transformer):
+    async def autocomplete(self, interaction: Interaction,
+                           current: str) -> list[Choice[str]]:
+        user = interaction.user
+        guilds = list(user.mutual_guilds)
+        choices = [Choice(name=guild.name, value=str(guild.id)) for guild in guilds
+                   if current.lower() in guild.name.lower()][:25]
+        return choices
+
+    async def transform(self, interaction: Interaction,
+                        value: str, /) -> discord.Guild:
+        guild_id = int(value)
+        guild = interaction.client.get_guild(guild_id)
+        return guild
 
 
 class Tags(GroupCog, group_name="t"):
@@ -308,6 +333,12 @@ class Tags(GroupCog, group_name="t"):
 
     # ignored_key_values: list = ['content', 'attachments']
 
+    @commands.is_owner()
+    @commands.command(name="migrate_tags")
+    async def migrateCommand(self, ctx):
+        await self.migrateTagData()
+        await ctx.send("migrated tags probably")
+
     async def migrateTagData(self):
         async def convertTag(_guild_id: int, _tag_name: str, _tag: OldTag) -> TagDB.Tag:
             user = discord.utils.get(self.bot.get_all_members(), name=_tag.author)
@@ -318,7 +349,8 @@ class Tags(GroupCog, group_name="t"):
 
         for server_id, server in self.bot.data.servers.items():
             server_id = int(server_id)
-            guild = await self.bot.fetch_guild(server_id)
+            try: guild = await self.bot.fetch_guild(server_id)
+            except discord.NotFound: continue
             new_tags = [await convertTag(server_id, tag_name, tag) for tag_name, tag in server.tags.items()]
             await self.database.insertTags(new_tags)
 
@@ -331,7 +363,12 @@ class Tags(GroupCog, group_name="t"):
             self.bot.tree.remove_command(ctx_menu.name, type=ctx_menu.type)
 
     async def cog_load(self) -> None:
-        await self.database.init()
+        await self.database.init(drop=self.bot.config.drop_tables)
+        await self.migrateTagData()
+
+    async def interaction_check(self, interaction: discord.Interaction[ClientT], /) -> bool:
+        # await self.bot.database.upsertGuild(interaction.guild)
+        return True
 
     get_group = app_commands.Group(name="get", description="gets a tag")
     set_group = app_commands.Group(name="set", description="sets a tag")
@@ -342,6 +379,7 @@ class Tags(GroupCog, group_name="t"):
     LocalTag_Transform = Transform[TagDB.Tag, LocalTagTransformer]
     GlobalTag_Transform = Transform[TagDB.Tag, GlobalTagTransformer]
     GuildTag_Transform = Transform[TagDB.Tag, GuildTagTransformer]
+    Guild_Transform = Transform[discord.Guild, GuildTransformer]
 
     # Autocompletes
     async def server_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -411,6 +449,7 @@ class Tags(GroupCog, group_name="t"):
                         embed=embed,
                         author_id=interaction.user.id)
         await self.database.insertTag(tag)
+        await respond(interaction, f"Created the global tag `{tag.name}`")
 
     @set_group.command(name="here", description="add a new local tag")
     async def set_here(self, interaction: Interaction, tag: LocalTag_Transform, content: str=None, embed: str=None):
@@ -423,22 +462,21 @@ class Tags(GroupCog, group_name="t"):
                         embed=embed,
                         author_id=interaction.user.id)
         await self.database.insertTag(tag)
+        await respond(interaction, f"Created the local tag `{tag.name}`")
 
-    @autocomplete(guild=guild_autocomplete)
     @set_group.command(name="elsewhere", description="add a new tag to another server")
     async def set_elsewhere(self, interaction: Interaction,
-                            guild: int, tag: GuildTag_Transform, content: str=None, embed: str=None):
+                            guild: Guild_Transform, tag: GuildTag_Transform, content: str=None, embed: str=None):
         await respond(interaction)
         if tag: raise TagDB.TagAlreadyExists
-
-        tag = TagDB.Tag(guild_id=interaction.guild_id,
+        guild_name = guild.name
+        tag = TagDB.Tag(guild_id=guild.id,
                         name=interaction.namespace.tag,
                         content=content,
                         embed=embed,
                         author_id=interaction.user.id)
         await self.database.insertTag(tag)
-
-
+        await respond(interaction, f"Created tag `{tag.name}` for guild `{guild_name}`")
 
     @search_group.command(name="global", description="searches for a global tag")
     async def search_global(self, interaction: discord.Interaction, search: str, count: int = 10):
@@ -522,55 +560,6 @@ class Tags(GroupCog, group_name="t"):
                                 tag_type: Literal["local", "global"]):
         await interaction.response.send_modal(TagCreationModal(cog=self, tag_type=tag_type, message=message))
 
-    # Set Commands
-    async def set_handler(self, interaction: discord.Interaction, tag_name: str, content: str,
-                          mode: Literal['local', 'global'], attachment_links: list[str] = None):
-        if attachment_links is not None:
-            attachment_links = attachment_links[:10]
-        else:
-            attachment_links = []
-
-        if mode == 'local':
-            await interaction.response.defer(thinking=True)
-            server: Server = self.bot.fetch_server(interaction.guild_id)
-            if tag_name in server.tags.keys():
-                await interaction.edit_original_response(content=f"The tag **`{tag_name}`** already exists")
-                return
-            server.tags.update({
-                tag_name: {
-                    "content": content,
-                    "author": interaction.user.name,
-                    "creation_date": date.today().strftime("%m/%d/%y"),
-                    "attachments": attachment_links
-                }})
-
-            await interaction.edit_original_response(content=f"Added tag **`{tag_name}`** to the server")
-
-        elif mode == 'global':
-            await interaction.response.defer(thinking=True)
-            if tag_name in self.bot.global_data['tags'].keys():
-                await interaction.edit_original_response(content=f"The tag **`{tag_name}`** already exists")
-                return
-            self.bot.global_data['tags'].update({
-                tag_name: {
-                    "content": content,
-                    "author": interaction.user.name,
-                    "creation_date": date.today().strftime("%m/%d/%y"),
-                    "attachments": attachment_links
-                }})
-
-            await interaction.edit_original_response(content=f"Added tag **`{tag_name}`** to globals")
-
-    @set_group.command(name="local", description="set a tag for this server")
-    async def set_local(self, interaction: discord.Interaction, tag_name: str, content: str):
-        print(interaction.user.name)
-        await self.set_handler(interaction, tag_name, content, 'local')
-
-    @set_group.command(name="global", description="set a global tag")
-    async def set_global(self, interaction: discord.Interaction, tag_name: str, content: str):
-        await self.set_handler(interaction, tag_name, content, 'global')
-
-    # Delete Commands
     @app_commands.autocomplete(tag_name=tag_autocomplete)
     @delete_group.command(name="local", description="Deletes a tag from this server")
     async def delete_local(self, interaction: discord.Interaction, tag_name: str):

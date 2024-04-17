@@ -163,7 +163,17 @@ class MusicDB(Database):
         description TEXT DEFAULT NULL,
         PRIMARY KEY (guild_id, name),
         FOREIGN KEY (guild_id) REFERENCES Guild(id) 
-        ON UPDATE CASCADE ON DELETE CASCADE)
+        ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        )
+        """
+        TRIGGER_BEFORE_INSERT_GUILD = """
+        CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
+        BEFORE INSERT ON Playlist
+        BEGIN
+            INSERT INTO Guild(id)
+            values(NEW.guild_id)
+            ON CONFLICT DO NOTHING;
+        END
         """
         QUERY_INSERT = """
         INSERT INTO Playlist (guild_id, name, description)
@@ -431,8 +441,8 @@ class MusicDB(Database):
     class PlaylistAlreadyExists(errors.CustomCheck):
         MESSAGE = "There is already a playlist with that name"
 
-    async def init(self):
-        # await self.dropTables()
+    async def init(self, drop=False):
+        if drop: await self.dropTables()
         await self.createTables()
         await self.createTriggers()
 
@@ -452,7 +462,7 @@ class MusicDB(Database):
 
     async def createTriggers(self):
         async with aiosqlite.connect(self.file_path) as db:
-            # await db.execute(MusicDB.Track.QUERY_BEFORE_INSERT_TRIGGER)
+            await db.execute(MusicDB.Playlist.TRIGGER_BEFORE_INSERT_GUILD)
             await db.execute(MusicDB.Track.QUERY_AFTER_INSERT_TRIGGER)
 
             # await db.execute(MusicDB.Track.QUERY_BEFORE_UPDATE_TRIGGER)
@@ -673,8 +683,14 @@ class Music(GroupCog,
     """
 
     async def cog_load(self) -> None:
-        await self.database.init()
+        await self.database.init(drop=self.bot.config.drop_tables)
         # await self.migrateMusicData()
+
+    @commands.is_owner()
+    @commands.command(name="migrate_music")
+    async def migrateCommand(self, ctx):
+        await self.migrateMusicData()
+        await ctx.send("migrated music probably")
 
     async def migrateMusicData(self):
         async def convertTracks(_guild_id: int, _playlist_name: str, _tracks: list[OldTrack]) -> list[MusicDB.Track]:
@@ -706,8 +722,8 @@ class Music(GroupCog,
                 await self.database.insertTracks(tracks)
 
     async def cog_unload(self) -> None:
-        # await self.migrateMusicData()
         pass
+        # await self.migrateMusicData()
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, node: wavelink.Node):
@@ -1086,7 +1102,7 @@ class Music(GroupCog,
             raise errors.WrongVoiceClient("`Incorrect command for Player, Try /<command> instead`")
 
         old_server_data.value.last_music_command_channel = interaction.channel
-
+        # await self.bot.database.upsertGuild(interaction.guild)
         return True
 
     @Cog.listener()
@@ -1488,7 +1504,7 @@ class PlaylistCog(GroupCog,
 
         self.setContextVars(interaction)
         old_server_data.value.last_music_command_channel = interaction.channel
-
+        # await self.bot.database.upsertGuild(interaction.guild)
         return True
     # async def autocomplete_check
 

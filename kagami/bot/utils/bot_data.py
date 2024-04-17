@@ -322,6 +322,8 @@ class BotConfiguration:
     db_path: str
     lavalink: dict[str, str] = None
     spotify: dict[str, str] = None
+    drop_tables: bool = False
+    # migrate_data: bool = False
 
     @classmethod
     def initFromEnv(cls):
@@ -350,7 +352,8 @@ class BotConfiguration:
             spotify={
                 "client_id": env.get("SPOTIFY_CLIENT_ID"),
                 "client_secret": env.get("SPOTIFY_CLIENT_SECRET")
-            }
+            },
+            drop_tables=bool(env.get("DROP_TABLES"))
         )
 
 

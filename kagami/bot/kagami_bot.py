@@ -69,8 +69,9 @@ class Kagami(commands.Bot):
 
     async def setup_hook(self):
         await self.connectWavelinkNodes()
-        await self.database.init()
-        await self.database.upsertGuilds([self.database.Guild.fromDiscord(guild) for guild in self.guilds])
+        await self.database.init(drop=self.config.drop_tables)
+        # guilds = [self.database.Guild.fromDiscord(guild) for guild in list(self.guilds)]
+        # await self.database.upsertGuilds(guilds)
 
         for file in os.listdir("bot/cogs"):
             if file.endswith(".py"):
@@ -311,7 +312,10 @@ class Kagami(commands.Bot):
     #     # current_interaction.value = interaction
     #     server_data.value = self.getServerData(interaction.guild_id)
 
-
+    async def on_interaction(self, interaction: Interaction):
+        pass
+        # guild = self.database.Guild.fromDiscord(interaction.guild)
+        # await self.database.upsertGuild(guild)
 
 
     async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:

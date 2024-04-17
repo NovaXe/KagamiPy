@@ -188,8 +188,7 @@ class Database:
         CREATE TABLE IF NOT EXISTS User(
         id INTEGER NOT NULL,
         nickname TEXT DEFAULT NULL,
-        PRIMARY KEY (id)
-        ON UPDATE CASCADE ON DELETE CASCADE)
+        PRIMARY KEY (id))
         """
         QUERY_UPSERT = """
         INSERT INTO User (id)
@@ -210,10 +209,10 @@ class Database:
     def __init__(self, database_path: str):
         self.file_path: str = database_path
 
-    async def init(self):
+    async def init(self, drop: bool=False):
         # with sqlite3.connect(self.file_path) as db:
         #     pass
-        await self.dropTables()
+        if drop: await self.dropTables()
         await self.createTables()
         # await self.createGlobalTable()
 
