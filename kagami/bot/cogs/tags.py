@@ -466,7 +466,7 @@ class Tags(GroupCog, group_name="t"):
         await self.database.insertTag(tag)
         await respond(interaction, f"Created the local tag `{tag.name}`")
 
-    @set_group.command(name="elsewhere", description="add a new tag to another server")
+    # @set_group.command(name="elsewhere", description="add a new tag to another server")
     async def set_elsewhere(self, interaction: Interaction,
                             guild: Guild_Transform, tag: GuildTag_Transform, content: str=None, embed: str=None):
         await respond(interaction)
