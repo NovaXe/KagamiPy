@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 import aiosqlite
 
@@ -478,6 +479,48 @@ class Tags(GroupCog, group_name="t"):
         await self.database.insertTag(tag)
         await respond(interaction, f"Created tag `{tag.name}` for guild `{guild_name}`")
 
+
+
+    @get_group.command(name="global", description="fetch a global tag")
+    async def get_global(self, interaction: Interaction,
+                         tag: GlobalTag_Transform):
+        await respond(interaction)
+        if not tag: raise TagDB.TagNotFound
+        if tag.embed:
+            embed_dict = json.loads(tag.embed)
+            embeds = [discord.Embed.from_dict(embed_dict)]
+        else:
+            embeds = []
+        content = tag.content if tag.content != '' else "`The tag has no content`"
+        await respond(interaction, content=content, embeds=embeds)
+
+
+    @get_group.command(name="here", description="fetch a local tag")
+    async def get_here(self, interaction: Interaction,
+                       tag: LocalTag_Transform):
+        await respond(interaction)
+        if not tag: raise TagDB.TagNotFound
+        if tag.embed:
+            embed_dict = json.loads(tag.embed)
+            embeds = [discord.Embed.from_dict(embed_dict)]
+        else:
+            embeds = []
+        content = tag.content if tag.content != '' else "`The tag has no content`"
+        await respond(interaction, content=content, embeds=embeds)
+
+    @get_group.command(name="elsewhere", description="fetch a tag from another server")
+    async def get_elsewhere(self, interaction: Interaction,
+                            guild: Guild_Transform, tag: GuildTag_Transform):
+        await respond(interaction)
+        if not tag: raise TagDB.TagNotFound
+        if tag.embed:
+            embed_dict = json.loads(tag.embed)
+            embeds = [discord.Embed.from_dict(embed_dict)]
+        else:
+            embeds = []
+        content = tag.content if tag.content != '' else "`The tag has no content`"
+        await respond(interaction, content=content, embeds=embeds)
+
     @search_group.command(name="global", description="searches for a global tag")
     async def search_global(self, interaction: discord.Interaction, search: str, count: int = 10):
         await interaction.response.defer(thinking=True)
@@ -500,6 +543,7 @@ class Tags(GroupCog, group_name="t"):
         data: dict = find_closely_matching_dict_keys(search, server.tags, count)
         await self.search_handler(interaction, data, guild_name, count)
 
+    """
     # Tag getter Commands
     @staticmethod
     async def get_handler(interaction: discord.Interaction, tag_name, tag_data):
@@ -512,7 +556,7 @@ class Tags(GroupCog, group_name="t"):
             attachment_files = []
 
         await interaction.edit_original_response(content=tag_data["content"], attachments=attachment_files[:10])
-
+    
     @app_commands.autocomplete(tag_name=tag_autocomplete)
     @get_group.command(name="global", description="get a global tag")
     async def get_global(self, interaction: discord.Interaction, tag_name: str):
@@ -548,6 +592,7 @@ class Tags(GroupCog, group_name="t"):
             return
         tag_data: dict = server.tags[tag_name]
         await self.get_handler(interaction, tag_name, tag_data)
+    """
 
     # Create Modal Handlers
     async def ctx_menu_create_local_handler(self, interaction: discord.Interaction, message: discord.Message):
