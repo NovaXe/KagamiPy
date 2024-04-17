@@ -217,6 +217,7 @@ class TagDB(Database):
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = TagDB.Tag.rowFactory
             result = await db.execute_fetchall(TagDB.Tag.QUERY_DELETE, (guild_id, name))
+            await db.commit()
         return result[0] if result else None
 
     async def fetchTag(self, guild_id: int, tag_name: str) -> Tag:
@@ -491,7 +492,7 @@ class Tags(GroupCog, group_name="t"):
             embeds = [discord.Embed.from_dict(embed_dict)]
         else:
             embeds = []
-        content = tag.content if tag.content != '' else "`The tag has no content`"
+        content = tag.content if tag.content and tag.content != '' else "`The tag has no content`"
         await respond(interaction, content=content, embeds=embeds)
 
 
@@ -505,7 +506,7 @@ class Tags(GroupCog, group_name="t"):
             embeds = [discord.Embed.from_dict(embed_dict)]
         else:
             embeds = []
-        content = tag.content if tag.content != '' else "`The tag has no content`"
+        content = tag.content if tag.content and tag.content != '' else "`The tag has no content`"
         await respond(interaction, content=content, embeds=embeds)
 
     @get_group.command(name="elsewhere", description="fetch a tag from another server")
@@ -518,8 +519,25 @@ class Tags(GroupCog, group_name="t"):
             embeds = [discord.Embed.from_dict(embed_dict)]
         else:
             embeds = []
-        content = tag.content if tag.content != '' else "`The tag has no content`"
+        content = tag.content if tag.content and tag.content != '' else "`The tag has no content`"
         await respond(interaction, content=content, embeds=embeds)
+
+    @delete_group.command(name="global", description="delete a global tag")
+    async def delete_global(self, interaction: Interaction,
+                            tag: GlobalTag_Transform):
+        await respond(interaction)
+        if not tag: raise TagDB.TagNotFound
+        await self.database.deleteTag(guild_id=0, name=tag.name)
+        await respond(interaction, f"Deleted the global tag `{tag.name}`")
+
+    @delete_group.command(name="here", description="delete a local tag")
+    async def delete_here(self, interaction: Interaction,
+                          tag: LocalTag_Transform):
+        await respond(interaction)
+        if not tag: raise TagDB.TagNotFound
+        await self.database.deleteTag(guild_id=interaction.guild_id, name=tag.name)
+        await respond(interaction, f"Deleted the local tag `{tag.name}`")
+
 
     @search_group.command(name="global", description="searches for a global tag")
     async def search_global(self, interaction: discord.Interaction, search: str, count: int = 10):
@@ -604,7 +622,7 @@ class Tags(GroupCog, group_name="t"):
     async def send_create_modal(self, interaction: discord.Interaction, message: discord.Message,
                                 tag_type: Literal["local", "global"]):
         await interaction.response.send_modal(TagCreationModal(cog=self, tag_type=tag_type, message=message))
-
+    """
     @app_commands.autocomplete(tag_name=tag_autocomplete)
     @delete_group.command(name="local", description="Deletes a tag from this server")
     async def delete_local(self, interaction: discord.Interaction, tag_name: str):
@@ -626,6 +644,7 @@ class Tags(GroupCog, group_name="t"):
             return
         self.bot.global_data['tags'].pop(tag_name, None)
         await interaction.edit_original_response(content=f"The global tag **`{tag_name}`** has been deleted")
+    """
 
     # List Commands
     async def list_handler(self, interaction, data, source):
