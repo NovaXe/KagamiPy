@@ -711,24 +711,24 @@ class TagCreationModal(discord.ui.Modal, title="Create Tag"):
                                     tag_name=self.tag_name.value)
             if tag: raise TagDB.TagAlreadyExists
             tag = TagDB.Tag(guild_id=0,
-                            name=self.tag_name,
+                            name=self.tag_name.value,
                             content=self.tag_content.value + "\n" + self.tag_attachments.value,
                             embed=None,
                             author_id=interaction.user.id)
             await db.insertTag(tag)
-            await respond(interaction, f"Created the global tag `{tag.name}`", send_followup=True)
+            await respond(interaction, f"Created the global tag `{tag.name}`")
         elif self.tag_type == "local":
             tag = await db.fetchTag(guild_id=interaction.guild_id,
                                     tag_name=self.tag_name.value)
             if tag: raise TagDB.TagAlreadyExists
 
             tag = TagDB.Tag(guild_id=interaction.guild_id,
-                            name=self.tag_name,
+                            name=self.tag_name.value,
                             content=self.tag_content.value + "\n" + self.tag_attachments.value,
                             embed=None,
                             author_id=interaction.user.id)
             await db.insertTag(tag)
-            await respond(interaction, f"Created the local tag `{tag.name}`", send_followup=True)
+            await respond(interaction, f"Created the local tag `{tag.name}`")
         #
         # await self.cog.set_handler(interaction=interaction, tag_name=self.tag_name.value,
         #                            content=self.tag_content.value, mode=self.tag_type, attachment_links=attachments)
