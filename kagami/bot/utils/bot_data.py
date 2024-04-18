@@ -353,7 +353,7 @@ class BotConfiguration:
                 "client_id": env.get("SPOTIFY_CLIENT_ID"),
                 "client_secret": env.get("SPOTIFY_CLIENT_SECRET")
             },
-            drop_tables=bool(env.get("DROP_TABLES"))
+            drop_tables=bool(int(env.get("DROP_TABLES")))
         )
 
 

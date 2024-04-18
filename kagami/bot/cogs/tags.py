@@ -438,19 +438,19 @@ class Tags(GroupCog, group_name="t"):
                ][:25]
 
     # Search Commands
-    async def search_handler(self, interaction, data, source, count):
-        total_count = len(data)
-        info_text = createPageInfoText(total_count, source, 'search', 'tags')
-        pages = createPageList(info_text=info_text,
-                               data=data,
-                               total_item_count=total_count,
-                               custom_reprs=self.custom_key_reprs
-                               )
-
-        message = await(await interaction.edit_original_response(content=pages[0])).fetch()
-        if count > 10:
-            view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
-            await interaction.edit_original_response(content=pages[0], view=view)
+    # async def search_handler(self, interaction, data, source, count):
+    #     total_count = len(data)
+    #     info_text = createPageInfoText(total_count, source, 'search', 'tags')
+    #     pages = createPageList(info_text=info_text,
+    #                            data=data,
+    #                            total_item_count=total_count,
+    #                            custom_reprs=self.custom_key_reprs
+    #                            )
+    #
+    #     message = await(await interaction.edit_original_response(content=pages[0])).fetch()
+    #     if count > 10:
+    #         view = MessageScroller(message=message, pages=pages, home_page=0, timeout=300)
+    #         await interaction.edit_original_response(content=pages[0], view=view)
 
     @set_group.command(name="global", description="add a new global tag")
     async def set_global(self, interaction: Interaction, tag: GlobalTag_Transform,
@@ -496,7 +496,6 @@ class Tags(GroupCog, group_name="t"):
         await respond(interaction, f"Created tag `{tag.name}` for guild `{guild_name}`")
 
 
-
     @get_group.command(name="global", description="fetch a global tag")
     async def get_global(self, interaction: Interaction,
                          tag: GlobalTag_Transform):
@@ -509,7 +508,6 @@ class Tags(GroupCog, group_name="t"):
             embeds = []
         content = tag.content if tag.content and tag.content != '' else "`The tag has no content`"
         await respond(interaction, content=content, embeds=embeds)
-
 
     @get_group.command(name="here", description="fetch a local tag")
     async def get_here(self, interaction: Interaction,
@@ -612,15 +610,6 @@ class Tags(GroupCog, group_name="t"):
     """
 
     # Create Modal Handlers
-    async def ctx_menu_create_local_handler(self, interaction: discord.Interaction, message: discord.Message):
-        await self.send_create_modal(interaction, message, tag_type='local')
-
-    async def ctx_menu_create_global_handler(self, interaction: discord.Interaction, message: discord.Message):
-        await self.send_create_modal(interaction, message, tag_type='global')
-
-    async def send_create_modal(self, interaction: discord.Interaction, message: discord.Message,
-                                tag_type: Literal["local", "global"]):
-        await interaction.response.send_modal(TagCreationModal(cog=self, tag_type=tag_type, message=message))
     """
     @app_commands.autocomplete(tag_name=tag_autocomplete)
     @delete_group.command(name="local", description="Deletes a tag from this server")
@@ -682,6 +671,16 @@ class Tags(GroupCog, group_name="t"):
         data: dict = server.tags
         await self.list_handler(interaction, data, guild_name)
         """
+
+    async def ctx_menu_create_local_handler(self, interaction: discord.Interaction, message: discord.Message):
+        await self.send_create_modal(interaction, message, tag_type='local')
+
+    async def ctx_menu_create_global_handler(self, interaction: discord.Interaction, message: discord.Message):
+        await self.send_create_modal(interaction, message, tag_type='global')
+
+    async def send_create_modal(self, interaction: discord.Interaction, message: discord.Message,
+                                tag_type: Literal["local", "global"]):
+        await interaction.response.send_modal(TagCreationModal(cog=self, tag_type=tag_type, message=message))
 
 
 class TagCreationModal(discord.ui.Modal, title="Create Tag"):
