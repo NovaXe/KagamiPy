@@ -135,11 +135,11 @@ class TagDB(Database):
         DO UPDATE SET content = :content AND embed = :embed
         """
         QUERY_UPDATE = """
-        UPDATE Tag SET content = :content AND embed = :embed
+        UPDATE Tag SET content = :content, embed = :embed
         WHERE guild_id = :guild_id AND name = :name
         """
         QUERY_EDIT = """
-        UPDATE Tag SET name=:name AND content = :content AND embed = :embed
+        UPDATE OR REPLACE Tag SET name=:name, content = :content, embed = :embed
         WHERE guild_id = :guild_id AND name = :old_name
         """
         QUERY_SELECT = """
@@ -222,6 +222,7 @@ class TagDB(Database):
             data = tag.asdict()
             data["old_name"] = old_name
             await db.execute(TagDB.Tag.QUERY_EDIT, data)
+            await db.commit()
 
     async def deleteTag(self, guild_id: int, name: str) -> Tag:
         async with aiosqlite.connect(self.file_path) as db:
@@ -552,38 +553,38 @@ class Tags(GroupCog, group_name="t"):
         await self.database.deleteTag(guild_id=interaction.guild_id, name=tag.name)
         await respond(interaction, f"Deleted the local tag `{tag.name}`")
 
+    @app_commands.rename(new="name")
     @edit_group.command(name="global", description="edit a global tag")
     async def edit_global(self, interaction: Interaction, tag: GlobalTag_Transform, new: GlobalTag_Transform=None,
                           content: str=None, embed: str=None):
         await respond(interaction)
         if not tag: raise TagDB.TagNotFound
         if new: raise TagDB.TagAlreadyExists
-        new = tag
-        new_name = interaction.namespace.new
-        if new_name: new.name = new_name
-        if content: new.content = content if content != "" else None
-        if embed: new.embed = embed if embed != "" else None
-
+        new = TagDB.Tag(guild_id=0,
+                        name=interaction.namespace.name or tag.name,
+                        author_id=interaction.user.id,
+                        content=content if content != "" else None,
+                        embed=embed if embed != "" else None)
         await self.database.editTag(old_name=tag.name, tag=new)
         response = f"Edited the global tag `{tag.name}`"
-        if new_name: response += f", New Name: {new.name}"
+        if interaction.namespace.name: response += f", New Name: {new.name}"
         await respond(interaction, response)
 
+    @app_commands.rename(new="name")
     @edit_group.command(name="here", description="edit a local tag")
     async def edit_local(self, interaction: Interaction, tag: LocalTag_Transform, new: LocalTag_Transform = None,
                          content: str = None, embed: str = None):
         await respond(interaction)
         if not tag: raise TagDB.TagNotFound
         if new: raise TagDB.TagAlreadyExists
-        new = tag
-        new_name = interaction.namespace.new
-        if new_name: new.name = new_name
-        if content: new.content = content if content != "" else None
-        if embed: new.embed = embed if embed != "" else None
-
+        new = TagDB.Tag(guild_id=interaction.guild_id,
+                        name=interaction.namespace.name or tag.name,
+                        author_id=interaction.user.id,
+                        content=content if content != "" else None,
+                        embed=embed if embed != "" else None)
         await self.database.editTag(old_name=tag.name, tag=new)
         response = f"Edited the local tag `{tag.name}`"
-        if new_name: response += f", New Name: {new.name}"
+        if interaction.namespace.name: response += f", New Name: {new.name}"
         await respond(interaction, response)
 
     """
