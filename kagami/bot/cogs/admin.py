@@ -52,7 +52,6 @@ class Admin(commands.Cog):
         latency = int(self.bot.latency * 1000)
         await ctx.send(f"Pong! {latency}ms")
 
-
     @commands.command(name="reload_all", description="reloads all cogs")
     @commands.is_owner()
     async def reload_all_cogs(self, ctx):

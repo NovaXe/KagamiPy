@@ -143,6 +143,7 @@ class Playlist(DictFromToDictMixin):
     async def buildTracks(self)->list[WavelinkTrack]:
         tracks = [await track.buildWavelinkTrack() for track in self.tracks]
         return tracks
+
     @classmethod
     def initFromTracks(cls, tracks: list[WavelinkTrack] | list[Track]):
         new_tracks: list[Track] = []
@@ -200,7 +201,7 @@ class Playlist(DictFromToDictMixin):
 
 
 @dataclass
-class Tag(DictFromToDictMixin):
+class OldTag(DictFromToDictMixin):
     content: str="No Content"
     author: str="Unknown"
     creation_date: str="Unknown"
@@ -223,6 +224,7 @@ class Sentinel(DictFromToDictMixin):
     response: str = ""
     reactions: list[str] = default_factory(list)
     uses: int = 0
+    users: dict = default_factory(dict)
     enabled: bool = True
 
     @classmethod
@@ -234,6 +236,7 @@ class Sentinel(DictFromToDictMixin):
             "response": self.response,
             "reactions": self.reactions,
             "uses": self.uses,
+            "users": self.users,
             "enabled": self.enabled
         }
 
@@ -241,7 +244,7 @@ class Sentinel(DictFromToDictMixin):
 class ServerData(DictFromToDictMixin):
     playlists: dict[str, Playlist] = default_factory(dict)
     soundboard: dict[str, Sound] = default_factory(dict)
-    tags: dict[str, Tag] = default_factory(dict)
+    tags: dict[str, OldTag] = default_factory(dict)
     sentinels: dict[str, Sentinel] = default_factory(dict)
     fish_mode: bool=False
     last_music_command_channel: TextChannel = None
@@ -250,7 +253,7 @@ class ServerData(DictFromToDictMixin):
     def fromDict(cls, data: dict):
         playlists = Playlist.dictFromDict(data.get("playlists", {}))
         soundboard = Sound.dictFromDict(data.get("soundboard", {}))
-        tags = Tag.dictFromDict(data.get("tags", {}))
+        tags = OldTag.dictFromDict(data.get("tags", {}))
         sentinels = Sentinel.dictFromDict(data.get("sentinels", {}))
         fish_mode = data.get("fish_mode", False)
         return cls(playlists=playlists,
@@ -271,12 +274,12 @@ class ServerData(DictFromToDictMixin):
 @dataclass
 class GlobalData(DictFromToDictMixin):
     # playlists: dict[str, Playlist] = default_factory(dict)
-    tags: dict[str, Tag] = default_factory(dict)
+    tags: dict[str, OldTag] = default_factory(dict)
     sentinels: dict[str, Sentinel] = default_factory(dict)
 
     @classmethod
     def fromDict(cls, data: dict):
-        tags = Tag.dictFromDict(data.get("tags", {}))
+        tags = OldTag.dictFromDict(data.get("tags", {}))
         sentinels = Sentinel.dictFromDict(data.get("sentinels", {}))
 
         return cls(tags=tags, sentinels=sentinels)
@@ -314,8 +317,13 @@ class BotConfiguration:
     owner_id: int
     local_data_path: str
     real_data_path: str
+    global_db_path: str
+    server_db_path: str
+    db_path: str
     lavalink: dict[str, str] = None
     spotify: dict[str, str] = None
+    drop_tables: bool = False
+    # migrate_data: bool = False
 
     @classmethod
     def initFromEnv(cls):
@@ -334,6 +342,9 @@ class BotConfiguration:
             owner_id=int(env.get("OWNER_ID")),
             local_data_path="bot/data",
             real_data_path=env.get("DATA_PATH"),
+            global_db_path=env.get("GLOBAL_DB_PATH"),
+            server_db_path=env.get("SERVER_DB_PATH"),
+            db_path=env.get("DB_PATH"),
             lavalink={
                 "uri": env.get("LAVALINK_URI"),
                 "password": env.get("LAVALINK_PASSWORD")
@@ -341,7 +352,8 @@ class BotConfiguration:
             spotify={
                 "client_id": env.get("SPOTIFY_CLIENT_ID"),
                 "client_secret": env.get("SPOTIFY_CLIENT_SECRET")
-            }
+            },
+            drop_tables=bool(int(env.get("DROP_TABLES")))
         )
 
 

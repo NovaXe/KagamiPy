@@ -10,3 +10,4 @@
 __pycache__
 /.venv
 /lavalink/logs/*
+/kagami/bot/cogs/database.py
