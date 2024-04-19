@@ -42,6 +42,7 @@ class TagDB(Database):
         """
         QUERY_UPSERT = """
         INSERT INTO MusicSettings (guild_id, tags_enabled)
+        VALUES(:guild_id, :tags_enabled)
         ON CONFLICT (guild_id)
         DO UPDATE SET tags_enabled = :tags_enabled
         """
@@ -74,9 +75,9 @@ class TagDB(Database):
         modified_date TEXT NOT NULL ON CONFLICT REPLACE DEFAULT CURRENT_DATE,
         PRIMARY KEY(guild_id, name),
         FOREIGN KEY(guild_id) REFERENCES Guild(id)
-        ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
         FOREIGN KEY(author_id) REFERENCES User(id) 
-        ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """ # CHECK (CONTENT NOT NULL OR EMBED NOT NULL)
 
@@ -95,7 +96,7 @@ class TagDB(Database):
         BEFORE INSERT ON Playlist
         BEGIN
             INSERT INTO Guild(id)
-            values(NEW.guild_id)
+            VALUES(NEW.guild_id)
             ON CONFLICT DO NOTHING;
         END
         """
@@ -104,7 +105,7 @@ class TagDB(Database):
         BEFORE INSERT ON Tag
         BEGIN
             INSERT INTO User(id)
-            values(NEW.author_id)
+            VALUES(NEW.author_id)
             ON CONFLICT DO NOTHING;
         END
         """
@@ -131,7 +132,7 @@ class TagDB(Database):
         QUERY_UPSERT = """
         INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date)
         VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date)
-        ON CONFLICT SET (guild_id, name)
+        ON CONFLICT (guild_id, name)
         DO UPDATE SET content = :content AND embed = :embed
         """
         QUERY_UPDATE = """
