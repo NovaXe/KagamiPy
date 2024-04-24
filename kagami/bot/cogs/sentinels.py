@@ -326,6 +326,27 @@ class SentinelTransformer(Transformer):
         return await db.fetchSentinel(guild_id=guild_id, name=value)
 
 
+async def triggerSanityCheck(trigger_type: SentinelDB.SentinelTrigger.TriggerType,
+                             trigger_object: str) -> bool:
+    assert False
+
+
+async def triggerSanitizer(trigger_type: SentinelDB.SentinelTrigger.TriggerType,
+                           trigger_object: str) -> tuple[SentinelDB.SentinelTrigger.TriggerType, str]:
+    assert False
+
+
+async def responseSanityCheck(response_type: SentinelDB.SentinelResponse.ResponseType,
+                              content: str, reactions: str) -> bool:
+    assert False
+
+
+async def responseSanitizer(response_type: SentinelDB.SentinelResponse.ResponseType,
+                            content: str,
+                            reactions: str) -> tuple[SentinelDB.SentinelResponse.ResponseType, str, str]:
+    assert False
+
+
 class Sentinels(GroupCog, name="s"):
     def __init__(self, bot: Kagami):
         self.bot: Kagami = bot
