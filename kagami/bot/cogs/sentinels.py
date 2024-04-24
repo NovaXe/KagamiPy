@@ -2,13 +2,19 @@ from abc import ABC
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import IntEnum, auto
+
+import aiosqlite
 import discord
 import discord.ui
+from discord._types import ClientT
 from discord.ext import commands
-from discord import app_commands
+from discord import app_commands, Interaction, InteractionMessage, InteractionResponse
+from discord.ext.commands import GroupCog, Cog
+from discord. app_commands import AppCommand, Transform, Transformer, Range, Group, Choice, autocomplete
 
 from bot.kagami_bot import Kagami
 from bot.utils.bot_data import Server
+from bot.utils.interactions import respond
 from bot.utils.ui import MessageScroller
 from bot.utils.database import Database
 from bot.utils.pages import createPageList, createPageInfoText, CustomRepr
@@ -77,12 +83,22 @@ class SentinelDB(Database):
         VALUES(:guild_id, :name)
         ON CONFLICT DO NOTHING
         """
+        QUERY_INCREMENT_USES = """
+        UPDATE Sentinel SET uses = uses + 1
+        WHERE guild_id = ? AND name = ?
+        """
         QUERY_EDIT = """
         Update Sentinel SET name = :name
         WHERE name = :old_name
         """
         QUERY_SELECT = """
         SELECT * FROM Sentinel
+        WHERE guild_id = ? AND name = ?
+        """
+        QUERY_SELECT_LIKE_NAMES = """
+        SELECT name FROM Sentinel
+        WHERE (guild_id = ?) AND (name LIKE ?)
+        LIMIT = ? OFFSET = ?
         """
 
     @dataclass
@@ -209,13 +225,150 @@ class SentinelDB(Database):
         """
 
 
+    async def init(self, drop: bool=False):
+        if drop: await self.dropTables()
+        await self.createTables()
+        await self.createTriggers()
+
+    async def createTables(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.SentinelSettings.QUERY_CREATE_TABLE)
+            await db.execute(SentinelDB.Sentinel.QUERY_CREATE_TABLE)
+            await db.execute(SentinelDB.SentinelTrigger.QUERY_CREATE_TABLE)
+            await db.execute(SentinelDB.SentinelResponse.QUERY_CREATE_TABLE)
+            await db.execute(SentinelDB.SentinelTriggerUses.QUERY_CREATE_TABLE)
+            await db.commit()
+
+    async def createTriggers(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.commit()
+            pass
+
+    async def dropTables(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.Sentinel.QUERY_DROP_TABLE)
+            await db.execute(SentinelDB.SentinelTrigger.QUERY_DROP_TABLE)
+            await db.execute(SentinelDB.SentinelResponse.QUERY_DROP_TABLE)
+            await db.execute(SentinelDB.SentinelTriggerUses.QUERY_DROP_TABLE)
+            await db.commit()
+
+    async def upsertSentinelSettings(self, sentinel_settings: SentinelSettings):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.SentinelSettings.QUERY_UPSERT, sentinel_settings.asdict())
+            await db.commit()
+
+    async def insertSentinel(self, sentinel: Sentinel) -> bool:
+        async with aiosqlite.connect(self.file_path) as db:
+            cursor = await db.execute(SentinelDB.Sentinel.QUERY_INSERT, sentinel.asdict())
+            row_count = cursor.rowcount
+            await db.commit()
+        return row_count > 0
+
+
+
+
+    async def fetchSentinel(self, guild_id: int, name: str) -> Sentinel:
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = SentinelDB.Sentinel.rowFactory
+            result: list[SentinelDB.Sentinel] = await db.execute_fetchall(SentinelDB.Sentinel.QUERY_SELECT,
+                                                                          (guild_id, name))
+        return result[0] if result else None
+
+    async def fetchSimilarSentinelNames(self, guild_id: int, name: str, limit: int=1, offset: int=0):
+        async with aiosqlite.connect(self.file_path) as db:
+            names: list[str] = await db.execute_fetchall(SentinelDB.Sentinel.QUERY_SELECT_LIKE_NAMES,
+                                                         (guild_id, f"%{name}%", limit, offset))
+            names = [n[0] for n in names]
+        return names
+
+
+class SentinelScope(IntEnum):
+    GLOBAL = 0
+    LOCAL = 1
+
+
+
+
+class GuildTransformer(Transformer):
+    async def autocomplete(self, interaction: Interaction,
+                           current: str) -> list[Choice[str]]:
+        user = interaction.user
+        guilds = list(user.mutual_guilds)
+        choices = [Choice(name=guild.name, value=str(guild.id)) for guild in guilds
+                   if current.lower() in guild.name.lower()][:25]
+        return choices
+
+    async def transform(self, interaction: Interaction,
+                        value: str, /) -> discord.Guild:
+        guild_id = int(value)
+        guild = interaction.client.get_guild(guild_id)
+        return guild
+
+class SentinelTransformer(Transformer):
+    async def autocomplete(self, interaction: Interaction,
+                           current: str) -> list[Choice[str]]:
+        guild_id = interaction.namespace.scope
+        if guild_id == SentinelScope.LOCAL:
+            guild_id = interaction.guild_id
+        bot: Kagami = interaction.client
+        db = SentinelDB(bot.config.db_path)
+        names = await db.fetchSimilarSentinelNames(guild_id=guild_id,
+                                                   name=current,
+                                                   limit=25)
+        return [Choice(name=name, value=name) for name in names]
+
+    async def transform(self, interaction: Interaction,
+                        value: str, /) -> discord.Guild:
+        guild_id = interaction.namespace.scope
+        if guild_id == 1: guild_id = interaction.guild_id
+        bot: Kagami = interaction.client
+        db = SentinelDB(bot.config.db_path)
+        return await db.fetchSentinel(guild_id=guild_id, name=value)
+
+
+class Sentinels(GroupCog, name="s"):
+    def __init__(self, bot: Kagami):
+        self.bot: Kagami = bot
+        self.config = bot.config
+        self.database = SentinelDB(bot.config.db_path)
+
+    def cog_load(self) -> None:
+        pass
+
+    def cog_unload(self) -> None:
+        pass
+
+    def interaction_check(self, interaction: discord.Interaction[ClientT], /) -> bool:
+        pass
+
+    add_group = Group(name="add", description="commands for adding sentinel components")
+    remove_group = Group(name="remove", description="commands for removing sentinel components")
+
+    Guild_Transform = Transform(Database.Guild, GuildTransformer)
+    Sentinel_Transform = Transform(SentinelDB.Sentinel, SentinelTransformer)
+
+    @app_commands.rename(trigger_type="type", trigger_object="object")
+    @add_group.command(name="trigger", description="add a sentinel trigger")
+    async def add_trigger(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform,
+                          trigger_type: SentinelDB.SentinelTrigger.TriggerType, trigger_object: str):
+        await respond(interaction)
+        assert False
+
+    @app_commands.rename(response_type="type")
+    @app_commands.describe(reactions="emotes separated by ;")
+    @add_group.command(name="response", description="add a sentinel response")
+    async def add_response(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform,
+                           response_type: SentinelDB.SentinelResponse.ResponseType, content: str, reactions: str):
+        await respond(interaction)
+        assert False
+
 
 
 
 class SentinelTransformer(app_commands.Transformer, ABC):
-    def __init__(self, cog: 'Sentinels', mode: Literal['global', 'local']):
+    def __init__(self, cog: 'OldSentinels', mode: Literal['global', 'local']):
         self.mode = mode
-        self.cog: 'Sentinels' = cog
+        self.cog: 'OldSentinels' = cog
 
 
     async def transform(self, interaction: discord.Interaction, value: str) -> dict[str, dict]:
@@ -250,7 +403,7 @@ def createSentinelData(response: str, reactions: list[str]) -> dict:
         }
 
 
-class Sentinels(commands.GroupCog, group_name="sentinel"):
+class OldSentinels(commands.GroupCog, group_name="sentinel"):
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
@@ -575,5 +728,5 @@ class SentinelEditorModal(discord.ui.Modal, title='Edit Sentinels'):
 
 
 async def setup(bot):
-    await bot.add_cog(Sentinels(bot))
+    await bot.add_cog(OldSentinels(bot))
 
