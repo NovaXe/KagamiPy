@@ -219,8 +219,9 @@ class OldTag(DictFromToDictMixin):
             "attachments": self.attachments
         }
 
+
 @dataclass
-class Sentinel(DictFromToDictMixin):
+class OldSentinel(DictFromToDictMixin):
     response: str = ""
     reactions: list[str] = default_factory(list)
     uses: int = 0
@@ -245,7 +246,7 @@ class ServerData(DictFromToDictMixin):
     playlists: dict[str, Playlist] = default_factory(dict)
     soundboard: dict[str, Sound] = default_factory(dict)
     tags: dict[str, OldTag] = default_factory(dict)
-    sentinels: dict[str, Sentinel] = default_factory(dict)
+    sentinels: dict[str, OldSentinel] = default_factory(dict)
     fish_mode: bool=False
     last_music_command_channel: TextChannel = None
 
@@ -254,7 +255,7 @@ class ServerData(DictFromToDictMixin):
         playlists = Playlist.dictFromDict(data.get("playlists", {}))
         soundboard = Sound.dictFromDict(data.get("soundboard", {}))
         tags = OldTag.dictFromDict(data.get("tags", {}))
-        sentinels = Sentinel.dictFromDict(data.get("sentinels", {}))
+        sentinels = OldSentinel.dictFromDict(data.get("sentinels", {}))
         fish_mode = data.get("fish_mode", False)
         return cls(playlists=playlists,
                    soundboard=soundboard,
@@ -275,12 +276,12 @@ class ServerData(DictFromToDictMixin):
 class GlobalData(DictFromToDictMixin):
     # playlists: dict[str, Playlist] = default_factory(dict)
     tags: dict[str, OldTag] = default_factory(dict)
-    sentinels: dict[str, Sentinel] = default_factory(dict)
+    sentinels: dict[str, OldSentinel] = default_factory(dict)
 
     @classmethod
     def fromDict(cls, data: dict):
         tags = OldTag.dictFromDict(data.get("tags", {}))
-        sentinels = Sentinel.dictFromDict(data.get("sentinels", {}))
+        sentinels = OldSentinel.dictFromDict(data.get("sentinels", {}))
 
         return cls(tags=tags, sentinels=sentinels)
 

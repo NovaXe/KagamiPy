@@ -68,7 +68,7 @@ class Admin(commands.Cog):
             if file.endswith(".py"):
                 name = file[:-3]
                 if name.lower() == cog_name.lower():
-                    await self.bot.reload_extension(f"cogs.{name}")
+                    await self.bot.reload_extension(f"bot.cogs.{name}")
                     break
         else:
             await ctx.send(f"No cog with that name could be found")
@@ -124,3 +124,4 @@ class Admin(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Admin(bot))
+

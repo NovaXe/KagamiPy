@@ -13,13 +13,13 @@ from discord.ext.commands import GroupCog, Cog
 from discord. app_commands import AppCommand, Transform, Transformer, Range, Group, Choice, autocomplete
 
 from bot.kagami_bot import Kagami
-from bot.utils.bot_data import Server
+from bot.utils.bot_data import Server, OldSentinel
 from bot.utils.interactions import respond
 from bot.utils.ui import MessageScroller
 from bot.utils.database import Database
 from bot.utils.pages import createPageList, createPageInfoText, CustomRepr
 from typing import (
-    Literal
+    Literal, Union, List
 )
 
 
@@ -59,15 +59,20 @@ class SentinelDB(Database):
         guild_id: int
         name: str
         uses: int
+        enabled: bool = True
         QUERY_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS Sentinel(
         guild_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         uses INTEGER DEFAULT 0,
+        enabled INTEGER DEFAULT 1,
         PRIMARY KEY(guild_id, name),
         FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
             ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
+        """
+        QUERY_DROP_TABLE = """
+        DROP TABLE IF EXISTS Sentinel
         """
         TRIGGER_BEFORE_INSERT_GUILD = """
         CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
@@ -98,7 +103,7 @@ class SentinelDB(Database):
         QUERY_SELECT_LIKE_NAMES = """
         SELECT name FROM Sentinel
         WHERE (guild_id = ?) AND (name LIKE ?)
-        LIMIT = ? OFFSET = ?
+        LIMIT ? OFFSET ?
         """
 
     @dataclass
@@ -112,17 +117,22 @@ class SentinelDB(Database):
         sentinel_name: str
         type: int
         object: str
+        enabled: bool = True
         QUERY_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS SentinelTrigger(
         guild_id INTEGER NOT NULL,
         sentinel_name TEXT NOT NULL,
         type INTEGER NOT NULL DEFAULT 0,
         object TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
         FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
             ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
         FOREIGN KEY(sentinel_name) REFERENCES Sentinel(name)
             ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
+        """
+        QUERY_DROP_TABLE = """
+        DROP TABLE IF EXISTS SentinelTrigger
         """
         TRIGGER_BEFORE_INSERT_SENTINEL = """
         CREATE TRIGGER IF NOT EXISTS insert_sentinel_before_insert
@@ -138,9 +148,14 @@ class SentinelDB(Database):
         AFTER INSERT ON SentinelTrigger
         BEGIN
             INSERT INTO SentinelTriggerUses(guild_id, trigger_object, user_id)
-            VALUES (guild_id, object, 0)
+            VALUES (NEW.guild_id, NEW.object, 0)
             ON CONFLICT DO NOTHING;
         END
+        """
+        QUERY_INSERT = """
+        INSERT INTO SentinelTrigger (guild_id, sentinel_name, type, object)
+        VALUES (:guild_id, :sentinel_name, :type, :object)
+        ON CONFLICT DO NOTHING
         """
 
     # guild_id = 0 is for global uses by users
@@ -151,7 +166,7 @@ class SentinelDB(Database):
     @dataclass
     class SentinelTriggerUses(Database.Row):
         guild_id: str
-        trigger_object: int
+        trigger_object: str
         user_id: int
         uses: int
         QUERY_CREATE_TABLE = """
@@ -166,6 +181,9 @@ class SentinelDB(Database):
         FOREIGN KEY(user_id) REFERENCES User(id)
             ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
+        """
+        QUERY_DROP_TABLE = """
+        DROP TABLE IF EXISTS SentinelTriggerUses
         """
         TRIGGER_BEFORE_INSERT_USER = """
         CREATE TRIGGER IF NOT EXISTS insert_user_before_insert
@@ -201,6 +219,7 @@ class SentinelDB(Database):
         reactions: str # a string which can be split by
         # view: str
         # somehow support
+        enabled: bool = True
         QUERY_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS SentinelResponse(
         guild_id INTEGER NOT NULL,
@@ -208,11 +227,15 @@ class SentinelDB(Database):
         type INTEGER NOT NULL,
         content TEXT,
         reactions TEXT,
+        enabled INTEGER DEFAULT 1,
         FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
              ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
         FOREIGN KEY(sentinel_name) REFERENCES Sentinel(name) 
             ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
+        """
+        QUERY_DROP_TABLE = """
+        DROP TABLE IF EXISTS SentinelResponse
         """
         TRIGGER_BEFORE_INSERT_SENTINEL = """
         CREATE TRIGGER IF NOT EXISTS insert_sentinel_before_insert
@@ -223,7 +246,11 @@ class SentinelDB(Database):
             ON CONFLICT DO NOTHING;
         END
         """
-
+        QUERY_INSERT = """
+        INSERT INTO SentinelResponse(guild_id, sentinel_name, type, content, reactions)
+        VALUES (:guild_id, :sentinel_name, :type, :content, :reactions)
+        ON CONFLICT DO NOTHING
+        """
 
     async def init(self, drop: bool=False):
         if drop: await self.dropTables()
@@ -241,8 +268,12 @@ class SentinelDB(Database):
 
     async def createTriggers(self):
         async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.Sentinel.TRIGGER_BEFORE_INSERT_GUILD)
+            await db.execute(SentinelDB.SentinelTrigger.TRIGGER_BEFORE_INSERT_SENTINEL)
+            await db.execute(SentinelDB.SentinelTrigger.TRIGGER_AFTER_INSERT_USES)
+            await db.execute(SentinelDB.SentinelTriggerUses.TRIGGER_BEFORE_INSERT_USER)
+            await db.execute(SentinelDB.SentinelResponse.TRIGGER_BEFORE_INSERT_SENTINEL)
             await db.commit()
-            pass
 
     async def dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
@@ -265,6 +296,29 @@ class SentinelDB(Database):
         return row_count > 0
 
 
+    async def insertTrigger(self, trigger: SentinelTrigger):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.SentinelTrigger.QUERY_INSERT, trigger.asdict())
+            await db.commit()
+
+    async def insertTriggers(self, triggers: list[SentinelTrigger]):
+        async with aiosqlite.connect(self.file_path) as db:
+            data = [trigger.asdict() for trigger in triggers]
+            await db.executemany(SentinelDB.SentinelTrigger.QUERY_INSERT, data)
+            await db.commit()
+
+    async def insertResponse(self, response: SentinelResponse):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.SentinelResponse.QUERY_INSERT, response.asdict())
+            await db.commit()
+
+    async def insertResponses(self, responses: list[SentinelResponse]):
+        async with aiosqlite.connect(self.file_path) as db:
+            data = [response.asdict() for response in responses]
+            await db.executemany(SentinelDB.SentinelResponse.QUERY_INSERT, data)
+            await db.commit()
+
+
 
 
     async def fetchSentinel(self, guild_id: int, name: str) -> Sentinel:
@@ -283,10 +337,20 @@ class SentinelDB(Database):
 
 
 class SentinelScope(IntEnum):
+    """
+    Since this is an int enum is can be multiplied by a guild id
+    if scope = 0 then guild id = 0
+    otherwise for 1 it isn't 0
+    This is always going to be binary, if not urgently fix everything that uses the multiplication method
+    """
     GLOBAL = 0
     LOCAL = 1
 
 
+# class ScopeTransformer(Transformer):
+#     async def autocomplete(self, interaction: Interaction,
+#                            current: str) -> list[Choice[str]]:
+#
 
 
 class GuildTransformer(Transformer):
@@ -326,6 +390,7 @@ class SentinelTransformer(Transformer):
         return await db.fetchSentinel(guild_id=guild_id, name=value)
 
 
+
 async def triggerSanityCheck(trigger_type: SentinelDB.SentinelTrigger.TriggerType,
                              trigger_object: str) -> bool:
     assert False
@@ -353,40 +418,90 @@ class Sentinels(GroupCog, name="s"):
         self.config = bot.config
         self.database = SentinelDB(bot.config.db_path)
 
-    def cog_load(self) -> None:
+    async def cog_load(self) -> None:
+        await self.database.init(drop=self.config.drop_tables)
         pass
 
-    def cog_unload(self) -> None:
+    async def cog_unload(self) -> None:
         pass
 
-    def interaction_check(self, interaction: discord.Interaction[ClientT], /) -> bool:
-        pass
+    async def interaction_check(self, interaction: discord.Interaction[ClientT], /) -> bool:
+        return True
 
     add_group = Group(name="add", description="commands for adding sentinel components")
     remove_group = Group(name="remove", description="commands for removing sentinel components")
 
-    Guild_Transform = Transform(Database.Guild, GuildTransformer)
-    Sentinel_Transform = Transform(SentinelDB.Sentinel, SentinelTransformer)
+    Guild_Transform = Transform[Database.Guild, GuildTransformer]
+    Sentinel_Transform = Transform[SentinelDB.Sentinel, SentinelTransformer]
+
+
+    @commands.is_owner()
+    @commands.command(name="migrate_sentinels")
+    async def migrateCommand(self, ctx):
+        await self.migrateData()
+        await ctx.send("Migrated sentinel data")
+
+    async def migrateData(self):
+        """
+        Old Sentinels are triggered by their name being present as a phrase in the message
+        They have a separate response parameter
+        """
+        async def convertSentinel(_guild_id: int, _sentinel_name: str,  _sentinel: OldSentinel
+                                  ) -> tuple[SentinelDB.SentinelTrigger, SentinelDB.SentinelResponse]:
+            _trigger = SentinelDB.SentinelTrigger(guild_id=_guild_id, sentinel_name=_sentinel_name,
+                                                  type=SentinelDB.SentinelTrigger.TriggerType.phrase,
+                                                  object=_sentinel_name, enabled=_sentinel.enabled)
+            reactions = ";".join(_sentinel.reactions)
+            _response = SentinelDB.SentinelResponse(guild_id=_guild_id, sentinel_name=_sentinel_name,
+                                                    type=SentinelDB.SentinelResponse.ResponseType.reply,
+                                                    content=_sentinel.response, reactions=reactions)
+            return _trigger, _response
+
+        for server_id, server in self.bot.data.servers.items():
+            server_id = int(server_id)
+            try: guild = await self.bot.fetch_guild(server_id)
+            except discord.NotFound: continue
+            converted_sentinels = [await convertSentinel(server_id, name, sentinel)
+                                   for name, sentinel in server.sentinels.items()]
+            if len(converted_sentinels):
+                triggers, responses = zip(*converted_sentinels)
+                await self.database.insertTriggers(triggers)
+                await self.database.insertResponses(responses)
+
+        converted_sentinels = [await convertSentinel(0, name, sentinel)
+                               for name, sentinel in self.bot.data.globals.sentinels.items()]
+        if len(converted_sentinels):
+            triggers, responses = zip(*converted_sentinels)
+            await self.database.insertTriggers(triggers)
+            await self.database.insertResponses(responses)
 
     @app_commands.rename(trigger_type="type", trigger_object="object")
     @add_group.command(name="trigger", description="add a sentinel trigger")
     async def add_trigger(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform,
                           trigger_type: SentinelDB.SentinelTrigger.TriggerType, trigger_object: str):
         await respond(interaction)
-        assert False
+        guild_id = scope * interaction.guild_id
+        trigger = SentinelDB.SentinelTrigger(guild_id=guild_id, sentinel_name=interaction.namespace.sentinel,
+                                             type=trigger_type, object=trigger_object)
+        await self.database.insertTrigger(trigger)
+        await respond(interaction, f"Added a trigger to the sentinel `{interaction.namespace.sentinel}`")
 
     @app_commands.rename(response_type="type")
     @app_commands.describe(reactions="emotes separated by ;")
     @add_group.command(name="response", description="add a sentinel response")
     async def add_response(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform,
-                           response_type: SentinelDB.SentinelResponse.ResponseType, content: str, reactions: str):
+                           response_type: SentinelDB.SentinelResponse.ResponseType, content: str="", reactions: str=""):
         await respond(interaction)
-        assert False
+        guild_id = scope * interaction.guild_id
+        response = SentinelDB.SentinelResponse(guild_id=guild_id, sentinel_name=interaction.namespace.sentinel,
+                                               type=response_type, content=content, reactions=reactions)
+        await self.database.insertResponse(response)
+        await respond(interaction, f"Added a response to the sentinel `{interaction.namespace.sentinel}`")
 
 
 
 
-class SentinelTransformer(app_commands.Transformer, ABC):
+class OldSentinelTransformer(app_commands.Transformer, ABC):
     def __init__(self, cog: 'OldSentinels', mode: Literal['global', 'local']):
         self.mode = mode
         self.cog: 'OldSentinels' = cog
@@ -750,4 +865,5 @@ class SentinelEditorModal(discord.ui.Modal, title='Edit Sentinels'):
 
 async def setup(bot):
     await bot.add_cog(OldSentinels(bot))
+    await bot.add_cog(Sentinels(bot))
 
