@@ -390,7 +390,6 @@ class SentinelTransformer(Transformer):
         return await db.fetchSentinel(guild_id=guild_id, name=value)
 
 
-
 async def triggerSanityCheck(trigger_type: SentinelDB.SentinelTrigger.TriggerType,
                              trigger_object: str) -> bool:
     assert False
@@ -445,6 +444,8 @@ class Sentinels(GroupCog, name="s"):
         """
         Old Sentinels are triggered by their name being present as a phrase in the message
         They have a separate response parameter
+        data migration missing usage numbers
+        upsert into the usage table for each as well
         """
         async def convertSentinel(_guild_id: int, _sentinel_name: str,  _sentinel: OldSentinel
                                   ) -> tuple[SentinelDB.SentinelTrigger, SentinelDB.SentinelResponse]:
