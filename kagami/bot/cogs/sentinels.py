@@ -58,53 +58,54 @@ class SentinelDB(Database):
     class Sentinel(Database.Row):
         guild_id: int
         name: str
-        uses: int
         enabled: bool = True
-        QUERY_CREATE_TABLE = """
-        CREATE TABLE IF NOT EXISTS Sentinel(
-        guild_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        uses INTEGER DEFAULT 0,
-        enabled INTEGER DEFAULT 1,
-        PRIMARY KEY(guild_id, name),
-        FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
-            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
-        )
-        """
-        QUERY_DROP_TABLE = """
-        DROP TABLE IF EXISTS Sentinel
-        """
-        TRIGGER_BEFORE_INSERT_GUILD = """
-        CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
-        BEFORE INSERT ON Sentinel
-        BEGIN
-            INSERT INTO Guild(id)
-            VALUES (NEW.guild_id)
-            ON CONFLICT DO NOTHING;
-        END
-        """
-        QUERY_INSERT = """
-        INSERT INTO Sentinel(guild_id, name)
-        VALUES(:guild_id, :name)
-        ON CONFLICT DO NOTHING
-        """
-        QUERY_INCREMENT_USES = """
-        UPDATE Sentinel SET uses = uses + 1
-        WHERE guild_id = ? AND name = ?
-        """
-        QUERY_EDIT = """
-        Update Sentinel SET name = :name
-        WHERE name = :old_name
-        """
-        QUERY_SELECT = """
-        SELECT * FROM Sentinel
-        WHERE guild_id = ? AND name = ?
-        """
-        QUERY_SELECT_LIKE_NAMES = """
-        SELECT name FROM Sentinel
-        WHERE (guild_id = ?) AND (name LIKE ?)
-        LIMIT ? OFFSET ?
-        """
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS Sentinel(
+            guild_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            uses INTEGER DEFAULT 0,
+            enabled INTEGER DEFAULT 1,
+            PRIMARY KEY(guild_id, name),
+            FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+            )
+            """
+            DROP_TABLE = """
+            DROP TABLE IF EXISTS Sentinel
+            """
+            TRIGGER_BEFORE_INSERT_GUILD = """
+            CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
+            BEFORE INSERT ON Sentinel
+            BEGIN
+                INSERT INTO Guild(id)
+                VALUES (NEW.guild_id)
+                ON CONFLICT DO NOTHING;
+            END
+            """
+            INSERT = """
+            INSERT INTO Sentinel(guild_id, name)
+            VALUES(:guild_id, :name)
+            ON CONFLICT DO NOTHING
+            """
+            INCREMENT_USES = """
+            UPDATE Sentinel SET uses = uses + 1
+            WHERE guild_id = ? AND name = ?
+            """
+            EDIT = """
+            Update Sentinel SET name = :name
+            WHERE name = :old_name
+            """
+            SELECT = """
+            SELECT * FROM Sentinel
+            WHERE guild_id = ? AND name = ?
+            """
+            SELECT_LIKE_NAMES = """
+            SELECT name FROM Sentinel
+            WHERE (guild_id = ?) AND (name LIKE ?)
+            LIMIT ? OFFSET ?
+            """
+
 
     @dataclass
     class SentinelTrigger(Database.Row):
@@ -113,69 +114,402 @@ class SentinelDB(Database):
             phrase = auto()
             regex = auto()
             reaction = auto()
+        type: TriggerType
+        object: str
+        id: int = None
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS SentinelTrigger(
+            id INTEGER NOT NULL,
+            type INTEGER NOT NULL,
+            object TEXT NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE (type, object) 
+            )
+            """
+            DROP_TABLE = """
+            DROP TABLE IF EXISTS SentinelTrigger
+            """
+            INSERT = """
+            INSERT INTO SentinelTrigger(type, object)
+            VALUES (:type, :object)
+            ON CONFLICT DO NOTHING
+            RETURNING id
+            """
+            DELETE = """
+            DELETE FROM SentinelTrigger
+            WHERE id = :id
+            returning *
+            """
+
+    @dataclass
+    class SentinelResponse(Database.Row):
+        class ResponseType(IntEnum):
+            message = auto()
+            reply = auto()
+        type: ResponseType
+        content: str
+        reactions: str
+        id: int = None
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS SentinelResponse(
+            id INTEGER NOT NULL,
+            type INTEGER NOT NULL,
+            content TEXT,
+            reactions TEXT,
+            PRIMARY KEY (id),
+            UNIQUE (type, content)
+            )
+            """
+            DROP_TABLE = """
+            DROP TABLE IF EXISTS SentinelResponse
+            """
+            INSERT = """
+            INSERT INTO SentinelResponse(type, content, reactions)
+            VALUES (:type, :content, :reactions)
+            ON CONFLICT DO NOTHING
+            RETURNING id
+            """
+            DELETE = """
+            DELETE FROM SentinelResponse
+            WHERE id = :id
+            RETURNING *
+            """
+
+
+    @dataclass
+    class SentinelSuit(Database.Row):
         guild_id: int
         sentinel_name: str
+        name: str
+        weight: int = 10
+        trigger_id: int = None
+        response_id: int = None
+        enabled: bool = True
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS SentinelSuit(
+            guild_id INTEGER NOT NULL,
+            sentinel_name TEXT NOT NULL,
+            name TEXT NOT NULL,
+            weight INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 10,
+            trigger_id INTEGER,
+            response_id INTEGER,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (guild_id, sentinel_name, name),
+            FOREIGN KEY (guild_id) REFERENCES Guild(id)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            FOREIGN KEY (sentinel_name) REFERENCES Sentinel(name)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            FOREIGN KEY (trigger_id) REFERENCES SentinelTrigger(id)
+                ON UPDATE RESTRICT ON DELETE SET NULL,
+            FOREIGN KEY (response_id) REFERENCES SentinelResponse(id)
+            )
+            """
+            DROP_TABLE = """
+            DROP TABLE IF EXISTS SentinelSuit
+            """
+            TRIGGER_BEFORE_INSERT_SENTINEL = """
+            CREATE TRIGGER IF NOT EXISTS insert_sentinel_before_insert
+            BEFORE INSERT ON SentinelSuit
+            BEGIN
+                INSERT INTO Sentinel(guild_id, name)
+                VALUES (NEW.guild_id, NEW.sentinel_name)
+                ON CONFLICT DO NOTHING;
+            END
+            """
+            TRIGGER_AFTER_DELETE_TRIGGER = """
+            CREATE TRIGGER IF NOT EXISTS delete_trigger_after_delete
+            AFTER DELETE ON SentinelSuit
+            WHEN (SELECT COUNT(*) FROM SentinelSuit WHERE trigger_id = OLD.trigger_id) = 0
+            BEGIN
+                DELETE FROM SentinelTrigger
+                WHERE trigger_id = OLD.trigger_id;
+            END
+            """
+            TRIGGER_AFTER_DELETE_RESPONSE = """
+            CREATE TRIGGER IF NOT EXISTS delete_response_after_delete
+            AFTER DELETE ON SentinelSuit
+            WHEN (SELECT COUNT(*) FROM SentinelSuit WHERE response_id = OLD.response_id) = 0
+            BEGIN
+                DELETE FROM SentinelResponse
+                WHERE response_id = OLD.response_id;
+            END
+            """
+            DELETE_TRIGGER_TRACKING_AFTER_DELETE = """
+            CREATE TRIGGER IF NOT EXISTS delete_trigger_tracking_after_delete
+            AFTER DELETE ON SentinelSuit
+            WHEN (
+                SELECT COUNT(*) FROM SentinelSuit WHERE trigger_id = OLD.trigger_id AND guild_id = OLD.guild_id
+            ) = 0
+            BEGIN
+                DELETE FROM SentinelTrigger
+                WHERE trigger_id = OLD.trigger_id;
+            END
+            """
+            DELETE_RESPONSE_TRACKING_AFTER_DELETE = """
+            CREATE TRIGGER IF NOT EXISTS delete_response_after_delete
+            AFTER DELETE ON SentinelSuit
+            WHEN (
+                SELECT COUNT(*) FROM SentinelSuit WHERE response_id = OLD.response_id AND guild_id = OLD.guild_id
+            ) = 0
+            BEGIN
+                DELETE FROM SentinelResponse
+                WHERE response_id = OLD.response_id;
+            END
+            """
+            INSERT = """
+            INSERT INTO SentinelSuit(guild_id, sentienl_name, name, weight, trigger_id, response_id)
+            VALUES (:guild_id, :sentinel_name, :name, :weight, :trigger_id, :response_id)
+            """
+
+
+
+
+
+
+
+    @dataclass
+    class _SentinelSuit(Database.Row):
+        guild_id: int
+        sentinel_name: str
+        name: str
+        weight: int
+        enabled: bool
+        # trigger_id: int
+        # response_id: int
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS SentinelSuit(
+            guild_id INTEGER NOT NULL,
+            sentinel_name TEXT NOT NULL,
+            name TEXT NOT NULL,
+            weight INTEGER DEFAULT 10,
+            PRIMARY KEY (guild_id, sentinel_name, name),
+            FOREIGN KEY (guild_id) REFERENCES Guild(id)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            FOREIGN KEY (sentinel_name) REFERENCES Sentinel(name)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+            )
+            """
+            INSERT = """
+            INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, enabled)
+            VALUES (:guild_id, :sentinel_name, :name, :weight, :enabled)
+            ON CONFLICT DO NOTHING
+            """
+            UPSERT  = """
+            INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, enabled)
+            VALUES (:guild_id, :sentinel_name, :name, :weight, :enabled)
+            ON CONFLICT DO UPDATE
+            SET weight = :weight, enabled = :enabled
+            """
+
+    @dataclass
+    class _SentinelTrigger(Database.Row):
+        class TriggerType(IntEnum):
+            word = auto()
+            phrase = auto()
+            regex = auto()
+            reaction = auto()
+        guild_id: int
+        sentinel_name: str
+        suit_name: str
         type: int
         object: str
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS SentinelTrigger(
+            guild_id INTEGER NOT NULL,
+            sentinel_name TEXT NOT NULL,
+            suit_name TEXT NOT NULL,
+            type INTEGER NOT NULL DEFAULT 0,
+            object TEXT NOT NULL,
+            enabled INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 1,
+            FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            FOREIGN KEY(sentinel_name) REFERENCES Sentinel(name)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            FOREIGN KEY(suit_name) REFERENCES SentinelSuit(name)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            UNIQUE (guild_id, sentinel_name, suit_name, type, object)
+            )
+            """
+            DROP_TABLE = """
+            DROP TABLE IF EXISTS SentinelTrigger
+            """
+            TRIGGER_BEFORE_INSERT_SENTINEL = """
+            CREATE TRIGGER IF NOT EXISTS insert_sentinel_before_insert
+            BEFORE INSERT ON SentinelTrigger
+            BEGIN
+                INSERT INTO Sentinel(guild_id, name)
+                VALUES (NEW.guild_id, NEW.sentinel_name)
+                ON CONFLICT DO NOTHING;
+            END
+            """
+            TRIGGER_BEFORE_INSERT_SUIT = """
+            CREATE TRIGGER IF NOT EXISTS insert_suit_before_insert
+            BEFORE INSERT ON SentinelTrigger
+            BEGIN
+                INSERT INTO SentinelSuit(guild_id, sentinel_name, name)
+                VALUES (NEW.guild_id, NEW.sentinel_name, NEW.suit_name)
+                ON CONFLICT DO NOTHING;
+            END
+            """
+            TRIGGER_AFTER_INSERT_USES = """
+            CREATE TRIGGER IF NOT EXISTS insert_uses_after_insert
+            AFTER INSERT ON SentinelTrigger
+            BEGIN
+                INSERT INTO SentinelTriggerUses(guild_id, trigger_object, user_id)
+                VALUES (NEW.guild_id, NEW.object, 0)
+                ON CONFLICT DO NOTHING;
+            END
+            """
+            INSERT = """
+            INSERT INTO SentinelTrigger (guild_id, sentinel_name, type, object)
+            VALUES (:guild_id, :sentinel_name, :type, :object)
+            ON CONFLICT DO NOTHING
+            """
+
+    @dataclass
+    class _SentinelResponse(Database.Row):
+        class ResponseType(IntEnum):
+            message = auto()
+            reply = auto()
+        guild_id: int
+        sentinel_name: str
+        suit_name: str
+        type: int
+        content: str
+        reactions: str  # a string which can be split by
+        # view: str
+        # somehow support
         enabled: bool = True
-        QUERY_CREATE_TABLE = """
-        CREATE TABLE IF NOT EXISTS SentinelTrigger(
-        guild_id INTEGER NOT NULL,
-        sentinel_name TEXT NOT NULL,
-        type INTEGER NOT NULL DEFAULT 0,
-        object TEXT NOT NULL,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
-            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-        FOREIGN KEY(sentinel_name) REFERENCES Sentinel(name)
-            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
-        )
-        """
-        QUERY_DROP_TABLE = """
-        DROP TABLE IF EXISTS SentinelTrigger
-        """
-        TRIGGER_BEFORE_INSERT_SENTINEL = """
-        CREATE TRIGGER IF NOT EXISTS insert_sentinel_before_insert
-        BEFORE INSERT ON SentinelTrigger
-        BEGIN
-            INSERT INTO Sentinel(guild_id, name)
-            VALUES (NEW.guild_id, NEW.sentinel_name)
-            ON CONFLICT DO NOTHING;
-        END
-        """
-        TRIGGER_AFTER_INSERT_USES = """
-        CREATE TRIGGER IF NOT EXISTS insert_uses_after_insert
-        AFTER INSERT ON SentinelTrigger
-        BEGIN
-            INSERT INTO SentinelTriggerUses(guild_id, trigger_object, user_id)
-            VALUES (NEW.guild_id, NEW.object, 0)
-            ON CONFLICT DO NOTHING;
-        END
-        """
-        QUERY_INSERT = """
-        INSERT INTO SentinelTrigger (guild_id, sentinel_name, type, object)
-        VALUES (:guild_id, :sentinel_name, :type, :object)
-        ON CONFLICT DO NOTHING
-        """
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS SentinelResponse(
+            guild_id INTEGER NOT NULL,
+            sentinel_name TEXT NOT NULL,
+            suit_name TEXT NOT NULL,
+            type INTEGER NOT NULL,
+            content TEXT,
+            reactions TEXT,
+            enabled INTEGER DEFAULT 1,
+            FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            FOREIGN KEY(sentinel_name) REFERENCES Sentinel(name) 
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            FOREIGN KEY(suit_name) REFERENCES SentinelSuit(name)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            UNIQUE (guild_id, sentinel_name, suit_name, type, content, reactions)
+            )
+            """
+            DROP_TABLE = """
+            DROP TABLE IF EXISTS SentinelResponse
+            """
+            TRIGGER_BEFORE_INSERT_SENTINEL = """
+            CREATE TRIGGER IF NOT EXISTS insert_sentinel_before_insert
+            BEFORE INSERT ON SentinelResponse
+            BEGIN
+                INSERT INTO Sentinel(guild_id, name)
+                VALUES (NEW.guild_id, NEW.sentinel_name)
+                ON CONFLICT DO NOTHING;
+            END
+            """
+            TRIGGER_BEFORE_INSERT_SUIT = """
+            CREATE TRIGGER IF NOT EXISTS insert_suit_before_insert
+            BEFORE INSERT ON SentinelResponse
+            BEGIN
+                INSERT INTO SentinelSuit(guild_id, sentinel_name, name)
+                VALUES (NEW.guild_id, NEW.sentinel_name, NEW.suit_name)
+                ON CONFLICT DO NOTHING;
+            END
+            """
+            INSERT = """
+            INSERT INTO SentinelResponse(guild_id, sentinel_name, type, content, reactions)
+            VALUES (:guild_id, :sentinel_name, :type, :content, :reactions)
+            ON CONFLICT DO NOTHING
+            """
 
     # guild_id = 0 is for global uses by users
     # only one instance for each user on a guild or globally
     # user_id = 0 is for all users
     # on sentinel usage, increase its tally for the local guild and global
     # also increase the tally for all users locally and globally (user_id = 0)
+
     @dataclass
-    class SentinelTriggerUses(Database.Row):
+    class _SentinelSuitUses(Database.Row):
+        class SuitPart(IntEnum):
+            trigger = 0
+            response = 1
+        guild_id: int
+        sentinel_name: str
+        suit_name: str
+        suit_part: SuitPart
+        user_id: int
+        uses: int
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS SentinelSuitUses(
+            guild_id INTEGER NOT NULL,
+            sentinel_name TEXT NOT NULL,
+            suit_name TEXT NOT NULL,
+            suit_part INT NOT NULL
+            )
+            """
+
+
+        QUERY_CREATE_TABLE = """
+        CREATE TABLE IF NOT EXISTS SentinelTriggerUses(
+        guild_id INTEGER NOT NULL,
+        sentinel_name TEXT NOT NULL,
+        suit_name TEXT NOT NULL,
+        UNIQUE (guild_id, trigger_type, trigger_object, user_id),
+        FOREIGN KEY(guild_id) REFERENCES Guild(id)
+            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+        FOREIGN KEY(user_id) REFERENCES User(id)
+            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        )
+        """
+        QUERY_DROP_TABLE = """
+        DROP TABLE IF EXISTS SentinelTriggerUses
+        """
+        TRIGGER_BEFORE_INSERT_USER = """
+        CREATE TRIGGER IF NOT EXISTS insert_user_before_insert
+        BEFORE INSERT ON SentinelTriggerUses
+        BEGIN
+            INSERT INTO User(id)
+            VALUES(NEW.user_id)
+            ON CONFLICT DO NOTHING;
+        END
+        """
+        QUERY_INSERT = """
+        INSERT INTO SentinelTriggerUses(guild_id, trigger_object, user_id)
+        VALUES(:guild_id, :trigger_object, :user_id)
+        ON CONFLICT DO NOTHING
+        """
+        QUERY_UPSERT = """
+        INSERT INTO SentinelTriggerUses(guild_id, trigger_object, user_id)
+        VALUES(:guild_id, :trigger_object, :user_id)
+        ON CONFLICT(guild_id, trigger_object, user_id)
+        DO UPDATE SET uses = uses + 1
+        """
+
+    @dataclass
+    class _SentinelResponseUses(Database.Row):
         guild_id: str
-        trigger_object: str
+        response_type: int
+        response_content: str
         user_id: int
         uses: int
         QUERY_CREATE_TABLE = """
         CREATE TABLE IF NOT EXISTS SentinelTriggerUses(
         guild_id INTEGER NOT NULL,
+        trigger_type INTEGER NOT NULL,
         trigger_object TEXT NOT NULL,
         user_id INTEGER NOT NULL,
         uses INTEGER DEFAULT 0,
-        UNIQUE (guild_id, trigger_object, user_id),
+        UNIQUE (guild_id, trigger_type, trigger_object, user_id),
         FOREIGN KEY(guild_id) REFERENCES Guild(id)
             ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
         FOREIGN KEY(user_id) REFERENCES User(id)
@@ -207,50 +541,7 @@ class SentinelDB(Database):
         """
 
 
-    @dataclass
-    class SentinelResponse(Database.Row):
-        class ResponseType(IntEnum):
-            message = auto()
-            reply = auto()
-        guild_id: int
-        sentinel_name: str
-        type: int
-        content: str
-        reactions: str # a string which can be split by
-        # view: str
-        # somehow support
-        enabled: bool = True
-        QUERY_CREATE_TABLE = """
-        CREATE TABLE IF NOT EXISTS SentinelResponse(
-        guild_id INTEGER NOT NULL,
-        sentinel_name TEXT NOT NULL,
-        type INTEGER NOT NULL,
-        content TEXT,
-        reactions TEXT,
-        enabled INTEGER DEFAULT 1,
-        FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
-             ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-        FOREIGN KEY(sentinel_name) REFERENCES Sentinel(name) 
-            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
-        )
-        """
-        QUERY_DROP_TABLE = """
-        DROP TABLE IF EXISTS SentinelResponse
-        """
-        TRIGGER_BEFORE_INSERT_SENTINEL = """
-        CREATE TRIGGER IF NOT EXISTS insert_sentinel_before_insert
-        BEFORE INSERT ON SentinelResponse
-        BEGIN
-            INSERT INTO Sentinel(guild_id, name)
-            VALUES (NEW.guild_id, NEW.sentinel_name)
-            ON CONFLICT DO NOTHING;
-        END
-        """
-        QUERY_INSERT = """
-        INSERT INTO SentinelResponse(guild_id, sentinel_name, type, content, reactions)
-        VALUES (:guild_id, :sentinel_name, :type, :content, :reactions)
-        ON CONFLICT DO NOTHING
-        """
+
 
     async def init(self, drop: bool=False):
         if drop: await self.dropTables()
@@ -260,27 +551,29 @@ class SentinelDB(Database):
     async def createTables(self):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(SentinelDB.SentinelSettings.QUERY_CREATE_TABLE)
-            await db.execute(SentinelDB.Sentinel.QUERY_CREATE_TABLE)
-            await db.execute(SentinelDB.SentinelTrigger.QUERY_CREATE_TABLE)
-            await db.execute(SentinelDB.SentinelResponse.QUERY_CREATE_TABLE)
-            await db.execute(SentinelDB.SentinelTriggerUses.QUERY_CREATE_TABLE)
+            await db.execute(SentinelDB.Sentinel.Queries.CREATE_TABLE)
+            await db.execute(SentinelDB.SentinelTrigger.Queries.CREATE_TABLE)
+            await db.execute(SentinelDB.SentinelResponse.Queries.CREATE_TABLE)
+            # await db.execute(SentinelDB.SentinelTriggerUses.QUERY_CREATE_TABLE)
             await db.commit()
 
     async def createTriggers(self):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(SentinelDB.Sentinel.TRIGGER_BEFORE_INSERT_GUILD)
-            await db.execute(SentinelDB.SentinelTrigger.TRIGGER_BEFORE_INSERT_SENTINEL)
-            await db.execute(SentinelDB.SentinelTrigger.TRIGGER_AFTER_INSERT_USES)
-            await db.execute(SentinelDB.SentinelTriggerUses.TRIGGER_BEFORE_INSERT_USER)
-            await db.execute(SentinelDB.SentinelResponse.TRIGGER_BEFORE_INSERT_SENTINEL)
+            await db.execute(SentinelDB.Sentinel.Queries.TRIGGER_BEFORE_INSERT_GUILD)
+            # Create the new triggers for the new suit system
+            # await db.execute(SentinelDB.SentinelTrigger.Queries.TRIGGER_BEFORE_INSERT_SENTINEL)
+            # await db.execute(SentinelDB.SentinelTrigger.Queries.TRIGGER_AFTER_INSERT_USES)
+            # await db.execute(SentinelDB.SentinelTriggerUses.Queries.TRIGGER_BEFORE_INSERT_USER)
+            # await db.execute(SentinelDB.SentinelResponse.Queries.TRIGGER_BEFORE_INSERT_SENTINEL)
             await db.commit()
 
     async def dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(SentinelDB.Sentinel.QUERY_DROP_TABLE)
-            await db.execute(SentinelDB.SentinelTrigger.QUERY_DROP_TABLE)
-            await db.execute(SentinelDB.SentinelResponse.QUERY_DROP_TABLE)
-            await db.execute(SentinelDB.SentinelTriggerUses.QUERY_DROP_TABLE)
+            await db.execute(SentinelDB.Sentinel.Queries.DROP_TABLE)
+            await db.execute(SentinelDB.SentinelTrigger.Queries.DROP_TABLE)
+            await db.execute(SentinelDB.SentinelResponse.Queries.DROP_TABLE)
+            await db.execute(SentinelDB.SentinelSuit.Queries.DROP_TABLE)
+            # await db.execute(SentinelDB.SentinelTriggerUses.QUERY_DROP_TABLE)
             await db.commit()
 
     async def upsertSentinelSettings(self, sentinel_settings: SentinelSettings):
@@ -294,7 +587,6 @@ class SentinelDB(Database):
             row_count = cursor.rowcount
             await db.commit()
         return row_count > 0
-
 
     async def insertTrigger(self, trigger: SentinelTrigger):
         async with aiosqlite.connect(self.file_path) as db:
@@ -318,6 +610,18 @@ class SentinelDB(Database):
             await db.executemany(SentinelDB.SentinelResponse.QUERY_INSERT, data)
             await db.commit()
 
+    async def insertSuit(self, trigger: SentinelTrigger=None, response: SentinelResponse=None, weight=None):
+        async with aiosqlite.connect(self.file_path) as db:
+            trigger_id = 0
+            response_id = 0
+            if trigger:
+                result: list = await db.execute_fetchall(SentinelDB.SentinelTrigger.Queries.INSERT, trigger.asdict())
+                trigger_id = result
+            if response:
+                result: list = await db.execute_fetchall(SentinelDB.SentinelResponse.Queries.INSERT, response.asdict())
+        # Test to see if output is what is expect
+
+        if result: result = result[0]
 
 
 
@@ -330,7 +634,7 @@ class SentinelDB(Database):
 
     async def fetchSimilarSentinelNames(self, guild_id: int, name: str, limit: int=1, offset: int=0):
         async with aiosqlite.connect(self.file_path) as db:
-            names: list[str] = await db.execute_fetchall(SentinelDB.Sentinel.QUERY_SELECT_LIKE_NAMES,
+            names: list[str] = await db.execute_fetchall(SentinelDB.Sentinel.Queries.SELECT_LIKE_NAMES,
                                                          (guild_id, f"%{name}%", limit, offset))
             names = [n[0] for n in names]
         return names
@@ -449,13 +753,14 @@ class Sentinels(GroupCog, name="s"):
         """
         async def convertSentinel(_guild_id: int, _sentinel_name: str,  _sentinel: OldSentinel
                                   ) -> tuple[SentinelDB.SentinelTrigger, SentinelDB.SentinelResponse]:
-            _trigger = SentinelDB.SentinelTrigger(guild_id=_guild_id, sentinel_name=_sentinel_name,
-                                                  type=SentinelDB.SentinelTrigger.TriggerType.phrase,
-                                                  object=_sentinel_name, enabled=_sentinel.enabled)
+
+            _trigger = SentinelDB.SentinelTrigger(type=SentinelDB.SentinelTrigger.TriggerType.phrase,
+                                                  object=_sentinel_name)
             reactions = ";".join(_sentinel.reactions)
-            _response = SentinelDB.SentinelResponse(guild_id=_guild_id, sentinel_name=_sentinel_name,
-                                                    type=SentinelDB.SentinelResponse.ResponseType.reply,
+            _response = SentinelDB.SentinelResponse(type=SentinelDB.SentinelResponse.ResponseType.reply,
                                                     content=_sentinel.response, reactions=reactions)
+            # _uses = SentinelDB.SentinelTriggerUses(guild_id=_guild_id, trigger_object=)
+
             return _trigger, _response
 
         for server_id, server in self.bot.data.servers.items():
@@ -466,8 +771,10 @@ class Sentinels(GroupCog, name="s"):
                                    for name, sentinel in server.sentinels.items()]
             if len(converted_sentinels):
                 triggers, responses = zip(*converted_sentinels)
-                await self.database.insertTriggers(triggers)
-                await self.database.insertResponses(responses)
+                for trigger, response in converted_sentinels:
+                    await self.database.insertSuit(trigger, response)
+                # await self.database.insertTriggers(triggers)
+                # await self.database.insertResponses(responses)
 
         converted_sentinels = [await convertSentinel(0, name, sentinel)
                                for name, sentinel in self.bot.data.globals.sentinels.items()]
@@ -498,6 +805,12 @@ class Sentinels(GroupCog, name="s"):
                                                type=response_type, content=content, reactions=reactions)
         await self.database.insertResponse(response)
         await respond(interaction, f"Added a response to the sentinel `{interaction.namespace.sentinel}`")
+
+
+    @remove_group.command(name="trigger", description="remove a sentinel trigger")
+    async def remove_trigger(self, interaction: Interaction, scope: SentinelScope):
+        await respond(interaction)
+
 
 
 
