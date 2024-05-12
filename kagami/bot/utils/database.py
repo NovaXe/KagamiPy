@@ -137,13 +137,13 @@ class Database:
             PRIMARY KEY (id))
             """
             TRIGGER_BEFORE_INSERT_GUILD = """
-            CREATE TRIGGER IF NOT EXISTS insert_settings_before_insert
+            CREATE TRIGGER IF NOT EXISTS insert_guild_settings_before_insert
             BEFORE INSERT ON Guild
             BEGIN
                 INSERT INTO GuildSettings(guild_id)
                 VALUES (NEW.id)
                 ON CONFLICT (guild_id) DO NOTHING;
-            END;
+            END
             """
             UPSERT = """
             INSERT INTO Guild (id, name)
@@ -152,7 +152,7 @@ class Database:
             DO UPDATE SET name = :name
             RETURNING *
             """
-            QUERY_SELECT = """
+            SELECT = """
             SELECT * FROM Guild
             WHERE id = ?
             """
@@ -171,11 +171,13 @@ class Database:
         guild_id: int
 
         class Queries:
-            QUERY_CREATE_TABLE = """
+            CREATE_TABLE = """
             CREATE TABLE IF NOT EXISTS GuildSettings(
             guild_id INTEGER,
+            PRIMARY KEY (guild_id),
             FOREIGN KEY (guild_id) REFERENCES Guild(id)
-            ON UPDATE CASCADE ON DELETE CASCADE)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+            )
             """
             UPSERT = """
             INSERT INTO GuildSettings (guild_id)
@@ -200,7 +202,7 @@ class Database:
         nickname: str
 
         class Queries:
-            QUERY_CREATE_TABLE = """
+            CREATE_TABLE = """
             CREATE TABLE IF NOT EXISTS User(
             id INTEGER NOT NULL,
             nickname TEXT DEFAULT NULL,
@@ -236,16 +238,16 @@ class Database:
 
     async def dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
+            await db.execute("DROP TABLE IF EXISTS Guild")
             await db.execute("DROP TABLE IF EXISTS GuildSettings")
-            await db.execute("DROP TABLE IF EXISTS Guilds")
             await db.execute("DROP TABLE IF EXISTS User")
             await db.commit()
 
     async def createTables(self):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(Database.Guild.Queries.CREATE_TABLE)
-            await db.execute(Database.GuildSettings.Queries.QUERY_CREATE_TABLE)
-            await db.execute(Database.User.Queries.QUERY_CREATE_TABLE)
+            await db.execute(Database.GuildSettings.Queries.CREATE_TABLE)
+            await db.execute(Database.User.Queries.CREATE_TABLE)
             await db.commit()
 
     async def createTriggers(self):
@@ -277,7 +279,7 @@ class Database:
     async def fetchGuild(self, guild_id: int) -> Guild:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = Database.Guild.rowFactory
-            guild: Database.Guild = await db.execute_fetchall(Database.Guild.QUERY_SELECT, (guild_id,))
+            guild: Database.Guild = await db.execute_fetchall(Database.Guild.Queries.SELECT, (guild_id,))
             await db.commit()
             return guild
 

@@ -134,7 +134,17 @@ class MusicDB(Database):
         playlists_enabled INTEGER DEFAULT 1,
         PRIMARY KEY (guild_id),
         FOREIGN KEY(guild_id) REFERENCES Guild(id)
-        ON UPDATE CASCADE ON DELETE CASCADE)
+            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        )
+        """
+        TRIGGER_BEFORE_INSERT_GUILD = """
+        CREATE TRIGGER IF NOT EXISTS MusicSettings_insert_guild_before_insert
+        BEFORE INSERT ON MusicSettings
+        BEGIN
+            INSERT INTO Guild(id)
+            values(NEW.guild_id)
+            ON CONFLICT DO NOTHING;
+        END
         """
         QUERY_UPSERT = """
         INSERT INTO MusicSettings (guild_id, music_enabled, playlists_enabled)
@@ -166,11 +176,11 @@ class MusicDB(Database):
         ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
-        TRIGGER_BEFORE_INSERT_GUILD = """
-        CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
+        TRIGGER_BEFORE_INSERT_SETTINGS = """
+        CREATE TRIGGER IF NOT EXISTS Playlist_insert_settings_before_insert
         BEFORE INSERT ON Playlist
         BEGIN
-            INSERT INTO Guild(id)
+            INSERT INTO MusicSettings(id)
             values(NEW.guild_id)
             ON CONFLICT DO NOTHING;
         END
@@ -251,7 +261,7 @@ class MusicDB(Database):
         """ # PRIMARY KEY(guild_id, playlist_name, track_index),
 
         QUERY_BEFORE_INSERT_TRIGGER = """
-        CREATE TRIGGER IF NOT EXISTS shift_indices_before_insert
+        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_before_insert
         BEFORE INSERT ON Track
         BEGIN
             UPDATE Track
@@ -260,7 +270,7 @@ class MusicDB(Database):
         END;
         """ # AND rowid != NEW.rowid
         QUERY_AFTER_INSERT_TRIGGER = """
-        CREATE TRIGGER IF NOT EXISTS shift_indices_before_insert
+        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_before_insert
         AFTER INSERT ON Track
         BEGIN
             UPDATE Track
@@ -270,7 +280,7 @@ class MusicDB(Database):
         END;
         """
         QUERY_BEFORE_UPDATE_TRIGGER_FLIPFLOP_METHOD = """
-        CREATE TRIGGER IF NOT EXISTS shift_indices_before_update
+        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_before_update
         BEFORE UPDATE OF track_index ON Track
         BEGIN
             UPDATE Track
@@ -284,7 +294,7 @@ class MusicDB(Database):
         END;
         """ # AND (rowid != OLD.rowid)
         QUERY_AFTER_UPDATE_TRIGGER_FLIPFLOP_METHOD = """
-        CREATE TRIGGER IF NOT EXISTS shift_indices_after_update
+        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_after_update
         AFTER UPDATE OF track_index ON Track
         BEGIN
             UPDATE Track
@@ -293,7 +303,7 @@ class MusicDB(Database):
         END;
         """
         QUERY_AFTER_UPDATE_TRIGGER = """
-        CREATE TRIGGER IF NOT EXISTS shift_indices_after_update
+        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_after_update
         AFTER UPDATE OF track_index ON Track
         BEGIN
             UPDATE Track
@@ -319,7 +329,7 @@ class MusicDB(Database):
         AND (track_index > :old_index) AND (track_index <= :new_index)
         """
         QUERY_AFTER_DELETE_TRIGGER = """
-        CREATE TRIGGER IF NOT EXISTS shift_indices_before_delete
+        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_before_delete
         AFTER DELETE ON Track
         BEGIN
         UPDATE Track
@@ -462,7 +472,8 @@ class MusicDB(Database):
 
     async def createTriggers(self):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(MusicDB.Playlist.TRIGGER_BEFORE_INSERT_GUILD)
+            await db.execute(MusicDB.MusicSettings.TRIGGER_BEFORE_INSERT_GUILD)
+            await db.execute(MusicDB.Playlist.TRIGGER_BEFORE_INSERT_SETTINGS)
             await db.execute(MusicDB.Track.QUERY_AFTER_INSERT_TRIGGER)
 
             # await db.execute(MusicDB.Track.QUERY_BEFORE_UPDATE_TRIGGER)

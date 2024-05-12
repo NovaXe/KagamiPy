@@ -19,7 +19,7 @@ from bot.utils.ui import MessageScroller
 from bot.utils.database import Database
 from bot.utils.pages import createPageList, createPageInfoText, CustomRepr
 from typing import (
-    Literal, Union, List
+    Literal, Union, List, Any
 )
 
 
@@ -43,7 +43,7 @@ class SentinelDB(Database):
             DROP TABLE IF EXISTS SentinelSettings
             """
             TRIGGER_BEFORE_INSERT_GUILD = """
-            CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
+            CREATE TRIGGER IF NOT EXISTS SentinelSettings_insert_guild_before_insert
             BEFORE INSERT ON SentinelSettings
             BEGIN
                 INSERT INTO Guild(id)
@@ -87,7 +87,7 @@ class SentinelDB(Database):
             DROP TABLE IF EXISTS Sentinel
             """
             TRIGGER_BEFORE_INSERT_SETTINGS = """
-            CREATE TRIGGER IF NOT EXISTS insert_settings_before_insert
+            CREATE TRIGGER IF NOT EXISTS Sentinel_insert_settings_before_insert
             BEFORE INSERT ON Sentinel
             BEGIN
                 INSERT INTO SentinelSettings(guild_id)
@@ -163,6 +163,7 @@ class SentinelDB(Database):
         content: str
         reactions: str
         id: int = None
+
         class Queries:
             CREATE_TABLE = """
             CREATE TABLE IF NOT EXISTS SentinelResponse(
@@ -189,7 +190,6 @@ class SentinelDB(Database):
             RETURNING *
             """
 
-
     @dataclass
     class SentinelSuit(Database.Row):
         guild_id: int
@@ -199,6 +199,7 @@ class SentinelDB(Database):
         trigger_id: int = None
         response_id: int = None
         enabled: bool = True
+
         class Queries:
             CREATE_TABLE = """
             CREATE TABLE IF NOT EXISTS SentinelSuit(
@@ -206,8 +207,8 @@ class SentinelDB(Database):
             sentinel_name TEXT NOT NULL,
             name TEXT NOT NULL,
             weight INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 10,
-            trigger_id INTEGER,
-            response_id INTEGER,
+            trigger_id INTEGER DEFAULT NULL,
+            response_id INTEGER DEFAULT NULL,
             enabled INTEGER NOT NULL DEFAULT 1,
             PRIMARY KEY (guild_id, sentinel_name, name),
             FOREIGN KEY (guild_id) REFERENCES Guild(id)
@@ -223,7 +224,7 @@ class SentinelDB(Database):
             DROP TABLE IF EXISTS SentinelSuit
             """
             TRIGGER_BEFORE_INSERT_SENTINEL = """
-            CREATE TRIGGER IF NOT EXISTS insert_sentinel_before_insert
+            CREATE TRIGGER IF NOT EXISTS SentinelSuit_insert_sentinel_before_insert
             BEFORE INSERT ON SentinelSuit
             BEGIN
                 INSERT INTO Sentinel(guild_id, name)
@@ -232,7 +233,7 @@ class SentinelDB(Database):
             END
             """
             TRIGGER_AFTER_DELETE_TRIGGER = """
-            CREATE TRIGGER IF NOT EXISTS delete_trigger_after_delete
+            CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_trigger_after_delete
             AFTER DELETE ON SentinelSuit
             WHEN (SELECT COUNT(*) FROM SentinelSuit WHERE trigger_id = OLD.trigger_id) = 0
             BEGIN
@@ -241,7 +242,7 @@ class SentinelDB(Database):
             END
             """
             TRIGGER_AFTER_DELETE_RESPONSE = """
-            CREATE TRIGGER IF NOT EXISTS delete_response_after_delete
+            CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_response_after_delete
             AFTER DELETE ON SentinelSuit
             WHEN (SELECT COUNT(*) FROM SentinelSuit WHERE response_id = OLD.response_id) = 0
             BEGIN
@@ -250,7 +251,7 @@ class SentinelDB(Database):
             END
             """
             DELETE_TRIGGER_TRACKING_AFTER_DELETE = """
-            CREATE TRIGGER IF NOT EXISTS delete_trigger_tracking_after_delete
+            CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_trigger_tracking_after_delete
             AFTER DELETE ON SentinelSuit
             WHEN (
                 SELECT COUNT(*) FROM SentinelSuit WHERE trigger_id = OLD.trigger_id AND guild_id = OLD.guild_id
@@ -261,7 +262,7 @@ class SentinelDB(Database):
             END
             """
             DELETE_RESPONSE_TRACKING_AFTER_DELETE = """
-            CREATE TRIGGER IF NOT EXISTS delete_response_after_delete
+            CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_response_after_delete
             AFTER DELETE ON SentinelSuit
             WHEN (
                 SELECT COUNT(*) FROM SentinelSuit WHERE response_id = OLD.response_id AND guild_id = OLD.guild_id
@@ -277,6 +278,33 @@ class SentinelDB(Database):
             ON CONFLICT (guild_id, sentinel_name, name)
             DO NOTHING
             """
+            SELECT = """
+            SELECT * FROM SentinelSuit
+            WHERE guild_id = ? AND sentinel_name = ? AND name = ?
+            """
+            SELECT_NULL_TRIGGER_SUITS = """
+            SELECT * FROM SentinelSuit 
+            WHERE guild_id = :guild_id AND sentinel_name = :sentinel_name AND trigger_id = NULL
+            """
+            SELECT_NULL_TRIGGER_NAMES = """
+            SELECT name FROM SentinelSuit 
+            WHERE guild_id = :guild_id AND sentinel_name = :sentinel_name AND trigger_id = NULL
+            """
+            SELECT_SIMILAR_NULL_TRIGGER_SUIT_NAMES = """
+            SELECT name FROM SentinelSuit 
+            WHERE guild_id = :guild_id AND sentinel_name = :sentinel_name AND trigger_id = NULL AND name LIKE ?
+            LIMIT ? OFFSET ?
+            """
+            SELECT_NULL_RESPONSE_SUITS = """
+            SELECT * FROM SentinelSuit 
+            WHERE guild_id = :guild_id AND sentinel_name = :sentinel_name AND response_id = NULL
+            """
+            SELECT_SIMILAR_NULL_RESPONSE_SUIT_NAMES = """
+            SELECT name FROM SentinelSuit 
+            WHERE guild_id = :guild_id AND sentinel_name = :sentinel_name AND response_id = NULL AND name LIKE :name
+            LIMIT ? OFFSET ?
+            """
+
 
 
 
@@ -555,14 +583,10 @@ class SentinelDB(Database):
         DO UPDATE SET uses = uses + 1
         """
 
-
-
-
     async def init(self, drop: bool=False):
         if drop: await self.dropTables()
         await self.createTables()
         await self.createTriggers()
-
 
     async def createTables(self):
         async with aiosqlite.connect(self.file_path) as db:
@@ -666,10 +690,6 @@ class SentinelDB(Database):
         # print(f"{trigger_id=}, {response_id=}")
 
         # Test to see if output is what is expected
-
-
-
-
     async def fetchSentinel(self, guild_id: int, name: str) -> Sentinel:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = SentinelDB.Sentinel.rowFactory
@@ -681,6 +701,30 @@ class SentinelDB(Database):
         async with aiosqlite.connect(self.file_path) as db:
             names: list[str] = await db.execute_fetchall(SentinelDB.Sentinel.Queries.SELECT_LIKE_NAMES,
                                                          (guild_id, f"%{name}%", limit, offset))
+            names = [n[0] for n in names]
+        return names
+
+    async def fetchSentinelSuit(self, guild_id: int, sentinel_name: str, name: str) -> SentinelSuit:
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = SentinelDB.SentinelSuit.rowFactory
+            result = await db.execute(SentinelDB.SentinelSuit.Queries.SELECT, (guild_id, sentinel_name, name))
+        return result[0] if result else None
+
+    async def fetchSimilarNullTriggerSuitNames(self, guild_id: int, sentinel_name: str, name: str,
+                                               limit: int=1, offset: int=0):
+        async with aiosqlite.connect(self.file_path) as db:
+            names: list[str] = await db.execute_fetchall(
+                SentinelDB.SentinelSuit.Queries.SELECT_SIMILAR_NULL_TRIGGER_SUIT_NAMES,
+                (guild_id, sentinel_name, f"%{name}%", limit, offset))
+            names = [n[0] for n in names]
+        return names
+
+    async def fetchSimilarNullResponseSuitNames(self, guild_id: int, sentinel_name: str, name: str,
+                                                limit: int=1, offset: int=0):
+        async with aiosqlite.connect(self.file_path) as db:
+            names: list[str] = await db.execute_fetchall(
+                SentinelDB.SentinelSuit.Queries.SELECT_SIMILAR_NULL_RESPONSE_SUIT_NAMES,
+                (guild_id, sentinel_name, f"%{name}%", limit, offset))
             names = [n[0] for n in names]
         return names
 
@@ -719,7 +763,7 @@ class GuildTransformer(Transformer):
 
 class SentinelTransformer(Transformer):
     async def autocomplete(self, interaction: Interaction,
-                           current: str) -> list[Choice[str]]:
+                           current: str, /) -> list[Choice[str]]:
         guild_id = interaction.namespace.scope
         if guild_id == SentinelScope.LOCAL:
             guild_id = interaction.guild_id
@@ -737,6 +781,27 @@ class SentinelTransformer(Transformer):
         bot: Kagami = interaction.client
         db = SentinelDB(bot.config.db_path)
         return await db.fetchSentinel(guild_id=guild_id, name=value)
+
+class SentinelSuitTransformer(Transformer):
+    async def autocomplete(self, interaction: Interaction,
+                           current: str, /) -> List[Choice[str]]:
+        guild_id = interaction.namespace.scope
+        if guild_id == SentinelScope.LOCAL: guild_id = interaction.guild_id
+        sentinel_name = interaction.namespace.sentinel_name
+        bot: Kagami = interaction.client
+        db = SentinelDB(bot.config.db_path)
+        names = await db.fetchSimilarNullTriggerSuitNames(guild_id, sentinel_name, current, 25)
+
+        return [Choice(name=name, value=name) for name in names]
+
+    async def transform(self, interaction: Interaction, value: str, / ) -> SentinelDB.SentinelSuit:
+        guild_id = interaction.namespace.scope
+        if guild_id == 1: guild_id = interaction.guild_id
+        bot: Kagami = interaction.client
+        db = SentinelDB(bot.config.db_path)
+        sentinel_name = interaction.namespace.sentinel_name
+        result = await db.fetchSentinelSuit(guild_id, sentinel_name, value)
+        return result
 
 
 async def triggerSanityCheck(trigger_type: SentinelDB.SentinelTrigger.TriggerType,
@@ -781,7 +846,7 @@ class Sentinels(GroupCog, name="s"):
 
     Guild_Transform = Transform[Database.Guild, GuildTransformer]
     Sentinel_Transform = Transform[SentinelDB.Sentinel, SentinelTransformer]
-
+    Suit_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer]
 
     @commands.is_owner()
     @commands.command(name="migrate_sentinels")
@@ -842,30 +907,52 @@ class Sentinels(GroupCog, name="s"):
 
     @app_commands.rename(trigger_type="type", trigger_object="object")
     @add_group.command(name="trigger", description="add a sentinel trigger")
-    async def add_trigger(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform,
+    async def add_trigger(self, interaction: Interaction, scope: SentinelScope,
+                          sentinel: Sentinel_Transform, suit: Suit_Transform,
                           trigger_type: SentinelDB.SentinelTrigger.TriggerType, trigger_object: str):
         await respond(interaction)
-        guild_id = scope * interaction.guild_id
-        trigger = SentinelDB.SentinelTrigger(guild_id=guild_id, sentinel_name=interaction.namespace.sentinel,
-                                             type=trigger_type, object=trigger_object)
-        await self.database.insertTrigger(trigger)
-        await respond(interaction, f"Added a trigger to the sentinel `{interaction.namespace.sentinel}`")
+        guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        # guild_id = scope * interaction.guild_id
+        trigger = SentinelDB.SentinelTrigger(type=trigger_type, object=trigger_object)
+        trigger_id = await self.database.insertTrigger(trigger)
+        if suit: suit.trigger_id = trigger_id
+        else:
+            suit = SentinelDB.SentinelSuit(guild_id, sentinel_name=interaction.namespace.sentinel,
+                                           name=interaction.namespace.suit, trigger_id=trigger_id)
+        await self.database.insertSuit(suit)
+        await respond(interaction, f"Added a trigger to the suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
+        # await self.database.insertTrigger(trigger)
+        # await respond(interaction, f"Added a trigger to the sentinel `{interaction.namespace.sentinel}`")
 
     @app_commands.rename(response_type="type")
     @app_commands.describe(reactions="emotes separated by ;")
     @add_group.command(name="response", description="add a sentinel response")
-    async def add_response(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform,
-                           response_type: SentinelDB.SentinelResponse.ResponseType, content: str="", reactions: str=""):
+    async def add_response(self, interaction: Interaction, scope: SentinelScope,
+                           sentinel: Sentinel_Transform, suit: Suit_Transform,
+                           response_type: SentinelDB.SentinelResponse.ResponseType,
+                           content: str="", reactions: str=""):
         await respond(interaction)
-        guild_id = scope * interaction.guild_id
-        response = SentinelDB.SentinelResponse(guild_id=guild_id, sentinel_name=interaction.namespace.sentinel,
-                                               type=response_type, content=content, reactions=reactions)
-        await self.database.insertResponse(response)
-        await respond(interaction, f"Added a response to the sentinel `{interaction.namespace.sentinel}`")
 
+        guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        # guild_id = scope * interaction.guild_id
+        response = SentinelDB.SentinelResponse(type=response_type, content=content, reactions=reactions)
+        response_id = await self.database.insertResponse(response)
+        if suit:
+            suit.response_id = response_id
+        else:
+            suit = SentinelDB.SentinelSuit(guild_id, sentinel_name=interaction.namespace.sentinel,
+                                           name=interaction.namespace.suit, response_id=response_id)
+        await self.database.insertSuit(suit)
+        await respond(interaction, f"Added a response to the suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
 
-    @remove_group.command(name="trigger", description="remove a sentinel trigger")
-    async def remove_trigger(self, interaction: Interaction, scope: SentinelScope):
+    @remove_group.command(name="trigger", description="remove a trigger from a suit")
+    async def remove_trigger(self, interaction: Interaction,
+                             scope: SentinelScope, suit: Suit_Transform, sentinel: Sentinel_Transform):
+        await respond(interaction)
+
+    @remove_group.command(name="response", description="remove a response from a suit")
+    async def remove_response(self, interaction: Interaction,
+                              scope: SentinelScope, suit: Suit_Transform, sentinel: Sentinel_Transform):
         await respond(interaction)
 
 

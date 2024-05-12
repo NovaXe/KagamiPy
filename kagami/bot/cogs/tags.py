@@ -40,6 +40,15 @@ class TagDB(Database):
         QUERY_DROP_TABLE = """
         DROP TABLE IF EXISTS TagSettings
         """
+        TRIGGER_BEFORE_INSERT_GUILD = """
+        CREATE TRIGGER IF NOT EXISTS TagSettings_insert_guild_before_insert
+        BEFORE INSERT ON TagSettings
+        BEGIN
+            INSERT INTO Guild(id)
+            values(NEW.guild_id)
+            ON CONFLICT DO NOTHING;
+        END
+        """
         QUERY_UPSERT = """
         INSERT INTO MusicSettings (guild_id, tags_enabled)
         VALUES(:guild_id, :tags_enabled)
@@ -91,17 +100,17 @@ class TagDB(Database):
         # QUERY_BEFORE_INSERT_INSERT_GUILD_TRIGGER = """
         # CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
         # """
-        TRIGGER_BEFORE_INSERT_GUILD = """
-        CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
-        BEFORE INSERT ON Playlist
+        TRIGGER_BEFORE_INSERT_SETTINGS = """
+        CREATE TRIGGER IF NOT EXISTS Tag_insert_settings_before_insert
+        BEFORE INSERT ON Tag
         BEGIN
-            INSERT INTO Guild(id)
+            INSERT INTO TagSettings(guild_id)
             VALUES(NEW.guild_id)
             ON CONFLICT DO NOTHING;
         END
         """
         QUERY_BEFORE_INSERT_USER_TRIGGER = """
-        CREATE TRIGGER IF NOT EXISTS insert_user_before_insert
+        CREATE TRIGGER IF NOT EXISTS Tag_insert_user_before_insert
         BEFORE INSERT ON Tag
         BEGIN
             INSERT INTO User(id)
@@ -110,7 +119,7 @@ class TagDB(Database):
         END
         """
         QUERY_AFTER_UPDATE_TRIGGER = """
-        CREATE TRIGGER IF NOT EXISTS set_modified_data_after_update
+        CREATE TRIGGER IF NOT EXISTS Tag_set_modified_data_after_update
         AFTER UPDATE ON Tag
         BEGIN
             UPDATE Tag
@@ -191,7 +200,8 @@ class TagDB(Database):
     async def createTriggers(self):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(TagDB.Tag.QUERY_BEFORE_INSERT_USER_TRIGGER)
-            await db.execute(TagDB.Tag.TRIGGER_BEFORE_INSERT_GUILD)
+            await db.execute(TagDB.Tag.TRIGGER_BEFORE_INSERT_SETTINGS)
+            await db.execute(TagDB.TagSettings.TRIGGER_BEFORE_INSERT_GUILD)
             await db.commit()
 
     async def dropTables(self):
