@@ -105,15 +105,16 @@ def cog_load():
 #
 #     # other bits of data can be here too
 
-
-
 class Database:
     @dataclass
     class Row:
-        QUERY_CREATE_TABLE = ""
-        QUERY_UPSERT = ""
-        QUERY_INSERT = ""
-        QUERY_SELECT = ""
+        class Queries:
+            CREATE_TABLE = ""
+            UPSERT = ""
+            INSERT = ""
+            SELECT = ""
+            DELETE = ""
+
         def __init__(self, *args, **kwargs): pass
         def asdict(self): return asdict(self)
 
@@ -127,28 +128,39 @@ class Database:
     class Guild(Row):
         id: int
         name: str
-        QUERY_CREATE_TABLE = """
-        CREATE TABLE IF NOT EXISTS Guild (
-        id INTEGER,
-        name TEXT DEFAULT 'Unknown',
-        PRIMARY KEY (id))
-        """
-        QUERY_UPSERT = """
-        INSERT INTO Guild (id, name)
-        VALUES (:id, :name)
-        ON CONFLICT (id)
-        DO UPDATE SET name = :name
-        RETURNING *
-        """
-        QUERY_SELECT = """
-        SELECT * FROM Guild
-        WHERE id = ?
-        """
-        QUERY_DELETE = """
-        DELETE FROM Guild
-        WHERE id = ?
-        RETURNING *
-        """
+
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS Guild (
+            id INTEGER,
+            name TEXT DEFAULT 'Unknown',
+            PRIMARY KEY (id))
+            """
+            TRIGGER_BEFORE_INSERT_GUILD = """
+            CREATE TRIGGER IF NOT EXISTS insert_settings_before_insert
+            BEFORE INSERT ON Guild
+            BEGIN
+                INSERT INTO GuildSettings(guild_id)
+                VALUES (NEW.id)
+                ON CONFLICT (guild_id) DO NOTHING;
+            END;
+            """
+            UPSERT = """
+            INSERT INTO Guild (id, name)
+            VALUES (:id, :name)
+            ON CONFLICT (id)
+            DO UPDATE SET name = :name
+            RETURNING *
+            """
+            QUERY_SELECT = """
+            SELECT * FROM Guild
+            WHERE id = ?
+            """
+            DELETE = """
+            DELETE FROM Guild
+            WHERE id = ?
+            RETURNING *
+            """
 
         @classmethod
         def fromDiscord(cls, guild=discord.Guild):
@@ -157,54 +169,59 @@ class Database:
     @dataclass
     class GuildSettings(Row):
         guild_id: int
-        QUERY_CREATE_TABLE = """
-        CREATE TABLE IF NOT EXISTS GuildSettings(
-        guild_id INTEGER,
-        FOREIGN KEY (guild_id) REFERENCES Guild(id)
-        ON UPDATE CASCADE ON DELETE CASCADE)
-        """
-        QUERY_UPSERT = """
-        INSERT INTO GuildSettings (guild_id)
-        VALUES (:guild_id)
-        ON CONFLICT (id)
-        DO NOTHING
-        RETURNING *
-        """
-        QUERY_SELECT = """
-        SELECT * FROM GuildSettings
-        WHERE guild_id = ?
-        """
-        QUERY_DELETE = """
-        DELETE FROM GuildSettings
-        WHERE guild_id = ?
-        RETURNING *
-        """
+
+        class Queries:
+            QUERY_CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS GuildSettings(
+            guild_id INTEGER,
+            FOREIGN KEY (guild_id) REFERENCES Guild(id)
+            ON UPDATE CASCADE ON DELETE CASCADE)
+            """
+            UPSERT = """
+            INSERT INTO GuildSettings (guild_id)
+            VALUES (:guild_id)
+            ON CONFLICT (id)
+            DO NOTHING
+            RETURNING *
+            """
+            QUERY_SELECT = """
+            SELECT * FROM GuildSettings
+            WHERE guild_id = ?
+            """
+            DELETE = """
+            DELETE FROM GuildSettings
+            WHERE guild_id = ?
+            RETURNING *
+            """
 
     @dataclass
     class User(Row):
         id: int
         nickname: str
-        QUERY_CREATE_TABLE = """
-        CREATE TABLE IF NOT EXISTS User(
-        id INTEGER NOT NULL,
-        nickname TEXT DEFAULT NULL,
-        PRIMARY KEY (id))
-        """
-        QUERY_UPSERT = """
-        INSERT INTO User (id)
-        VALUES (:id)
-        ON CONFLICT (id)
-        DO UPDATE SET nickname = :nickname
-        """
-        QUERY_SELECT = """
-        SELECT * FROM User
-        WHERE id = ?
-        """
-        QUERY_DELETE = """
-        DELETE FROM User
-        WHERE id = ?
-        RETURNING *
-        """
+
+        class Queries:
+            QUERY_CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS User(
+            id INTEGER NOT NULL,
+            nickname TEXT DEFAULT NULL,
+            PRIMARY KEY (id))
+            """
+            QUERY_UPSERT = """
+            INSERT INTO User (id)
+            VALUES (:id)
+            ON CONFLICT (id)
+            DO UPDATE SET nickname = :nickname
+            """
+            QUERY_SELECT = """
+            SELECT * FROM User
+            WHERE id = ?
+            """
+            QUERY_DELETE = """
+            DELETE FROM User
+            WHERE id = ?
+            RETURNING *
+            """
+
 
     def __init__(self, database_path: str):
         self.file_path: str = database_path
@@ -214,6 +231,7 @@ class Database:
         #     pass
         if drop: await self.dropTables()
         await self.createTables()
+        await self.createTriggers()
         # await self.createGlobalTable()
 
     async def dropTables(self):
@@ -225,29 +243,34 @@ class Database:
 
     async def createTables(self):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(Database.Guild.QUERY_CREATE_TABLE)
-            await db.execute(Database.GuildSettings.QUERY_CREATE_TABLE)
-            await db.execute(Database.User.QUERY_CREATE_TABLE)
+            await db.execute(Database.Guild.Queries.CREATE_TABLE)
+            await db.execute(Database.GuildSettings.Queries.QUERY_CREATE_TABLE)
+            await db.execute(Database.User.Queries.QUERY_CREATE_TABLE)
+            await db.commit()
+
+    async def createTriggers(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(Database.Guild.Queries.TRIGGER_BEFORE_INSERT_GUILD)
             await db.commit()
 
     async def upsertGuild(self, guild: Guild) -> Guild:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = guild.rowFactory
-            new_guild: Database.Guild = await db.execute_fetchall(guild.QUERY_UPSERT, guild.asdict())
+            new_guild: Database.Guild = await db.execute_fetchall(guild.Queries.UPSERT, guild.asdict())
             await db.commit()
         return new_guild
 
     async def upsertGuilds(self, guilds: list[Guild]) -> list[Guild]:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = Database.Guild.rowFactory
-            guilds: list[Database.Guild] = await db.executemany(Database.Guild.QUERY_UPSERT, guilds)
+            guilds: list[Database.Guild] = await db.executemany(Database.Guild.Queries.UPSERT, guilds)
             await db.commit()
         return guilds
 
     async def upsertGuildSettings(self, guild_settings: GuildSettings) -> GuildSettings:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = guild_settings.rowFactory
-            new_settings: Database.GuildSettings = await db.execute_fetchall(guild_settings.QUERY_UPSERT, guild_settings.asdict())
+            new_settings: Database.GuildSettings = await db.execute_fetchall(guild_settings.Queries.UPSERT, guild_settings.asdict())
             await db.commit()
         return new_settings
 
@@ -260,13 +283,13 @@ class Database:
 
     async def deleteGuild(self, guild_id: int):
         async with aiosqlite.connect(self.file_path) as db:
-            deleted_guild = await db.execute_fetchall(Database.Guild.QUERY_DELETE, (guild_id,))
+            deleted_guild = await db.execute_fetchall(Database.Guild.Queries.DELETE, (guild_id,))
             await db.commit()
             return deleted_guild
 
     async def deleteGuildSettings(self, guild_id: int):
         async with aiosqlite.connect(self.file_path) as db:
-            deleted_settings = await db.execute_fetchall(Database.GuildSettings.QUERY_DELETE, (guild_id,))
+            deleted_settings = await db.execute_fetchall(Database.GuildSettings.Queries.DELETE, (guild_id,))
             await db.commit()
             return deleted_settings
 

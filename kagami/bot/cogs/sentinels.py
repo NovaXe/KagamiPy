@@ -28,31 +28,43 @@ class SentinelDB(Database):
     class SentinelSettings(Database.Row):
         guild_id: int
         sentinels_enabled: bool = True
-        QUERY_CREATE_TABLE = """
-        CREATE TABLE IF NOT EXISTS SentinelSettings(
-        guild_id INTEGER NOT NULL,
-        sentinels_enabled INTEGER DEFAULT 1,
-        FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
-            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
-        )
-        """
-        QUERY_DROP_TABLE = """
-        DROP TABLE IF EXISTS SentinelSettings
-        """
-        QUERY_UPSERT = """
-        INSERT INTO SentinelSettings (guild_id, sentinels_enabled)
-        VALUES(:guild_id, :sentinels_enabled)
-        ON CONFLICT (guild_id)
-        DO UPDATE SET sentinels_enabled = :sentinels_enabled
-        """
-        QUERY_SELECT = """
-        SELECT * FROM SentinelSettings
-        WHERE guild_id = ?
-        """
-        QUERY_DELETE = """
-        DELETE FROM SentinelSettings
-        WHERE guild_id = ?
-        """
+
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS SentinelSettings(
+            guild_id INTEGER NOT NULL,
+            sentinels_enabled INTEGER DEFAULT 1,
+            PRIMARY KEY(guild_id),
+            FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+            )
+            """
+            DROP_TABLE = """
+            DROP TABLE IF EXISTS SentinelSettings
+            """
+            TRIGGER_BEFORE_INSERT_GUILD = """
+            CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
+            BEFORE INSERT ON SentinelSettings
+            BEGIN
+                INSERT INTO Guild(id)
+                VALUES (NEW.guild_id)
+                ON CONFLICT(id) DO NOTHING;
+            END;
+            """
+            UPSERT = """
+            INSERT INTO SentinelSettings (guild_id, sentinels_enabled)
+            VALUES(:guild_id, :sentinels_enabled)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET sentinels_enabled = :sentinels_enabled
+            """
+            SELECT = """
+            SELECT * FROM SentinelSettings
+            WHERE guild_id = ?
+            """
+            DELETE = """
+            DELETE FROM SentinelSettings
+            WHERE guild_id = ?
+            """
 
     @dataclass
     class Sentinel(Database.Row):
@@ -74,19 +86,19 @@ class SentinelDB(Database):
             DROP_TABLE = """
             DROP TABLE IF EXISTS Sentinel
             """
-            TRIGGER_BEFORE_INSERT_GUILD = """
-            CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
+            TRIGGER_BEFORE_INSERT_SETTINGS = """
+            CREATE TRIGGER IF NOT EXISTS insert_settings_before_insert
             BEFORE INSERT ON Sentinel
             BEGIN
-                INSERT INTO Guild(id)
+                INSERT INTO SentinelSettings(guild_id)
                 VALUES (NEW.guild_id)
-                ON CONFLICT DO NOTHING;
-            END
+                ON CONFLICT(guild_id) DO NOTHING;
+            END;
             """
             INSERT = """
             INSERT INTO Sentinel(guild_id, name)
             VALUES(:guild_id, :name)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT(guild_id, name) DO NOTHING
             """
             INCREMENT_USES = """
             UPDATE Sentinel SET uses = uses + 1
@@ -133,7 +145,7 @@ class SentinelDB(Database):
             INSERT = """
             INSERT INTO SentinelTrigger(type, object)
             VALUES (:type, :object)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT(type, object) DO NOTHING
             RETURNING id
             """
             DELETE = """
@@ -159,7 +171,7 @@ class SentinelDB(Database):
             content TEXT,
             reactions TEXT,
             PRIMARY KEY (id),
-            UNIQUE (type, content)
+            UNIQUE (type, content, reactions)
             )
             """
             DROP_TABLE = """
@@ -168,7 +180,7 @@ class SentinelDB(Database):
             INSERT = """
             INSERT INTO SentinelResponse(type, content, reactions)
             VALUES (:type, :content, :reactions)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT(type, content, reactions) DO NOTHING
             RETURNING id
             """
             DELETE = """
@@ -216,7 +228,7 @@ class SentinelDB(Database):
             BEGIN
                 INSERT INTO Sentinel(guild_id, name)
                 VALUES (NEW.guild_id, NEW.sentinel_name)
-                ON CONFLICT DO NOTHING;
+                ON CONFLICT(guild_id, name) DO NOTHING;
             END
             """
             TRIGGER_AFTER_DELETE_TRIGGER = """
@@ -260,8 +272,10 @@ class SentinelDB(Database):
             END
             """
             INSERT = """
-            INSERT INTO SentinelSuit(guild_id, sentienl_name, name, weight, trigger_id, response_id)
+            INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, trigger_id, response_id)
             VALUES (:guild_id, :sentinel_name, :name, :weight, :trigger_id, :response_id)
+            ON CONFLICT (guild_id, sentinel_name, name)
+            DO NOTHING
             """
 
 
@@ -296,7 +310,7 @@ class SentinelDB(Database):
             INSERT = """
             INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, enabled)
             VALUES (:guild_id, :sentinel_name, :name, :weight, :enabled)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT ()DO NOTHING
             """
             UPSERT  = """
             INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, enabled)
@@ -385,6 +399,7 @@ class SentinelDB(Database):
         # view: str
         # somehow support
         enabled: bool = True
+        
         class Queries:
             CREATE_TABLE = """
             CREATE TABLE IF NOT EXISTS SentinelResponse(
@@ -548,10 +563,12 @@ class SentinelDB(Database):
         await self.createTables()
         await self.createTriggers()
 
+
     async def createTables(self):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(SentinelDB.SentinelSettings.QUERY_CREATE_TABLE)
+            await db.execute(SentinelDB.SentinelSettings.Queries.CREATE_TABLE)
             await db.execute(SentinelDB.Sentinel.Queries.CREATE_TABLE)
+            await db.execute(SentinelDB.SentinelSuit.Queries.CREATE_TABLE)
             await db.execute(SentinelDB.SentinelTrigger.Queries.CREATE_TABLE)
             await db.execute(SentinelDB.SentinelResponse.Queries.CREATE_TABLE)
             # await db.execute(SentinelDB.SentinelTriggerUses.QUERY_CREATE_TABLE)
@@ -559,7 +576,14 @@ class SentinelDB(Database):
 
     async def createTriggers(self):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(SentinelDB.Sentinel.Queries.TRIGGER_BEFORE_INSERT_GUILD)
+            await db.execute(SentinelDB.Sentinel.Queries.TRIGGER_BEFORE_INSERT_SETTINGS)
+            await db.execute(SentinelDB.SentinelSettings.Queries.TRIGGER_BEFORE_INSERT_GUILD)
+            # Suit Triggers
+            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_BEFORE_INSERT_SENTINEL)
+            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_DELETE_TRIGGER)
+            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_DELETE_RESPONSE)
+            await db.execute(SentinelDB.SentinelSuit.Queries.DELETE_TRIGGER_TRACKING_AFTER_DELETE)
+            # await db.execute(SentinelDB.SentinelTrigger.Queries)
             # Create the new triggers for the new suit system
             # await db.execute(SentinelDB.SentinelTrigger.Queries.TRIGGER_BEFORE_INSERT_SENTINEL)
             # await db.execute(SentinelDB.SentinelTrigger.Queries.TRIGGER_AFTER_INSERT_USES)
@@ -570,6 +594,7 @@ class SentinelDB(Database):
     async def dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(SentinelDB.Sentinel.Queries.DROP_TABLE)
+            await db.execute(SentinelDB.SentinelSettings.Queries.DROP_TABLE)
             await db.execute(SentinelDB.SentinelTrigger.Queries.DROP_TABLE)
             await db.execute(SentinelDB.SentinelResponse.Queries.DROP_TABLE)
             await db.execute(SentinelDB.SentinelSuit.Queries.DROP_TABLE)
@@ -578,57 +603,77 @@ class SentinelDB(Database):
 
     async def upsertSentinelSettings(self, sentinel_settings: SentinelSettings):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(SentinelDB.SentinelSettings.QUERY_UPSERT, sentinel_settings.asdict())
+            await db.execute(SentinelDB.SentinelSettings.Queries.UPSERT, sentinel_settings.asdict())
             await db.commit()
 
     async def insertSentinel(self, sentinel: Sentinel) -> bool:
         async with aiosqlite.connect(self.file_path) as db:
-            cursor = await db.execute(SentinelDB.Sentinel.QUERY_INSERT, sentinel.asdict())
+            cursor = await db.execute(SentinelDB.Sentinel.Queries.INSERT, sentinel.asdict())
             row_count = cursor.rowcount
             await db.commit()
         return row_count > 0
 
-    async def insertTrigger(self, trigger: SentinelTrigger):
+    async def insertTrigger(self, trigger: SentinelTrigger) -> int:
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(SentinelDB.SentinelTrigger.QUERY_INSERT, trigger.asdict())
+            result = await db.execute_fetchall(SentinelDB.SentinelTrigger.Queries.INSERT, trigger.asdict())
+            # await db.execute(SentinelDB.SentinelTrigger.Queries.INSERT, trigger.asdict())
             await db.commit()
+        trigger_id = result[0][0] if result else None
+        return trigger_id
 
     async def insertTriggers(self, triggers: list[SentinelTrigger]):
         async with aiosqlite.connect(self.file_path) as db:
             data = [trigger.asdict() for trigger in triggers]
-            await db.executemany(SentinelDB.SentinelTrigger.QUERY_INSERT, data)
+            await db.executemany(SentinelDB.SentinelTrigger.Queries.INSERT, data)
             await db.commit()
 
-    async def insertResponse(self, response: SentinelResponse):
+    async def insertResponse(self, response: SentinelResponse) -> int:
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(SentinelDB.SentinelResponse.QUERY_INSERT, response.asdict())
+            result: list = await db.execute_fetchall(SentinelDB.SentinelResponse.Queries.INSERT, response.asdict())
+            # await db.execute(SentinelDB.SentinelResponse.Queries.INSERT, response.asdict())
             await db.commit()
+        response_id = result[0][0] if result else None
+        return response_id
 
     async def insertResponses(self, responses: list[SentinelResponse]):
         async with aiosqlite.connect(self.file_path) as db:
             data = [response.asdict() for response in responses]
-            await db.executemany(SentinelDB.SentinelResponse.QUERY_INSERT, data)
+            await db.executemany(SentinelDB.SentinelResponse.Queries.INSERT, data)
             await db.commit()
 
-    async def insertSuit(self, trigger: SentinelTrigger=None, response: SentinelResponse=None, weight=None):
+    async def insertSuit(self, suit: SentinelSuit):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.SentinelSuit.Queries.INSERT, suit.asdict())
+            await db.commit()
+
+    async def insertSuitPair(self, guild_id: int, sentinel_name: str, name: str, trigger: SentinelTrigger=None, response: SentinelResponse=None, weight=None):
         async with aiosqlite.connect(self.file_path) as db:
             trigger_id = 0
             response_id = 0
+            # Just trust me bro, these queries return an integer but due to the fetchall it is a list of rows
+            # since rows are just tuples I am accessing the first (and only) element
             if trigger:
                 result: list = await db.execute_fetchall(SentinelDB.SentinelTrigger.Queries.INSERT, trigger.asdict())
-                trigger_id = result
+                trigger_id = result[0][0] if result else None
             if response:
                 result: list = await db.execute_fetchall(SentinelDB.SentinelResponse.Queries.INSERT, response.asdict())
-        # Test to see if output is what is expect
+                response_id = result[0][0] if result else None
+            suit = SentinelDB.SentinelSuit(guild_id=guild_id, sentinel_name=sentinel_name, name=name,
+                                           trigger_id=trigger_id, response_id=response_id,
+                                           weight=weight)
+            await db.execute(SentinelDB.SentinelSuit.Queries.INSERT, suit.asdict())
+            await db.commit()
+        # print(f"{trigger_id=}, {response_id=}")
 
-        if result: result = result[0]
+        # Test to see if output is what is expected
+
 
 
 
     async def fetchSentinel(self, guild_id: int, name: str) -> Sentinel:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = SentinelDB.Sentinel.rowFactory
-            result: list[SentinelDB.Sentinel] = await db.execute_fetchall(SentinelDB.Sentinel.QUERY_SELECT,
+            result: list[SentinelDB.Sentinel] = await db.execute_fetchall(SentinelDB.Sentinel.Queries.SELECT,
                                                                           (guild_id, name))
         return result[0] if result else None
 
@@ -772,16 +817,28 @@ class Sentinels(GroupCog, name="s"):
             if len(converted_sentinels):
                 triggers, responses = zip(*converted_sentinels)
                 for trigger, response in converted_sentinels:
-                    await self.database.insertSuit(trigger, response)
+                    trigger_id = await self.database.insertTrigger(trigger)
+                    response_id = await self.database.insertResponse(response)
+                    suit = SentinelDB.SentinelSuit(guild_id=server_id, sentinel_name=trigger.object, name=trigger.object,
+                                                   trigger_id=trigger_id, response_id=response_id)
+                    await self.database.insertSuit(suit)
                 # await self.database.insertTriggers(triggers)
                 # await self.database.insertResponses(responses)
 
         converted_sentinels = [await convertSentinel(0, name, sentinel)
                                for name, sentinel in self.bot.data.globals.sentinels.items()]
         if len(converted_sentinels):
-            triggers, responses = zip(*converted_sentinels)
-            await self.database.insertTriggers(triggers)
-            await self.database.insertResponses(responses)
+            for trigger, response in converted_sentinels:
+                trigger_id = await self.database.insertTrigger(trigger)
+                response_id = await self.database.insertResponse(response)
+                suit = SentinelDB.SentinelSuit(guild_id=0, sentinel_name=trigger.object, name=trigger.object,
+                                               trigger_id=trigger_id, response_id=response_id)
+                await self.database.insertSuit(suit)
+                #
+                # await self.database.insertSuitPair(guild_id=0, sentinel_name=trigger.object, name=trigger.object,
+                #                                    trigger=trigger, response=response, weight=10)
+            # await self.database.insertTriggers(triggers)
+            # await self.database.insertResponses(responses)
 
     @app_commands.rename(trigger_type="type", trigger_object="object")
     @add_group.command(name="trigger", description="add a sentinel trigger")
