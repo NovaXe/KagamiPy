@@ -44,9 +44,8 @@ class TagDB(Database):
         CREATE TRIGGER IF NOT EXISTS TagSettings_insert_guild_before_insert
         BEFORE INSERT ON TagSettings
         BEGIN
-            INSERT INTO Guild(id)
-            values(NEW.guild_id)
-            ON CONFLICT DO NOTHING;
+            INSERT OR IGNORE INTO Guild(id)
+            values(NEW.guild_id);
         END
         """
         QUERY_UPSERT = """

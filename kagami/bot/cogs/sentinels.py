@@ -98,9 +98,8 @@ class SentinelDB(Database):
             END;
             """
             INSERT = """
-            INSERT INTO Sentinel(guild_id, name)
+            INSERT OR IGNORE INTO Sentinel(guild_id, name)
             VALUES(:guild_id, :name)
-            ON CONFLICT(guild_id, name) DO NOTHING
             """
             INCREMENT_USES = """
             UPDATE Sentinel SET uses = uses + 1
@@ -150,6 +149,10 @@ class SentinelDB(Database):
             ON CONFLICT(type, object) DO NOTHING
             RETURNING id
             """
+            SELECT_ID = """
+            SELECT id FROM SentinelTrigger
+            WHERE type = ? AND object = ?
+            """
             DELETE = """
             DELETE FROM SentinelTrigger
             WHERE id = :id
@@ -185,6 +188,10 @@ class SentinelDB(Database):
             VALUES (:type, :content, :reactions)
             ON CONFLICT(type, content, reactions) DO NOTHING
             RETURNING id
+            """
+            SELECT_ID = """
+            SELECT id FROM SentinelResponse
+            WHERE type = ? AND content = ? AND reactions = ?
             """
             DELETE = """
             DELETE FROM SentinelResponse
@@ -275,10 +282,8 @@ class SentinelDB(Database):
             END
             """
             INSERT = """
-            INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, trigger_id, response_id)
+            INSERT OR IGNORE INTO SentinelSuit(guild_id, sentinel_name, name, weight, trigger_id, response_id)
             VALUES (:guild_id, :sentinel_name, :name, :weight, :trigger_id, :response_id)
-            ON CONFLICT (guild_id, sentinel_name, name)
-            DO NOTHING
             """
             UPSERT = """
             INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, trigger_id, response_id)
@@ -587,9 +592,8 @@ class SentinelDB(Database):
         CREATE TRIGGER IF NOT EXISTS insert_user_before_insert
         BEFORE INSERT ON SentinelTriggerUses
         BEGIN
-            INSERT INTO User(id)
-            VALUES(NEW.user_id)
-            ON CONFLICT DO NOTHING;
+            INSERT OR IGNORE INTO User(id)
+            VALUES(NEW.user_id);
         END
         """
         QUERY_INSERT = """
@@ -667,9 +671,16 @@ class SentinelDB(Database):
     async def insertTrigger(self, trigger: SentinelTrigger) -> int:
         async with aiosqlite.connect(self.file_path) as db:
             result = await db.execute_fetchall(SentinelDB.SentinelTrigger.Queries.INSERT, trigger.asdict())
+            if len(result) == 0:
+                result = await db.execute_fetchall(SentinelDB.SentinelTrigger.Queries.SELECT_ID,
+                                                   (trigger.type, trigger.object))
+            # cursor = await db.execute(SentinelDB.SentinelTrigger.Queries.INSERT, trigger.asdict())
             # await db.execute(SentinelDB.SentinelTrigger.Queries.INSERT, trigger.asdict())
             await db.commit()
-        trigger_id = result[0][0] if result else None
+        if result:
+            trigger_id = result[0][0]
+        else:
+            raise aiosqlite.OperationalError("New row not created despite lack of existing row")
         return trigger_id
 
     async def insertTriggers(self, triggers: list[SentinelTrigger]):
@@ -680,10 +691,17 @@ class SentinelDB(Database):
 
     async def insertResponse(self, response: SentinelResponse) -> int:
         async with aiosqlite.connect(self.file_path) as db:
+            # rowid = await db.execute_insert(SentinelDB.SentinelResponse.Queries.INSERT, response.asdict())
             result: list = await db.execute_fetchall(SentinelDB.SentinelResponse.Queries.INSERT, response.asdict())
+            if len(result) == 0:
+                result = await db.execute_fetchall(SentinelDB.SentinelResponse.Queries.SELECT_ID,
+                                                   (response.type, response.content, response.reactions))
             # await db.execute(SentinelDB.SentinelResponse.Queries.INSERT, response.asdict())
             await db.commit()
-        response_id = result[0][0] if result else None
+        if len(result):
+            response_id = result[0][0]
+        else:
+            raise aiosqlite.OperationalError("New row not created despite lack of existing row")
         return response_id
 
     async def insertResponses(self, responses: list[SentinelResponse]):
