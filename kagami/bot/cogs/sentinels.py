@@ -12,6 +12,7 @@ from discord import app_commands, Interaction, InteractionMessage, InteractionRe
 from discord.ext.commands import GroupCog, Cog
 from discord. app_commands import AppCommand, Transform, Transformer, Range, Group, Choice, autocomplete
 
+from bot.ext import errors
 from bot.kagami_bot import Kagami
 from bot.utils.bot_data import Server, OldSentinel
 from bot.utils.interactions import respond
@@ -70,6 +71,7 @@ class SentinelDB(Database):
     class Sentinel(Database.Row):
         guild_id: int
         name: str
+        uses: int
         enabled: bool = True
         class Queries:
             CREATE_TABLE = """
@@ -278,6 +280,20 @@ class SentinelDB(Database):
             ON CONFLICT (guild_id, sentinel_name, name)
             DO NOTHING
             """
+            UPSERT = """
+            INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, trigger_id, response_id)
+            VALUES (:guild_id, :sentinel_name, :name, :weight, :trigger_id, :response_id)
+            ON CONFLICT (guild_id, sentinel_name, name)
+            DO UPDATE SET trigger_id = coalesce(trigger_id, :trigger_id), 
+                          response_id = coalesce(response_id, :response_id)
+            """
+            UPDATE = """
+            INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, trigger_id, response_id)
+            VALUES (:guild_id, :sentinel_name, :name, :weight, :trigger_id, :response_id)
+            ON CONFLICT (guild_id, sentinel_name, name)
+            DO UPDATE SET trigger_id = :trigger_id,
+                          response_id = :response_id
+            """
             SELECT = """
             SELECT * FROM SentinelSuit
             WHERE guild_id = ? AND sentinel_name = ? AND name = ?
@@ -288,20 +304,25 @@ class SentinelDB(Database):
             """
             SELECT_NULL_TRIGGER_NAMES = """
             SELECT name FROM SentinelSuit 
-            WHERE guild_id = :guild_id AND sentinel_name = :sentinel_name AND trigger_id = NULL
+            WHERE (guild_id = ?) AND (sentinel_name = ?) AND (trigger_id IS NULL)
             """
             SELECT_SIMILAR_NULL_TRIGGER_SUIT_NAMES = """
             SELECT name FROM SentinelSuit 
-            WHERE guild_id = :guild_id AND sentinel_name = :sentinel_name AND trigger_id = NULL AND name LIKE ?
+            WHERE (guild_id = ?) AND (sentinel_name = ?) AND (trigger_id IS NULL) AND (name LIKE ?)
             LIMIT ? OFFSET ?
             """
             SELECT_NULL_RESPONSE_SUITS = """
             SELECT * FROM SentinelSuit 
-            WHERE guild_id = :guild_id AND sentinel_name = :sentinel_name AND response_id = NULL
+            WHERE * AND (sentinel_name = ?) AND (response_id IS NULL)
             """
             SELECT_SIMILAR_NULL_RESPONSE_SUIT_NAMES = """
             SELECT name FROM SentinelSuit 
-            WHERE guild_id = :guild_id AND sentinel_name = :sentinel_name AND response_id = NULL AND name LIKE :name
+            WHERE (guild_id = ?) AND (sentinel_name = ?) AND (response_id IS NULL) AND (name LIKE ?)
+            LIMIT ? OFFSET ?
+            """
+            SELECT_SIMILAR_SUIT_NAMES = """
+            SELECT name FROM SentinelSuit
+            WHERE guild_id = ? AND sentinel_name = ? AND name LIKE ?
             LIMIT ? OFFSET ?
             """
 
@@ -583,6 +604,12 @@ class SentinelDB(Database):
         DO UPDATE SET uses = uses + 1
         """
 
+    class SuitHasTrigger(errors.CustomCheck):
+        MESSAGE = "The specific suit already has a trigger"
+
+    class SuitHasResponse(errors.CustomCheck):
+        MESSAGE = "The specific suit already has a response"
+
     async def init(self, drop: bool=False):
         if drop: await self.dropTables()
         await self.createTables()
@@ -670,6 +697,16 @@ class SentinelDB(Database):
             await db.execute(SentinelDB.SentinelSuit.Queries.INSERT, suit.asdict())
             await db.commit()
 
+    async def upsertSuit(self, suit: SentinelSuit):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.SentinelSuit.Queries.UPSERT, suit.asdict())
+            await db.commit()
+
+    async def updateSuit(self, suit: SentinelSuit):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.SentinelSuit.Queries.UPDATE, suit.asdict())
+            await db.commit()
+
     async def insertSuitPair(self, guild_id: int, sentinel_name: str, name: str, trigger: SentinelTrigger=None, response: SentinelResponse=None, weight=None):
         async with aiosqlite.connect(self.file_path) as db:
             trigger_id = 0
@@ -707,8 +744,17 @@ class SentinelDB(Database):
     async def fetchSentinelSuit(self, guild_id: int, sentinel_name: str, name: str) -> SentinelSuit:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = SentinelDB.SentinelSuit.rowFactory
-            result = await db.execute(SentinelDB.SentinelSuit.Queries.SELECT, (guild_id, sentinel_name, name))
+            result = await db.execute_fetchall(SentinelDB.SentinelSuit.Queries.SELECT, (guild_id, sentinel_name, name))
         return result[0] if result else None
+
+    async def fetchSimilarSuitNames(self, guild_id: int, sentinel_name: str, name: str,
+                                    limit: int=1, offset: int=0):
+        async with aiosqlite.connect(self.file_path) as db:
+            names: list[str] = await db.execute_fetchall(
+                SentinelDB.SentinelSuit.Queries.SELECT_SIMILAR_SUIT_NAMES,
+                (guild_id, sentinel_name, f"%{name}%", limit, offset))
+            names = [n[0] for n in names]
+        return names
 
     async def fetchSimilarNullTriggerSuitNames(self, guild_id: int, sentinel_name: str, name: str,
                                                limit: int=1, offset: int=0):
@@ -761,6 +807,7 @@ class GuildTransformer(Transformer):
         guild = interaction.client.get_guild(guild_id)
         return guild
 
+
 class SentinelTransformer(Transformer):
     async def autocomplete(self, interaction: Interaction,
                            current: str, /) -> list[Choice[str]]:
@@ -776,31 +823,48 @@ class SentinelTransformer(Transformer):
 
     async def transform(self, interaction: Interaction,
                         value: str, /) -> discord.Guild:
+        await respond(interaction)
         guild_id = interaction.namespace.scope
         if guild_id == 1: guild_id = interaction.guild_id
         bot: Kagami = interaction.client
         db = SentinelDB(bot.config.db_path)
         return await db.fetchSentinel(guild_id=guild_id, name=value)
 
+
 class SentinelSuitTransformer(Transformer):
+    def __init__(self, empty_field: Literal["trigger_id", "response_id"]=None):
+        self.empty_field = empty_field
+
     async def autocomplete(self, interaction: Interaction,
                            current: str, /) -> List[Choice[str]]:
         guild_id = interaction.namespace.scope
         if guild_id == SentinelScope.LOCAL: guild_id = interaction.guild_id
-        sentinel_name = interaction.namespace.sentinel_name
+        sentinel_name = interaction.namespace.sentinel
         bot: Kagami = interaction.client
         db = SentinelDB(bot.config.db_path)
-        names = await db.fetchSimilarNullTriggerSuitNames(guild_id, sentinel_name, current, 25)
-
+        if self.empty_field == "trigger_id":
+            names = await db.fetchSimilarNullTriggerSuitNames(guild_id, sentinel_name, current, limit=25)
+        elif self.empty_field == "response_id":
+            names = await db.fetchSimilarNullResponseSuitNames(guild_id, sentinel_name, current, limit=25)
+        else:
+            names = await db.fetchSimilarSuitNames(guild_id, sentinel_name, current, limit=25)
         return [Choice(name=name, value=name) for name in names]
 
-    async def transform(self, interaction: Interaction, value: str, / ) -> SentinelDB.SentinelSuit:
+    async def transform(self, interaction: Interaction, value: str, /) -> SentinelDB.SentinelSuit:
+        await respond(interaction)
         guild_id = interaction.namespace.scope
         if guild_id == 1: guild_id = interaction.guild_id
         bot: Kagami = interaction.client
         db = SentinelDB(bot.config.db_path)
-        sentinel_name = interaction.namespace.sentinel_name
+        sentinel_name = interaction.namespace.sentinel
         result = await db.fetchSentinelSuit(guild_id, sentinel_name, value)
+
+        if result:
+            if self.empty_field == "trigger_id" and result.trigger_id is not None:
+                raise SentinelDB.SuitHasTrigger
+            elif self.empty_field == "response_id" and result.response_id is not None:
+                raise SentinelDB.SuitHasResponse
+
         return result
 
 
@@ -846,6 +910,8 @@ class Sentinels(GroupCog, name="s"):
 
     Guild_Transform = Transform[Database.Guild, GuildTransformer]
     Sentinel_Transform = Transform[SentinelDB.Sentinel, SentinelTransformer]
+    SuitNullTrigger_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="trigger_id")]
+    SuitNullResponse_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="response_id")]
     Suit_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer]
 
     @commands.is_owner()
@@ -908,18 +974,21 @@ class Sentinels(GroupCog, name="s"):
     @app_commands.rename(trigger_type="type", trigger_object="object")
     @add_group.command(name="trigger", description="add a sentinel trigger")
     async def add_trigger(self, interaction: Interaction, scope: SentinelScope,
-                          sentinel: Sentinel_Transform, suit: Suit_Transform,
+                          sentinel: Sentinel_Transform, suit: SuitNullTrigger_Transform,
                           trigger_type: SentinelDB.SentinelTrigger.TriggerType, trigger_object: str):
         await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         # guild_id = scope * interaction.guild_id
         trigger = SentinelDB.SentinelTrigger(type=trigger_type, object=trigger_object)
         trigger_id = await self.database.insertTrigger(trigger)
-        if suit: suit.trigger_id = trigger_id
+        if suit:
+            # if suit.trigger_id: raise SentinelDB.SuitHasTrigger
+            # else:
+            suit.trigger_id = trigger_id
         else:
             suit = SentinelDB.SentinelSuit(guild_id, sentinel_name=interaction.namespace.sentinel,
                                            name=interaction.namespace.suit, trigger_id=trigger_id)
-        await self.database.insertSuit(suit)
+        await self.database.upsertSuit(suit)
         await respond(interaction, f"Added a trigger to the suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
         # await self.database.insertTrigger(trigger)
         # await respond(interaction, f"Added a trigger to the sentinel `{interaction.namespace.sentinel}`")
@@ -928,21 +997,22 @@ class Sentinels(GroupCog, name="s"):
     @app_commands.describe(reactions="emotes separated by ;")
     @add_group.command(name="response", description="add a sentinel response")
     async def add_response(self, interaction: Interaction, scope: SentinelScope,
-                           sentinel: Sentinel_Transform, suit: Suit_Transform,
+                           sentinel: Sentinel_Transform, suit: SuitNullResponse_Transform,
                            response_type: SentinelDB.SentinelResponse.ResponseType,
                            content: str="", reactions: str=""):
         await respond(interaction)
-
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         # guild_id = scope * interaction.guild_id
         response = SentinelDB.SentinelResponse(type=response_type, content=content, reactions=reactions)
         response_id = await self.database.insertResponse(response)
         if suit:
+            # if suit.response_id: raise SentinelDB.SuitHasResponse
+            # else:
             suit.response_id = response_id
         else:
             suit = SentinelDB.SentinelSuit(guild_id, sentinel_name=interaction.namespace.sentinel,
                                            name=interaction.namespace.suit, response_id=response_id)
-        await self.database.insertSuit(suit)
+        await self.database.upsertSuit(suit)
         await respond(interaction, f"Added a response to the suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
 
     @remove_group.command(name="trigger", description="remove a trigger from a suit")

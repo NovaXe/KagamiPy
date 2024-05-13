@@ -142,7 +142,7 @@ class TagDB(Database):
         INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date)
         VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date)
         ON CONFLICT (guild_id, name)
-        DO UPDATE SET content = :content AND embed = :embed
+        DO UPDATE SET content = :content, embed = :embed
         """
         QUERY_UPDATE = """
         UPDATE Tag SET content = :content, embed = :embed
