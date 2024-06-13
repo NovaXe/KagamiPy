@@ -645,6 +645,9 @@ class SentinelDB(Database):
     class SuitHasResponse(errors.CustomCheck):
         MESSAGE = "The specific suit already has a response"
 
+    class SuitDoesNotExist(errors.CustomCheck):
+        MESSAGE = "The specific suit does not exist"
+
     async def init(self, drop: bool=False):
         if drop: await self.dropTables()
         await self.createTables()
@@ -964,12 +967,16 @@ class Sentinels(GroupCog, name="s"):
 
     add_group = Group(name="add", description="commands for adding sentinel components")
     remove_group = Group(name="remove", description="commands for removing sentinel components")
+    edit_group = Group(name="edit", description="commands for editing sentinel components")
+    view_group = Group(name="view", description="commands for viewing sentinel information")
 
     Guild_Transform = Transform[Database.Guild, GuildTransformer]
     Sentinel_Transform = Transform[SentinelDB.Sentinel, SentinelTransformer]
     SuitNullTrigger_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="trigger_id")]
     SuitNullResponse_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="response_id")]
     Suit_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer]
+
+
 
     @commands.is_owner()
     @commands.command(name="migrate_sentinels")
@@ -1074,7 +1081,7 @@ class Sentinels(GroupCog, name="s"):
 
     @remove_group.command(name="trigger", description="remove a trigger from a suit")
     async def remove_trigger(self, interaction: Interaction,
-                             scope: SentinelScope, sentinel: Sentinel_Transform,  suit: Suit_Transform):
+                             scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
         await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         # set the trigger for the sentinel and suit to None
@@ -1084,9 +1091,8 @@ class Sentinels(GroupCog, name="s"):
 
     @remove_group.command(name="response", description="remove a response from a suit")
     async def remove_response(self, interaction: Interaction,
-                              scope: SentinelScope, sentinel: Sentinel_Transform,  suit: Suit_Transform):
+                              scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
         await respond(interaction)
-        guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         # set the response for the sentinel and suit to None
         suit.response_id = None
         response = await self.database.updateSuit(suit=suit)
@@ -1098,6 +1104,44 @@ class Sentinels(GroupCog, name="s"):
         await respond(interaction)
         await self.database.deleteSuit(suit)
         await respond(interaction, f"Remove the suit `{suit.name}` from sentinel `{sentinel.name}`")
+
+    @edit_group.command(name="trigger", description="edit a suit's trigger")
+    async def edit_trigger(self, interaction: Interaction, scope: SentinelScope,
+                           sentinel: Sentinel_Transform, suit: Suit_Transform,
+                           trigger_type: SentinelDB.SentinelTrigger.TriggerType, trigger_object: str):
+        await respond(interaction)
+        if suit is None: raise SentinelDB.SuitDoesNotExist
+        trigger = SentinelDB.SentinelTrigger(type=trigger_type, object=trigger_object)
+        trigger_id = await self.database.insertTrigger(trigger)
+        suit.trigger_id = trigger_id
+        await self.database.updateSuit(suit)
+        await respond(interaction, f"Added edited a trigger on suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
+
+    @edit_group.command(name="response", description="edit a suit's response")
+    async def edit_response(self, interaction: Interaction, scope: SentinelScope,
+                            sentinel: Sentinel_Transform, suit: Suit_Transform,
+                            response_type: SentinelDB.SentinelResponse.ResponseType,
+                            content: str="", reactions: str=""):
+        await respond(interaction)
+        if suit is None: raise SentinelDB.SuitDoesNotExist
+        response = SentinelDB.SentinelResponse(type=response_type, content=content, reactions=reactions)
+        response_id = await self.database.insertResponse(response)
+        suit.response_id = response_id
+        await self.database.updateSuit(suit)
+        await respond(interaction, f"Edited a response on suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
+
+    @view_group.command(name="all", description="view all sentinels on a guild")
+    async def view_all(self, interaction: Interaction):
+        raise NotImplementedError
+
+    @view_group.command(name="sentinel", description="view all suits in a sentinel")
+    async def view_sentinel(self, interaction: Interaction):
+        raise NotImplementedError
+
+    @view_group.command(name="suit", description="view the trigger and response associated with a suit")
+    async def view_suit(self, interaction: Interaction):
+        raise NotImplementedError
+
 
 class OldSentinelTransformer(app_commands.Transformer, ABC):
     def __init__(self, cog: 'OldSentinels', mode: Literal['global', 'local']):
