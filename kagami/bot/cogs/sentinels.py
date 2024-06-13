@@ -227,6 +227,7 @@ class SentinelDB(Database):
             FOREIGN KEY (trigger_id) REFERENCES SentinelTrigger(id)
                 ON UPDATE RESTRICT ON DELETE SET NULL,
             FOREIGN KEY (response_id) REFERENCES SentinelResponse(id)
+                ON UPDATE RESTRICT ON DELETE SET NULL
             )
             """
             DROP_TABLE = """
@@ -241,13 +242,40 @@ class SentinelDB(Database):
                 ON CONFLICT(guild_id, name) DO NOTHING;
             END
             """
+            TRIGGER_AFTER_UPDATE_TRIGGER = """
+            CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_trigger_after_update
+            AFTER UPDATE OF trigger_id on SentinelSuit
+            WHEN (SELECT COUNT(*) FROM SentinelSuit WHERE trigger_id = OLD.trigger_id) = 0 
+            BEGIN
+                DELETE FROM SentinelTrigger
+                WHERE id = OLD.trigger_id;
+            END
+            """
+            TRIGGER_AFTER_UPDATE_RESPONSE = """
+            CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_response_after_update
+            AFTER UPDATE OF response_id on SentinelSuit
+            WHEN (SELECT COUNT(*) FROM SentinelSuit WHERE response_id = OLD.response_id) = 0 
+            BEGIN
+                DELETE FROM SentinelResponse
+                WHERE id = OLD.response_id;
+            END
+            """
+            TRIGGER_AFTER_UPDATE = """
+            CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_after_update
+            AFTER UPDATE ON SentinelSuit
+            WHEN NEW.trigger_id IS NULL AND NEW.response_id IS NULL
+            BEGIN
+                DELETE FROM SentinelSuit
+                WHERE guild_id = OLD.guild_id AND name = OLD.name AND sentinel_name = OLD.sentinel_name;
+            END
+            """
             TRIGGER_AFTER_DELETE_TRIGGER = """
             CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_trigger_after_delete
             AFTER DELETE ON SentinelSuit
             WHEN (SELECT COUNT(*) FROM SentinelSuit WHERE trigger_id = OLD.trigger_id) = 0
             BEGIN
                 DELETE FROM SentinelTrigger
-                WHERE trigger_id = OLD.trigger_id;
+                WHERE id = OLD.trigger_id;
             END
             """
             TRIGGER_AFTER_DELETE_RESPONSE = """
@@ -256,7 +284,7 @@ class SentinelDB(Database):
             WHEN (SELECT COUNT(*) FROM SentinelSuit WHERE response_id = OLD.response_id) = 0
             BEGIN
                 DELETE FROM SentinelResponse
-                WHERE response_id = OLD.response_id;
+                WHERE id = OLD.response_id;
             END
             """
             DELETE_TRIGGER_TRACKING_AFTER_DELETE = """
@@ -267,7 +295,7 @@ class SentinelDB(Database):
             ) = 0
             BEGIN
                 DELETE FROM SentinelTrigger
-                WHERE trigger_id = OLD.trigger_id;
+                WHERE id = OLD.trigger_id;
             END
             """
             DELETE_RESPONSE_TRACKING_AFTER_DELETE = """
@@ -278,7 +306,7 @@ class SentinelDB(Database):
             ) = 0
             BEGIN
                 DELETE FROM SentinelResponse
-                WHERE response_id = OLD.response_id;
+                WHERE id = OLD.response_id;
             END
             """
             INSERT = """
@@ -329,6 +357,9 @@ class SentinelDB(Database):
             SELECT name FROM SentinelSuit
             WHERE guild_id = ? AND sentinel_name = ? AND name LIKE ?
             LIMIT ? OFFSET ?
+            """
+            DELETE = """
+            DELETE FROM SentinelSuit WHERE guild_id = ? AND sentinel_name = ? AND name = ?
             """
 
 
@@ -638,6 +669,9 @@ class SentinelDB(Database):
             await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_DELETE_TRIGGER)
             await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_DELETE_RESPONSE)
             await db.execute(SentinelDB.SentinelSuit.Queries.DELETE_TRIGGER_TRACKING_AFTER_DELETE)
+            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_UPDATE)
+            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_UPDATE_RESPONSE)
+            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_UPDATE_TRIGGER)
             # await db.execute(SentinelDB.SentinelTrigger.Queries)
             # Create the new triggers for the new suit system
             # await db.execute(SentinelDB.SentinelTrigger.Queries.TRIGGER_BEFORE_INSERT_SENTINEL)
@@ -723,6 +757,11 @@ class SentinelDB(Database):
     async def updateSuit(self, suit: SentinelSuit):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(SentinelDB.SentinelSuit.Queries.UPDATE, suit.asdict())
+            await db.commit()
+
+    async def deleteSuit(self, suit: SentinelSuit):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.SentinelSuit.Queries.DELETE, (suit.guild_id, suit.sentinel_name, suit.name))
             await db.commit()
 
     async def insertSuitPair(self, guild_id: int, sentinel_name: str, name: str, trigger: SentinelTrigger=None, response: SentinelResponse=None, weight=None):
@@ -1035,17 +1074,30 @@ class Sentinels(GroupCog, name="s"):
 
     @remove_group.command(name="trigger", description="remove a trigger from a suit")
     async def remove_trigger(self, interaction: Interaction,
-                             scope: SentinelScope, suit: Suit_Transform, sentinel: Sentinel_Transform):
+                             scope: SentinelScope, sentinel: Sentinel_Transform,  suit: Suit_Transform):
         await respond(interaction)
+        guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        # set the trigger for the sentinel and suit to None
+        suit.trigger_id = None
+        trigger = await self.database.updateSuit(suit=suit)
+        await respond(interaction, f"Removed trigger from suit `{suit.name}` for sentinel `{sentinel.name}`")
 
     @remove_group.command(name="response", description="remove a response from a suit")
     async def remove_response(self, interaction: Interaction,
-                              scope: SentinelScope, suit: Suit_Transform, sentinel: Sentinel_Transform):
+                              scope: SentinelScope, sentinel: Sentinel_Transform,  suit: Suit_Transform):
         await respond(interaction)
+        guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        # set the response for the sentinel and suit to None
+        suit.response_id = None
+        response = await self.database.updateSuit(suit=suit)
+        await respond(interaction, f"Removed response from suit `{suit.name}` for sentinel `{sentinel.name}`")
 
-
-
-
+    @remove_group.command(name="suit", description="remove a trigger-response pairing from a sentinel")
+    async def remove_suit(self, interaction: Interaction,
+                          scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
+        await respond(interaction)
+        await self.database.deleteSuit(suit)
+        await respond(interaction, f"Remove the suit `{suit.name}` from sentinel `{sentinel.name}`")
 
 class OldSentinelTransformer(app_commands.Transformer, ABC):
     def __init__(self, cog: 'OldSentinels', mode: Literal['global', 'local']):
