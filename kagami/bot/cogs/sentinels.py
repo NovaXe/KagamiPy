@@ -153,6 +153,10 @@ class SentinelDB(Database):
             SELECT id FROM SentinelTrigger
             WHERE type = ? AND object = ?
             """
+            SELECT_IDS = """
+            SELECT id FROM SentinelTrigger
+            WHERE object = ?
+            """
             DELETE = """
             DELETE FROM SentinelTrigger
             WHERE id = :id
@@ -331,6 +335,10 @@ class SentinelDB(Database):
             SELECT * FROM SentinelSuit
             WHERE guild_id = ? AND sentinel_name = ? AND name = ?
             """
+            SELECT_FROM_TRIGGER_ID = """
+            SELECT * FROM SentinelSuit
+            WHERE guild_id = ? AND trigger_id = ?
+            """
             SELECT_NULL_TRIGGER_SUITS = """
             SELECT * FROM SentinelSuit 
             WHERE guild_id = :guild_id AND sentinel_name = :sentinel_name AND trigger_id = NULL
@@ -360,6 +368,10 @@ class SentinelDB(Database):
             """
             DELETE = """
             DELETE FROM SentinelSuit WHERE guild_id = ? AND sentinel_name = ? AND name = ?
+            """
+
+            FETCH = """
+            SELECT * FROM 
             """
 
 
@@ -791,10 +803,24 @@ class SentinelDB(Database):
             await db.commit()
         # print(f"{trigger_id=}, {response_id=}")
 
-    async def suitGeneratorFromTrigger(self, trigger_object: str):
+    async def suitGeneratorFromTrigger(self, guild_id, trigger_object: str):
         async with aiosqlite.connect(self.file_path) as db:
+            id_query = SentinelDB.SentinelTrigger.Queries.SELECT_IDS
+            suit_query = SentinelDB.SentinelSuit.Queries.SELECT_FROM_TRIGGER_ID
+
+            async with db.execute(id_query, (trigger_object,)) as cursor:
+                async for row in cursor:
+                    trigger_id = row[0][0]
+
+
+
+
+
             db.row_factory = SentinelDB.SentinelSuit
+            cur = await db.execute()
+            yield ..., ..., ...
         # Test to see if output is what is expected
+
     async def fetchSentinel(self, guild_id: int, name: str) -> Sentinel:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = SentinelDB.Sentinel.rowFactory
@@ -1007,10 +1033,26 @@ class Sentinels(GroupCog, name="s"):
         guild_settings = await self.database.fetchSentinelSettings(event.guild.id)
         global_settings = await self.database.fetchSentinelSettings(0)
         if event.type == "message":
+            # iterate through every suit that have their trigger match
+            # the queries should return suits one by one that would be triggered by the message
+            # the content will be passed along with the guild_id to a generator function
+            # a return suit should only have a specific sentinel for a guild once
+
+            # potential methods
+            # method 1: iterate through all suits for each sentinel on a guild
+            # check each of their triggers and note the suits that triggered
+            # either pick at random or decide based off trigger weight which suit is activated
+            # then determine the response based off of weight if there isn't a paired response
+
+            # phrase: check if object in content
+
+            # word: check if object in content split by spaces
+
+            # regex: just match the regex to the content
             pass
         elif event.type == "reaction":
+            # take the reaction string and find a suit with that trigger
             pass
-
 
         lower = event.content.lower()
 
