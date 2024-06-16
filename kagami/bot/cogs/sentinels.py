@@ -698,6 +698,11 @@ class SentinelDB(Database):
             await db.execute(SentinelDB.SentinelSettings.Queries.UPSERT, sentinel_settings.asdict())
             await db.commit()
 
+    async def fetchSentinelSettings(self, guild_id: int):
+        async with aiosqlite(self.file_path) as db:
+            db.row_factory = SentinelDB.SentinelSettings.rowFactory
+            result = await db.execute_fetchall(SentinelDB.SentinelSettings.Queries.SELECT, (guild_id,))
+            return result[0][0] if result else None
     async def insertSentinel(self, sentinel: Sentinel) -> bool:
         async with aiosqlite.connect(self.file_path) as db:
             cursor = await db.execute(SentinelDB.Sentinel.Queries.INSERT, sentinel.asdict())
@@ -786,6 +791,9 @@ class SentinelDB(Database):
             await db.commit()
         # print(f"{trigger_id=}, {response_id=}")
 
+    async def suitGeneratorFromTrigger(self, trigger_object: str):
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = SentinelDB.SentinelSuit
         # Test to see if output is what is expected
     async def fetchSentinel(self, guild_id: int, name: str) -> Sentinel:
         async with aiosqlite.connect(self.file_path) as db:
@@ -976,7 +984,45 @@ class Sentinels(GroupCog, name="s"):
     SuitNullResponse_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="response_id")]
     Suit_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer]
 
+    @dataclass
+    class SentinelPayload:
+        content: str
+        user_id: int
+        guild_id: int
+        channel_id: int
+        type: Literal["message", "reaction"]
 
+    @dataclass
+    class SentinelEvent:
+        type: Literal["message", "reaction"]
+        content: str
+        user: discord.User
+        guild: discord.Guild
+        channel: discord.TextChannel
+
+
+
+
+    async def onSentinelEvent(self, event: SentinelEvent):
+        guild_settings = await self.database.fetchSentinelSettings(event.guild.id)
+        global_settings = await self.database.fetchSentinelSettings(0)
+        if event.type == "message":
+            pass
+        elif event.type == "reaction":
+            pass
+
+
+        lower = event.content.lower()
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        await self.onSentinelEvent(event=self.SentinelEvent(
+            type="message",
+            content=message.content,
+            user=message.author,
+            guild=message.guild,
+            channel=message.channel
+        ))
 
     @commands.is_owner()
     @commands.command(name="migrate_sentinels")
@@ -1413,6 +1459,10 @@ class OldSentinels(commands.GroupCog, group_name="sentinel"):
 
         await self.process_sentinel_event(message, self.bot.global_data['sentinels'])
         await self.process_sentinel_event(message, server.sentinels)
+
+
+
+
 
     @staticmethod
     async def process_sentinel_event(message: discord.Message, sentinels):
