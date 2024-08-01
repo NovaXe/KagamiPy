@@ -1,3 +1,4 @@
+import re
 from abc import ABC
 from copy import deepcopy
 from dataclasses import dataclass
@@ -123,10 +124,10 @@ class SentinelDB(Database):
     @dataclass
     class SentinelTrigger(Database.Row):
         class TriggerType(IntEnum):
-            word = auto()
-            phrase = auto()
-            regex = auto()
-            reaction = auto()
+            word = 1 # in message split by spaces
+            phrase = 2 # in message as string
+            regex = 3 # regex matching
+            reaction = 4 # triggers on a reaction
         type: TriggerType
         object: str
         id: int = None
@@ -803,6 +804,58 @@ class SentinelDB(Database):
             await db.commit()
         # print(f"{trigger_id=}, {response_id=}")
 
+
+    async def getTriggerIds(self, message_content: str):
+        async with aiosqlite.connect(self.file_path) as db:
+            result: list[int] = await db.execute_fetchall("""
+            SELECT id FROM SentinelTrigger WHERE object
+            """)
+
+    async def getPhraseTriggers(self, message_content: str):
+        async with aiosqlite.connect(self.file_path) as db:
+            query = """
+            SELECT id FROM SentinelTrigger WHERE type = ?
+            AND instr(?, object)
+            """
+            phrase = SentinelDB.SentinelTrigger.TriggerType.phrase
+            async with db.execute(query, (2, message_content)) as cur:
+                ids = await cur.fetchall()
+                return ids
+
+    async def getWordTriggers(self, message_content: str):
+        async with aiosqlite.connect(self.file_path) as db:
+            def regexp(pattern, string):
+                if string is None:
+                    return False
+                return re.search(pattern, string) is not None
+
+            await db.create_function("REGEXP", 2, regexp)
+            regex = f"[,.;:'\"?!@#$%^&*()~`+=|/\\ ]"
+            regex = regex.replace("'", "''") # escapes the single quotes by replacing theme with double quotes
+            query = f"""
+            SELECT id FROM SentinelTrigger WHERE type = ?
+            AND ' '||?||' ' REGEXP '{regex}'||object||'{regex}'
+            """
+            async with db.execute(query, (2, message_content)) as cur:
+                ids = await cur.fetchall()
+                return ids
+
+    async def getResponseID(self, guild_id: int, trigger_id: int):
+
+
+    async def getSuits(self, guild_id: int, message_content: str):
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = SentinelDB.SentinelSuit.rowFactory
+            cur: aiosqlite.Cursor = await db.execute("""
+            SELECT * FROM SentinelSuit
+            WHERE guild_id = :guild_id 
+            AND trigger_id = (SELECT id FROM SentinelTrigger WHERE object = :trigger_object)
+            """)
+
+
+            pass
+
+
     async def suitGeneratorFromTrigger(self, guild_id, trigger_object: str):
         async with aiosqlite.connect(self.file_path) as db:
             id_query = SentinelDB.SentinelTrigger.Queries.SELECT_IDS
@@ -811,9 +864,6 @@ class SentinelDB(Database):
             async with db.execute(id_query, (trigger_object,)) as cursor:
                 async for row in cursor:
                     trigger_id = row[0][0]
-
-
-
 
 
             db.row_factory = SentinelDB.SentinelSuit
@@ -991,7 +1041,8 @@ class Sentinels(GroupCog, name="s"):
 
     async def cog_load(self) -> None:
         await self.database.init(drop=self.config.drop_tables)
-        pass
+        await self.migrateData()
+        # pass
 
     async def cog_unload(self) -> None:
         pass
@@ -1026,7 +1077,11 @@ class Sentinels(GroupCog, name="s"):
         guild: discord.Guild
         channel: discord.TextChannel
 
+    async def onSentinelMessage(self, event: SentinelEvent):
+        pass
 
+    async def onSentinelReaction(self, event: SentinelEvent):
+        pass
 
 
     async def onSentinelEvent(self, event: SentinelEvent):
@@ -1043,12 +1098,13 @@ class Sentinels(GroupCog, name="s"):
             # check each of their triggers and note the suits that triggered
             # either pick at random or decide based off trigger weight which suit is activated
             # then determine the response based off of weight if there isn't a paired response
-
             # phrase: check if object in content
-
             # word: check if object in content split by spaces
-
             # regex: just match the regex to the content
+
+
+
+
             pass
         elif event.type == "reaction":
             # take the reaction string and find a suit with that trigger
@@ -1056,8 +1112,22 @@ class Sentinels(GroupCog, name="s"):
 
         lower = event.content.lower()
 
+    async def getSentinel(self, trigger_object: str):
+        # check each sentinel for a trigger that procs on the message
+        # each sentinel should only give one response even if it has multiple triggers proc
+        # then if the trigger is parts of a suit, give the suit response
+        # if there is not a paired response then pick any response that doesn't have a paired trigger
+
+
+        pass
+
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+
+
+
+
         await self.onSentinelEvent(event=self.SentinelEvent(
             type="message",
             content=message.content,
@@ -1066,11 +1136,28 @@ class Sentinels(GroupCog, name="s"):
             channel=message.channel
         ))
 
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User | discord.Member):
+        pass
+
     @commands.is_owner()
     @commands.command(name="migrate_sentinels")
     async def migrateCommand(self, ctx):
         await self.migrateData()
         await ctx.send("Migrated sentinel data")
+
+    @commands.is_owner()
+    @commands.command(name="gpti")
+    async def getPhraseTriggerIDS(self, ctx: commands.Context, *, message: str):
+        ids = await self.database.getPhraseTriggers(message_content=message)
+        await ctx.send(f"message: {message}, {ids}")
+
+    @commands.is_owner()
+    @commands.command(name="gwti")
+    async def getWordTriggerIDS(self, ctx: commands.Context, *, message: str):
+        ids = await self.database.getWordTriggers(message_content=message)
+        await ctx.send(f"message: {message} : {ids}")
+
 
     async def migrateData(self):
         """
