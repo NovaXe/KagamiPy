@@ -836,6 +836,9 @@ class SentinelDB(Database):
     class SuitDoesNotExist(errors.CustomCheck):
         MESSAGE = "The specific suit does not exist"
 
+    class SentinelDoesNotExist(errors.CustomCheck):
+        MESSAGE = "The specific sentinel does not exist"
+
     class InvalidRegex(errors.CustomCheck):
         MESSAGE = "The entered regex is not valid"
 
@@ -1061,17 +1064,18 @@ class SentinelDB(Database):
             async with db.execute(SentinelDB.SentinelResponse.Queries.SELECT_RESPONSE, (response_id,)) as cur:
                 return await cur.fetchone()
 
-    async def toggleSentinel(self):
+    async def toggleSentinel(self, sentinel: Sentinel):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(SentinelDB.Sentinel.Queries.TOGGLE)
+            cur = await db.execute(SentinelDB.Sentinel.Queries.TOGGLE, )
             await db.commit()
 
-    async def toggleSuit(self):
+    async def toggleSuit(self, suit: SentinelSuit):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(SentinelDB.SentinelSuit.Queries.TOGGLE)
+            cur = await db.execute(SentinelDB.SentinelSuit.Queries.TOGGLE)
             await db.commit()
 
-    async def toggleChannel(self, guild_id: int, channel_id: int):
+    async def toggleChannel(self, guild_id: int, channel_id: int) -> bool:
+        """Returns a boolean where True corresponds to sentinels being enabled on the channel"""
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = lambda row: row[0]
             params = {"guild_id": guild_id, "channel_id": channel_id}
@@ -1081,6 +1085,19 @@ class SentinelDB(Database):
                 await db.execute(SentinelDB.DisabledSentinelChannels.Queries.DELETE, params)
             else:
                 await db.execute(SentinelDB.DisabledSentinelChannels.Queries.INSERT, params)
+            await db.commit()
+        return disabled # by this point the state has been flipped
+
+    async def disableChannel(self, guild_id: int, channel_id: int):
+        async with aiosqlite.connect(self.file_path) as db:
+            params = {"guild_id": guild_id, "channel_id": channel_id}
+            await db.execute(SentinelDB.DisabledSentinelChannels.Queries.INSERT, params)
+            await db.commit()
+
+    async def enableChannel(self, guild_id: int, channel_id: int):
+        async with aiosqlite.connect(self.file_path) as db:
+            params = {"guild_id": guild_id, "channel_id": channel_id}
+            await db.execute(SentinelDB.DisabledSentinelChannels.Queries.DELETE, params)
             await db.commit()
 
     async def getTriggerIds(self, message_content: str):
@@ -1292,7 +1309,9 @@ class Sentinels(GroupCog, name="s"):
     remove_group = Group(name="remove", description="commands for removing sentinel components")
     edit_group = Group(name="edit", description="commands for editing sentinel components")
     view_group = Group(name="view", description="commands for viewing sentinel information")
-    toggle_group = Group(name="toggle", description="commands for toggling sentinels")
+    toggle_group = Group(name="toggle", description="commands for toggling sentinel components")
+    enable_group = Group(name="enable", description="commands for enabling sentinel components")
+    disable_group = Group(name="disable", description="commands for disabling sentinel components")
 
     Guild_Transform = Transform[InfoDB.Guild, GuildTransformer]
     Sentinel_Transform = Transform[SentinelDB.Sentinel, SentinelTransformer]
@@ -1526,6 +1545,8 @@ class Sentinels(GroupCog, name="s"):
     async def remove_trigger(self, interaction: Interaction,
                              scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
         await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
+        if suit is None: raise SentinelDB.SuitDoesNotExist
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         # set the trigger for the sentinel and suit to None
         suit.trigger_id = None
@@ -1536,6 +1557,8 @@ class Sentinels(GroupCog, name="s"):
     async def remove_response(self, interaction: Interaction,
                               scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
         await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
+        if suit is None: raise SentinelDB.SuitDoesNotExist
         # set the response for the sentinel and suit to None
         suit.response_id = None
         response = await self.database.updateSuit(suit=suit)
@@ -1545,6 +1568,8 @@ class Sentinels(GroupCog, name="s"):
     async def remove_suit(self, interaction: Interaction,
                           scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
         await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
+        if suit is None: raise SentinelDB.SuitDoesNotExist
         await self.database.deleteSuit(suit)
         await respond(interaction, f"Remove the suit `{suit.name}` from sentinel `{sentinel.name}`")
 
@@ -1554,6 +1579,7 @@ class Sentinels(GroupCog, name="s"):
                            trigger_type: SentinelDB.SentinelTrigger.TriggerType, trigger_object: str,
                            weight: int=10):
         await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
         if suit is None: raise SentinelDB.SuitDoesNotExist
         if trigger_type == 3:
             try:
@@ -1574,6 +1600,7 @@ class Sentinels(GroupCog, name="s"):
                             content: str="", reactions: str="",
                             weight: int=10):
         await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
         if suit is None: raise SentinelDB.SuitDoesNotExist
         response = SentinelDB.SentinelResponse(type=response_type, content=content, reactions=reactions)
         response_id = await self.database.insertResponse(response)
@@ -1586,22 +1613,94 @@ class Sentinels(GroupCog, name="s"):
     @toggle_group.command(name="suit", description="toggle an individual suit")
     async def toggle_suit(self, interaction: Interaction, scope: SentinelScope,
                           sentinel: Sentinel_Transform, suit: Suit_Transform):
-
-        pass
+        await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
+        if suit is None: raise SentinelDB.SuitDoesNotExist
+        await self.database.toggleSuit(suit)
+        state = "enabled" if not suit.enabled else "disabled"
+        await respond(interaction, f"The suit `{suit.name}` on sentinel `{sentinel.name}` is now `{state}`")
 
     @toggle_group.command(name="sentinel", description="toggle an entire sentinel")
     async def toggle_sentinel(self, interaction: Interaction, scope: SentinelScope,
                               sentinel: Sentinel_Transform):
-        raise NotImplementedError
+        await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
+        await self.database.toggleSentinel(sentinel)
+        state = "enabled" if not sentinel.enabled else "disabled"
+        await respond(interaction, f"The sentinel `{sentinel.name}` is now `{state}`")
 
-    async def channel_autocomplete(self, interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
-        return [Choice(name=channel.name, value=channel.id) for channel in interaction.guild.channels if channel.name in current or int(current) == channel.id]
+    async def channel_autocomplete(self, interaction: Interaction, current: str) -> list[Choice[str]]:
+        channels = interaction.guild.text_channels + interaction.guild.voice_channels
+        options = [
+              Choice(name=channel.name, value=str(channel.id))
+              for channel in channels
+              if current.lower() in channel.name.lower() or current == str(channel.id)
+        ][:25]
+        return options
 
     @toggle_group.command(name="channel", description="toggle all sentinels for a channel")
-    @app_commands.rename(channel_id="channel")
-    @autocomplete(channel_id=channel_autocomplete)
-    async def toggle_channel(self, interaction: Interaction, channel_id: int):
-        raise NotImplementedError
+    # @app_commands.rename(channel_id="channel")
+    # @autocomplete(channel_id=channel_autocomplete)
+    async def toggle_channel(self, interaction: Interaction, channel: discord.TextChannel | discord.VoiceChannel=None, state: Literal["Enabled", "Disabled"]="Disabled", extent: Literal["all", "local", "global"]="all"):
+        await respond(interaction)
+        if channel is None:
+            channel = interaction.channel
+        state = state == "Enabled"
+        state_str = "enabled" if state else "disabled"
+
+        async def toggle(new_state: bool, guild_id):
+            if new_state:
+                await self.database.enableChannel(guild_id=guild_id, channel_id=channel.id)
+            else:
+                await self.database.disableChannel(guild_id=guild_id, channel_id=channel.id)
+
+        if extent == "local":
+            await toggle(new_state=state, guild_id=interaction.guild_id)
+            await respond(interaction, content=f"Local sentinels are now `{state_str}` in `{channel.name}`")
+        elif extent == "global":
+            await toggle(new_state=state, guild_id=0)
+            await respond(interaction, content=f"Global sentinels are now `{state_str}` in `{channel.name}`")
+        else:
+            await toggle(new_state=state, guild_id=interaction.guild_id)
+            await toggle(new_state=state, guild_id=0)
+            await respond(interaction, content=f"Local and Global sentinels are now `{state_str}` in `{channel.name}`")
+
+    @enable_group.command(name="channel", description="enable all sentinels for a channel")
+    async def enable_channel(self, interaction: Interaction, channel: discord.TextChannel | discord.VoiceChannel=None, extent: Literal["all", "local", "global"]="all"):
+        await respond(interaction)
+        if channel is None:
+            channel = interaction.channel
+
+        if extent == "local":
+            await self.database.enableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
+            await respond(interaction, content=f"Local sentinels are now `enabled` in `{channel.name}`")
+        elif extent == "global":
+            await self.database.enableChannel(guild_id=0, channel_id=channel.id)
+            await respond(interaction, content=f"Global sentinels are now `enabled` in `{channel.name}`")
+        else:
+            await self.database.enableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
+            await self.database.enableChannel(guild_id=0, channel_id=channel.id)
+            await respond(interaction, content=f"Local and Global sentinels are now `enabled` in `{channel.name}`")
+
+    @disable_group.command(name="channel", description="enable all sentinels for a channel")
+    async def disable_channel(self, interaction: Interaction,
+                              channel: discord.TextChannel | discord.VoiceChannel = None,
+                              extent: Literal["all", "local", "global"] = "all"):
+        await respond(interaction)
+        if channel is None:
+            channel = interaction.channel
+
+        if extent == "local":
+            await self.database.disableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
+            await respond(interaction, content=f"Local sentinels are now `disabled` in `{channel.name}`")
+        elif extent == "global":
+            await self.database.disableChannel(guild_id=0, channel_id=channel.id)
+            await respond(interaction, content=f"Global sentinels are now `disabled` in `{channel.name}`")
+        else:
+            await self.database.disableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
+            await self.database.disableChannel(guild_id=0, channel_id=channel.id)
+            await respond(interaction, content=f"Local and Global sentinels are now `disabled` in `{channel.name}`")
+
 
     @view_group.command(name="all", description="view all sentinels on a guild")
     async def view_all(self, interaction: Interaction):
