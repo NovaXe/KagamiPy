@@ -127,115 +127,123 @@ class MusicDB(Database):
         guild_id: int
         music_enabled: bool = True
         playlists_enabled: bool = True
-        QUERY_CREATE_TABLE = """
-        CREATE TABLE IF NOT EXISTS MusicSettings(
-        guild_id INTEGER NOT NULL,
-        music_enabled INTEGER DEFAULT 1,
-        playlists_enabled INTEGER DEFAULT 1,
-        PRIMARY KEY (guild_id),
-        FOREIGN KEY(guild_id) REFERENCES Guild(id)
-            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
-        )
-        """
-        TRIGGER_BEFORE_INSERT_GUILD = """
-        CREATE TRIGGER IF NOT EXISTS MusicSettings_insert_guild_before_insert
-        BEFORE INSERT ON MusicSettings
-        BEGIN
-            INSERT INTO Guild(id)
-            values(NEW.guild_id)
-            ON CONFLICT DO NOTHING;
-        END
-        """
-        QUERY_UPSERT = """
-        INSERT INTO MusicSettings (guild_id, music_enabled, playlists_enabled)
-        VALUES (:guild_id, :music_enabled, :playlists_enabled)
-        ON CONFLICT (guild_id)
-        DO UPDATE SET music_enabled = :music_enabled, playlists_enabled = :playlists_enabled
-        """
-        QUERY_SELECT = """
-        SELECT * FROM MusicSettings
-        WHERE guild_id = ?
-        """
-        QUERY_DELETE = """
-        DELETE FROM MusicSettings
-        WHERE guild_id = ?
-        """
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS MusicSettings(
+            guild_id INTEGER NOT NULL,
+            music_enabled INTEGER DEFAULT 1,
+            playlists_enabled INTEGER DEFAULT 1,
+            PRIMARY KEY (guild_id),
+            FOREIGN KEY(guild_id) REFERENCES Guild(id)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+            )
+            """
+            DROP_TABLE = """
+            DROP TABLE IF EXISTS MusicSettings
+            """
+            TRIGGER_BEFORE_INSERT_GUILD = """
+            CREATE TRIGGER IF NOT EXISTS MusicSettings_insert_guild_before_insert
+            BEFORE INSERT ON MusicSettings
+            BEGIN
+                INSERT INTO Guild(id)
+                values(NEW.guild_id)
+                ON CONFLICT DO NOTHING;
+            END
+            """
+            UPSERT = """
+            INSERT INTO MusicSettings (guild_id, music_enabled, playlists_enabled)
+            VALUES (:guild_id, :music_enabled, :playlists_enabled)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET music_enabled = :music_enabled, playlists_enabled = :playlists_enabled
+            """
+            SELECT = """
+            SELECT * FROM MusicSettings
+            WHERE guild_id = ?
+            """
+            DELETE = """
+            DELETE FROM MusicSettings
+            WHERE guild_id = ?
+            """
 
     @dataclass
     class Playlist(Database.Row):
         guild_id: int
         name: str
         description: str = None
-        QUERY_CREATE_TABLE = """
-        CREATE TABLE IF NOT EXISTS Playlist(
-        guild_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        description TEXT DEFAULT NULL,
-        PRIMARY KEY (guild_id, name),
-        FOREIGN KEY (guild_id) REFERENCES Guild(id) 
-        ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
-        )
-        """
-        TRIGGER_BEFORE_INSERT_SETTINGS = """
-        CREATE TRIGGER IF NOT EXISTS Playlist_insert_settings_before_insert
-        BEFORE INSERT ON Playlist
-        BEGIN
-            INSERT INTO MusicSettings(id)
-            values(NEW.guild_id)
-            ON CONFLICT DO NOTHING;
-        END
-        """
-        QUERY_INSERT = """
-        INSERT INTO Playlist (guild_id, name, description)
-        VALUES (:guild_id, :name, :description)
-        ON CONFLICT DO NOTHING
-        """
-        QUERY_UPSERT = """
-        INSERT INTO Playlist (guild_id, name, description)
-        VALUES (:guild_id, :name, :description)
-        ON CONFLICT (guild_id, name)
-        DO UPDATE SET description = :description
-        """
-        QUERY_UPDATE = """
-        UPDATE Playlist SET name = :new_name, description = :new_description
-        WHERE guild_id = :guild_id AND name = :name
-        """
-        QUERY_SELECT = """
-        SELECT * FROM Playlist
-        WHERE guild_id = ? AND name = ?
-        """
-        QUERY_DELETE = """
-        DELETE FROM Playlist
-        WHERE guild_id = ? AND name = ?
-        RETURNING *
-        """
-        QUERY_SELECT_MULTIPLE = """
-        SELECT * FROM Playlist
-        WHERE guild_id = ?
-        LIMIT ? OFFSET ?
-        """
-        QUERY_SELECT_ALL = """
-        SELECT * FROM Playlist
-        WHERE guild_id = ?
-        """
-        QUERY_DELETE_MULTIPLE = """
-        DELETE FROM Playlist
-        WHERE ROWID in (
-            SELECT ROWID FROM Playlist 
-            WHERE guild_id = ? 
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS Playlist(
+            guild_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT NULL,
+            PRIMARY KEY (guild_id, name),
+            FOREIGN KEY (guild_id) REFERENCES Guild(id) 
+            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+            )
+            """
+            DROP_TABLE = """
+            DROP TABLE IF EXISTS Playlist
+            """
+            TRIGGER_BEFORE_INSERT_SETTINGS = """
+            CREATE TRIGGER IF NOT EXISTS Playlist_insert_settings_before_insert
+            BEFORE INSERT ON Playlist
+            BEGIN
+                INSERT INTO MusicSettings(guild_id)
+                values(NEW.guild_id)
+                ON CONFLICT DO NOTHING;
+            END
+            """
+            INSERT = """
+            INSERT INTO Playlist (guild_id, name, description)
+            VALUES (:guild_id, :name, :description)
+            ON CONFLICT DO NOTHING
+            """
+            UPSERT = """
+            INSERT INTO Playlist (guild_id, name, description)
+            VALUES (:guild_id, :name, :description)
+            ON CONFLICT (guild_id, name)
+            DO UPDATE SET description = :description
+            """
+            UPDATE = """
+            UPDATE Playlist SET name = :new_name, description = :new_description
+            WHERE guild_id = :guild_id AND name = :name
+            """
+            SELECT = """
+            SELECT * FROM Playlist
+            WHERE guild_id = ? AND name = ?
+            """
+            DELETE = """
+            DELETE FROM Playlist
+            WHERE guild_id = ? AND name = ?
+            RETURNING *
+            """
+            SELECT_MULTIPLE = """
+            SELECT * FROM Playlist
+            WHERE guild_id = ?
             LIMIT ? OFFSET ?
-        ) RETURNING *
-        """
-        QUERY_SELECT_LIKE = """
-        SELECT * FROM Playlist
-        WHERE guild_id = ? AND name LIKE ?
-        LIMIT ? OFFSET ?
-        """
-        QUERY_SELECT_LIKE_NAMES = """
-        SELECT name FROM Playlist
-        WHERE (guild_id = ?) AND (name LIKE ?)
-        LIMIT ? OFFSET ?
-        """
+            """
+            SELECT_ALL = """
+            SELECT * FROM Playlist
+            WHERE guild_id = ?
+            """
+            DELETE_MULTIPLE = """
+            DELETE FROM Playlist
+            WHERE ROWID in (
+                SELECT ROWID FROM Playlist 
+                WHERE guild_id = ? 
+                LIMIT ? OFFSET ?
+            ) RETURNING *
+            """
+            SELECT_LIKE = """
+            SELECT * FROM Playlist
+            WHERE guild_id = ? AND name LIKE ?
+            LIMIT ? OFFSET ?
+            """
+            SELECT_LIKE_NAMES = """
+            SELECT name FROM Playlist
+            WHERE (guild_id = ?) AND (name LIKE ?)
+            LIMIT ? OFFSET ?
+            """
 
     @dataclass
     class Track(Database.Row):
@@ -247,188 +255,184 @@ class MusicDB(Database):
         uri: str
         track_index: int = None
         # Constant representing an execution query for the track table
-        QUERY_CREATE_TABLE = """
-        CREATE TABLE IF NOT EXISTS Track(
-        guild_id INTEGER NOT NULL,
-        playlist_name TEXT NOT NULL,
-        track_index INTEGER NOT NULL,
-        title TEXT DEFAULT '',
-        duration INTEGER DEFAULT 0,
-        encoded TEXT NOT NULL,
-        uri TEXT DEFAULT '',
-        FOREIGN KEY(guild_id, playlist_name) REFERENCES Playlists(guild_id, name)
-        ON UPDATE CASCADE ON DELETE CASCADE)
-        """ # PRIMARY KEY(guild_id, playlist_name, track_index),
-
-        QUERY_BEFORE_INSERT_TRIGGER = """
-        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_before_insert
-        BEFORE INSERT ON Track
-        BEGIN
+        class Queries:
+            CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS Track(
+            guild_id INTEGER NOT NULL,
+            playlist_name TEXT NOT NULL,
+            track_index INTEGER NOT NULL,
+            title TEXT DEFAULT '',
+            duration INTEGER DEFAULT 0,
+            encoded TEXT NOT NULL,
+            uri TEXT DEFAULT '',
+            FOREIGN KEY(guild_id, playlist_name) REFERENCES Playlists(guild_id, name)
+            ON UPDATE CASCADE ON DELETE CASCADE)
+            """ # PRIMARY KEY(guild_id, playlist_name, track_index),
+            DROP_TABLE = """
+            DROP TABLE IF EXISTS Track
+            """
+            # _TRIGGER_SHIFT_BEFORE_INSERT = """
+            # CREATE TRIGGER IF NOT EXISTS Track_shift_indices_before_insert
+            # BEFORE INSERT ON Track
+            # BEGIN
+            #     UPDATE Track
+            #     SET track_index = track_index + 1
+            #     WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) AND (track_index >= NEW.track_index);
+            # END;
+            # """ # AND rowid != NEW.rowid
+            TRIGGER_SHIFT_AFTER_INSERT = """
+            CREATE TRIGGER IF NOT EXISTS Track_shift_indices_after_insert
+            AFTER INSERT ON Track
+            BEGIN
+                UPDATE Track
+                SET track_index = track_index + 1
+                WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) AND 
+                (track_index >= NEW.track_index) AND (rowid != NEW.rowid);
+            END;
+            """
+            # TRIGGER_SHIFT_BEFORE_UPDATE_FLIPFLOP_METHOD = """
+            # CREATE TRIGGER IF NOT EXISTS Track_shift_indices_before_update
+            # BEFORE UPDATE OF track_index ON Track
+            # BEGIN
+            #     UPDATE Track
+            #     SET track_index = -1 * (track_index + 1)
+            #     WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name)
+            #     AND (track_index >= NEW.track_index) AND (track_index < OLD.track_index);
+            #     UPDATE Track
+            #     SET track_index = -1 * (track_index - 1)
+            #     WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name)
+            #     AND (track_index > OLD.track_index) AND (track_index <= NEW.track_index);
+            # END;
+            # """ # AND (rowid != OLD.rowid)
+            # TRIGGER_SHIFT_AFTER_UPDATE_FLIPFLOP_METHOD = """
+            # CREATE TRIGGER IF NOT EXISTS Track_shift_indices_after_update
+            # AFTER UPDATE OF track_index ON Track
+            # BEGIN
+            #     UPDATE Track
+            #     SET track_index = -1 * track_index
+            #     WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) AND (track_index < 0);
+            # END;
+            # """
+            TRIGGER_SHIFT_AFTER_UPDATE = """
+            CREATE TRIGGER IF NOT EXISTS Track_shift_indices_after_update
+            AFTER UPDATE OF track_index ON Track
+            BEGIN
+                UPDATE Track
+                SET track_index = track_index + 1
+                WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) 
+                AND (track_index >= NEW.track_index) AND (track_index < OLD.track_index) AND (rowid != OLD.rowid);
+                UPDATE Track
+                SET track_index = track_index - 1
+                WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) 
+                AND (track_index > OLD.track_index) AND (track_index <= NEW.track_index) AND (rowid != OLD.rowid);
+            END
+            """
+            SHIFT_INDICES_RIGHT = """
             UPDATE Track
             SET track_index = track_index + 1
-            WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) AND (track_index >= NEW.track_index);
-        END;
-        """ # AND rowid != NEW.rowid
-        QUERY_AFTER_INSERT_TRIGGER = """
-        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_before_insert
-        AFTER INSERT ON Track
-        BEGIN
-            UPDATE Track
-            SET track_index = track_index + 1
-            WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) AND 
-            (track_index >= NEW.track_index) AND (rowid != NEW.rowid);
-        END;
-        """
-        QUERY_BEFORE_UPDATE_TRIGGER_FLIPFLOP_METHOD = """
-        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_before_update
-        BEFORE UPDATE OF track_index ON Track
-        BEGIN
-            UPDATE Track
-            SET track_index = -1 * (track_index + 1)
-            WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) 
-            AND (track_index >= NEW.track_index) AND (track_index < OLD.track_index);
-            UPDATE Track
-            SET track_index = -1 * (track_index - 1)
-            WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) 
-            AND (track_index > OLD.track_index) AND (track_index <= NEW.track_index);
-        END;
-        """ # AND (rowid != OLD.rowid)
-        QUERY_AFTER_UPDATE_TRIGGER_FLIPFLOP_METHOD = """
-        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_after_update
-        AFTER UPDATE OF track_index ON Track
-        BEGIN
-            UPDATE Track
-            SET track_index = -1 * track_index
-            WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) AND (track_index < 0);
-        END;
-        """
-        QUERY_AFTER_UPDATE_TRIGGER = """
-        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_after_update
-        AFTER UPDATE OF track_index ON Track
-        BEGIN
-            UPDATE Track
-            SET track_index = track_index + 1
-            WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) 
-            AND (track_index >= NEW.track_index) AND (track_index < OLD.track_index) AND (rowid != OLD.rowid);
+            WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) 
+            AND (track_index >= :new_index) AND (track_index < :old_index)
+            """
+            SHIFT_INDICES_LEFT = """
             UPDATE Track
             SET track_index = track_index - 1
-            WHERE (guild_id = NEW.guild_id) AND (playlist_name = NEW.playlist_name) 
-            AND (track_index > OLD.track_index) AND (track_index <= NEW.track_index) AND (rowid != OLD.rowid);
-        END
-        """
-        QUERY_SHIFT_INDICES_RIGHT = """
-        UPDATE Track
-        SET track_index = track_index + 1
-        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) 
-        AND (track_index >= :new_index) AND (track_index < :old_index)
-        """
-        QUERY_SHIFT_INDICES_LEFT = """
-        UPDATE Track
-        SET track_index = track_index - 1
-        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) 
-        AND (track_index > :old_index) AND (track_index <= :new_index)
-        """
-        QUERY_AFTER_DELETE_TRIGGER = """
-        CREATE TRIGGER IF NOT EXISTS Track_shift_indices_before_delete
-        AFTER DELETE ON Track
-        BEGIN
-        UPDATE Track
-        SET track_index = track_index - 1
-        WHERE (guild_id = OLD.guild_id) AND (playlist_name = OLD.playlist_name) AND (track_index > OLD.track_index);
-        END
-        """
-        QUERY_INSERT = """
-        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, uri, track_index)
-        VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, :uri,
-            (
-                SELECT COALESCE(MAX(track_index), 0) + 1 
-                FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
+            WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) 
+            AND (track_index > :old_index) AND (track_index <= :new_index)
+            """
+            TRIGGER_SHIFT_AFTER_DELETE = """
+            CREATE TRIGGER IF NOT EXISTS Track_shift_indices_before_delete
+            AFTER DELETE ON Track
+            BEGIN
+            UPDATE Track
+            SET track_index = track_index - 1
+            WHERE (guild_id = OLD.guild_id) AND (playlist_name = OLD.playlist_name) AND (track_index > OLD.track_index);
+            END
+            """
+            INSERT = """
+            INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, uri, track_index)
+            VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, :uri,
+                (
+                    SELECT COALESCE(MAX(track_index), 0) + 1 
+                    FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
+                )
             )
-        )
-        RETURNING track_index
-        """
-        QUERY_INSERT_AT = """
-        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, uri, track_index)
-        VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, :uri, :track_index)
-        """
-        QUERY_APPEND_IF_UNIQUE = """
-        INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, uri, track_index)
-        SELECT :guild_id, :playlist_name, :title, :duration, :encoded, :uri, (
-                SELECT COALESCE(MAX(track_index), 0) + 1 
-                FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
-            )
-        WHERE NOT EXISTS (
-            SELECT 1 FROM Track
-            WHERE guild_id = :guild_id AND playlist_name = :playlist_name AND encoded = :encoded
-        ) RETURNING *
-        """
-        QUERY_UPDATE = """
-        UPDATE Track
-        SET title=:title, duration=:duration, encoded=:encoded
-        WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name) AND (track_index=:track_index)
-        """
-        QUERY_SHIFT_INDEXES = """
-        UPDATE Track 
-        SET track_index = 
-        CASE 
-            WHEN ( (:new_index > :track_index) AND (track_index >= :track_index) AND (track_index <= :new_index) ) 
-            THEN (track_index + :count)
-            WHEN ( (:new_index < :track_index) AND (track_index <= :track_index) AND (track_index >= :new_index) )
-            THEN (track_index - :count) 
-        END
-        WHERE guild_id = :guild_id
-        AND playlist_name = :playlist_name;
-        """
-        _QUERY_MOVE = """
-        UPDATE Track SET track_index = track_index + :new_index - :track_index
-        WHERE guild_id = :guild_id
-        AND playlist_name = :playlist_name
-        AND track_index >= :track_index
-        AND track_index < :new_index + :count
-        """
-        QUERY_MOVE_SINGLE = """
-        UPDATE Track
-        SET track_index = :new_index
-        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (track_index = :track_index)
-        """
-        QUERY_MOVE = """
-        UPDATE Track 
-        SET track_index = track_index + (:new_index - :track_index)
-        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) 
-        AND (track_index >= :track_index) AND (track_index < :track_index + :count)
-        """
-        QUERY_SELECT_MULTIPLE = """
-        SELECT * FROM Track
-        WHERE (guild_id = ?) AND (playlist_name = ?)
-        LIMIT ? OFFSET ?
-        """
-        QUERY_SELECT_WITH_ENCODED = """
-        SELECT * FROM Track
-        WHERE (guild_id = ?) AND (playlist_name = ?) AND (encoded = ?)
-        """
-        QUERY_CHECK_DUPLICATE = """
-        SELECT EXISTS(
-        SELECT 1 FROM Track 
-        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (encoded = :encoded)
-        )
-        """
-        QUERY_SELECT_ALL = """
-        SELECT * FROM Track
-        WHERE (guild_id = ?) AND (playlist_name = ?)
-        """
-        QUERY_DELETE_BULK = """
-        DELETE FROM Track
-        WHERE ROWID in (
-            SELECT ROWID FROM Track 
-            WHERE guild_id = ? AND playlist_name = ? 
+            RETURNING track_index
+            """
+            INSERT_AT = """
+            INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, uri, track_index)
+            VALUES (:guild_id, :playlist_name, :title, :duration, :encoded, :uri, :track_index)
+            """
+            APPEND_IF_UNIQUE = """
+            INSERT INTO Track (guild_id, playlist_name, title, duration, encoded, uri, track_index)
+            SELECT :guild_id, :playlist_name, :title, :duration, :encoded, :uri, (
+                    SELECT COALESCE(MAX(track_index), 0) + 1 
+                    FROM Track WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name)
+                )
+            WHERE NOT EXISTS (
+                SELECT 1 FROM Track
+                WHERE guild_id = :guild_id AND playlist_name = :playlist_name AND encoded = :encoded
+            ) RETURNING *
+            """
+            UPDATE = """
+            UPDATE Track
+            SET title=:title, duration=:duration, encoded=:encoded
+            WHERE (guild_id=:guild_id) AND (playlist_name=:playlist_name) AND (track_index=:track_index)
+            """
+            SHIFT_INDEXES = """
+            UPDATE Track 
+            SET track_index = 
+            CASE 
+                WHEN ( (:new_index > :track_index) AND (track_index >= :track_index) AND (track_index <= :new_index) ) 
+                THEN (track_index + :count)
+                WHEN ( (:new_index < :track_index) AND (track_index <= :track_index) AND (track_index >= :new_index) )
+                THEN (track_index - :count) 
+            END
+            WHERE guild_id = :guild_id
+            AND playlist_name = :playlist_name;
+            """
+            MOVE_SINGLE = """
+            UPDATE Track
+            SET track_index = :new_index
+            WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (track_index = :track_index)
+            """
+            MOVE = """
+            UPDATE Track 
+            SET track_index = track_index + (:new_index - :track_index)
+            WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) 
+            AND (track_index >= :track_index) AND (track_index < :track_index + :count)
+            """
+            SELECT_MULTIPLE = """
+            SELECT * FROM Track
+            WHERE (guild_id = ?) AND (playlist_name = ?)
             LIMIT ? OFFSET ?
-        ) RETURNING *
-        """
-        QUERY_DELETE = """
-        DELETE FROM Track
-        WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (track_index >= :track_index) AND (track_index < :track_index + :count)
-        RETURNING *
-        """
+            """
+            SELECT_WITH_ENCODED = """
+            SELECT * FROM Track
+            WHERE (guild_id = ?) AND (playlist_name = ?) AND (encoded = ?)
+            """
+            CHECK_DUPLICATE = """
+            SELECT EXISTS(
+            SELECT 1 FROM Track 
+            WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (encoded = :encoded)
+            )
+            """
+            SELECT_ALL = """
+            SELECT * FROM Track
+            WHERE (guild_id = ?) AND (playlist_name = ?)
+            """
+            DELETE_BULK = """
+            DELETE FROM Track
+            WHERE ROWID in (
+                SELECT ROWID FROM Track 
+                WHERE guild_id = ? AND playlist_name = ? 
+                LIMIT ? OFFSET ?
+            ) RETURNING *
+            """
+            DELETE = """
+            DELETE FROM Track
+            WHERE (guild_id = :guild_id) AND (playlist_name = :playlist_name) AND (track_index >= :track_index) AND (track_index < :track_index + :count)
+            RETURNING *
+            """
 
         @classmethod
         def fromWavelink(cls, guild_id: int, playlist_name: str, track: WavelinkTrack):
@@ -451,46 +455,16 @@ class MusicDB(Database):
     class PlaylistAlreadyExists(errors.CustomCheck):
         MESSAGE = "There is already a playlist with that name"
 
-    async def init(self, drop=False):
-        if drop: await self.dropTables()
-        await self.createTables()
-        await self.createTriggers()
-
-    async def dropTables(self):
-        async with aiosqlite.connect(self.file_path) as db:
-            await db.execute("DROP TABLE IF EXISTS Playlist")
-            await db.execute("DROP TABLE IF EXISTS Track")
-            await db.execute("DROP TABLE IF EXISTS MusicSettings")
-            await db.commit()
-
-    async def createTables(self):
-        async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(MusicDB.MusicSettings.QUERY_CREATE_TABLE)
-            await db.execute(MusicDB.Playlist.QUERY_CREATE_TABLE)
-            await db.execute(MusicDB.Track.QUERY_CREATE_TABLE)
-            await db.commit()
-
-    async def createTriggers(self):
-        async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(MusicDB.MusicSettings.TRIGGER_BEFORE_INSERT_GUILD)
-            await db.execute(MusicDB.Playlist.TRIGGER_BEFORE_INSERT_SETTINGS)
-            await db.execute(MusicDB.Track.QUERY_AFTER_INSERT_TRIGGER)
-
-            # await db.execute(MusicDB.Track.QUERY_BEFORE_UPDATE_TRIGGER)
-            await db.execute(MusicDB.Track.QUERY_AFTER_UPDATE_TRIGGER)
-            await db.execute(MusicDB.Track.QUERY_AFTER_DELETE_TRIGGER)
-            await db.commit()
-
     async def insertPlaylist(self, playlist: Playlist) -> bool:
         async with aiosqlite.connect(self.file_path) as db:
-            cursor = await db.execute(MusicDB.Playlist.QUERY_INSERT, playlist.astuple())
+            cursor = await db.execute(MusicDB.Playlist.Queries.INSERT, playlist.astuple())
             row_count = cursor.rowcount
             await db.commit()
         return row_count > 0
 
     async def updatePlaylist(self, guild_id: int, playlist_name: str, new_playlist: Playlist):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(MusicDB.Playlist.QUERY_UPDATE, {
+            await db.execute(MusicDB.Playlist.Queries.UPDATE, {
                 "guild_id": guild_id, "name": playlist_name,
                 "new_name": new_playlist.name, "new_description": new_playlist.description
             })
@@ -498,18 +472,18 @@ class MusicDB(Database):
 
     async def upsertPlaylist(self, playlist: Playlist):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(playlist.QUERY_UPSERT, playlist.asdict())
+            await db.execute(playlist.Queries.UPSERT, playlist.asdict())
             await db.commit()
 
     async def insertTrack(self, track: Track):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(track.QUERY_INSERT, track.asdict())
+            await db.execute(track.Queries.INSERT, track.asdict())
             await db.commit()
 
     async def insertTracks(self, tracks: list[Track]):
         tracks = [track.asdict() for track in tracks]
         async with aiosqlite.connect(self.file_path) as db:
-            await db.executemany(MusicDB.Track.QUERY_INSERT, tracks)
+            await db.executemany(MusicDB.Track.Queries.INSERT, tracks)
             await db.commit()
 
     async def appendTracksNoDuplicates(self, tracks: list[Track]) -> tuple[int, int]:
@@ -524,10 +498,10 @@ class MusicDB(Database):
             # db.row_factory = aiosqlite.Cursor.row_factory
             unique_tracks = []
             for track in tracks:
-                query_result = await db.execute_fetchall(MusicDB.Track.QUERY_CHECK_DUPLICATE, track)
+                query_result = await db.execute_fetchall(MusicDB.Track.Queries.CHECK_DUPLICATE, track)
                 is_duplicate = list(query_result)[0][0]
                 if not is_duplicate: unique_tracks.append(track)
-            await db.executemany(MusicDB.Track.QUERY_INSERT, unique_tracks)
+            await db.executemany(MusicDB.Track.Queries.INSERT, unique_tracks)
             await db.commit()
             # cursor: aiosqlite.Cursor = await db.executemany(MusicDB.Track.QUERY_APPEND_IF_UNIQUE, tracks)
             # unique_tracks: MusicDB.Track = await cursor.fetchall()
@@ -539,13 +513,13 @@ class MusicDB(Database):
 
     async def upsertMusicSettings(self, music_settings: MusicSettings):
         async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(music_settings.QUERY_UPSERT, music_settings.asdict())
+            await db.execute(music_settings.Queries.UPSERT, music_settings.asdict())
             await db.commit()
 
     async def fetchMusicSettings(self, guild_id: int) -> MusicSettings:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.MusicSettings.rowFactory
-            settings = await db.execute_fetchall(MusicDB.MusicSettings.QUERY_SELECT, (guild_id,))
+            settings = await db.execute_fetchall(MusicDB.MusicSettings.Queries.SELECT, (guild_id,))
             settings = settings[0]
             # await db.commit()
         return settings
@@ -553,7 +527,7 @@ class MusicDB(Database):
     async def fetchPlaylist(self, guild_id: int, playlist_name: str) -> Playlist:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.Playlist.rowFactory
-            playlist: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT, (guild_id, playlist_name))
+            playlist: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.Queries.SELECT, (guild_id, playlist_name))
             if playlist: playlist: MusicDB.Playlist = playlist[0]
             await db.commit()
         return playlist
@@ -561,21 +535,21 @@ class MusicDB(Database):
     async def fetchPlaylists(self, guild_id: int, playlist_name: str, limit: int=1, offset: int=0) -> list[Playlist]:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.Playlist.rowFactory
-            playlists: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT_MULTIPLE,
+            playlists: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.Queries.SELECT_MULTIPLE,
                                                                           (guild_id, playlist_name, offset, limit))
         return playlists
 
     async def fetchSimilarPlaylists(self, guild_id: int, playlist_name: str, limit: int = 1, offset: int = 0) -> list[Playlist]:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.Playlist.rowFactory
-            playlists: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT_MULTIPLE,
+            playlists: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.Queries.SELECT_MULTIPLE,
                                                                           (guild_id, f"%{playlist_name}%", offset, limit))
         return playlists
 
     async def fetchSimilarPlaylistNames(self, guild_id: int, playlist_name: str, limit: int = 1, offset: int = 0
                                         ) -> list[str]:
         async with aiosqlite.connect(self.file_path) as db:
-            names: list[str] = await db.execute_fetchall(MusicDB.Playlist.QUERY_SELECT_LIKE_NAMES,
+            names: list[str] = await db.execute_fetchall(MusicDB.Playlist.Queries.SELECT_LIKE_NAMES,
                                                          (guild_id, f"%{playlist_name}%", limit, offset))
             names = [n[0] for n in names]
         return names
@@ -584,10 +558,10 @@ class MusicDB(Database):
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.Track.rowFactory
             if limit:
-                query = MusicDB.Track.QUERY_SELECT_MULTIPLE
+                query = MusicDB.Track.Queries.SELECT_MULTIPLE
                 bindings = (guild_id, playlist_name, limit, offset)
             else:
-                query = MusicDB.Track.QUERY_SELECT_ALL
+                query = MusicDB.Track.Queries.SELECT_ALL
                 bindings = (guild_id, playlist_name)
             tracks: list[MusicDB.Track] = await db.execute_fetchall(query, bindings)
         return tracks
@@ -595,7 +569,7 @@ class MusicDB(Database):
     async def deletePlaylist(self, guild_id: int, playlist_name: str):
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.Playlist.rowFactory
-            playlist: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.QUERY_DELETE,
+            playlist: list[MusicDB.Playlist] = await db.execute_fetchall(MusicDB.Playlist.Queries.DELETE,
                                                                          (guild_id, playlist_name))
             playlist: MusicDB.Playlist = playlist[0]
             await db.commit()
@@ -608,7 +582,7 @@ class MusicDB(Database):
                       "playlist_name": playlist_name,
                       "track_index": track_index,
                       "count": 1}
-            result: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE, params)
+            result: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.Queries.DELETE, params)
             track = result[0]
             await db.commit()
         return track
@@ -623,7 +597,7 @@ class MusicDB(Database):
                           "playlist_name": playlist_name,
                           "track_index": idx,
                           "count": 1}
-                result = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE, params)
+                result = await db.execute_fetchall(MusicDB.Track.Queries.DELETE, params)
                 tracks.append(result)
             await db.commit()
         return tracks
@@ -635,7 +609,7 @@ class MusicDB(Database):
                       "playlist_name": playlist_name,
                       "track_index": track_index,
                       "new_index": new_index}
-            await db.execute(MusicDB.Track.QUERY_MOVE_SINGLE, params)
+            await db.execute(MusicDB.Track.Queries.MOVE_SINGLE, params)
             await db.commit()
 
     async def moveTrackDeleteInsert(self, guild_id: int, playlist_name: str, track_index: int,
@@ -646,7 +620,7 @@ class MusicDB(Database):
                              "playlist_name": playlist_name,
                              "track_index": track_index,
                              "count": 1}
-            result: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.QUERY_DELETE, delete_params)
+            result: list[MusicDB.Track] = await db.execute_fetchall(MusicDB.Track.Queries.DELETE, delete_params)
             track: MusicDB.Track = result[0]
             shift_params = {"guild_id": guild_id,
                             "playlist_name": playlist_name,
@@ -659,7 +633,7 @@ class MusicDB(Database):
             # elif new_index > track_index:
             #     await db.execute(MusicDB.Track.QUERY_SHIFT_INDICES_LEFT, shift_params)
             params = track.asdict()
-            await db.execute(MusicDB.Track.QUERY_INSERT_AT, params)
+            await db.execute(MusicDB.Track.Queries.INSERT_AT, params)
             await db.commit()
 
 
@@ -674,24 +648,6 @@ class Music(GroupCog,
     # music_group = app_commands.Group(name="m", description="commands relating to music playback")
     music_group = app_commands
     # music_group = Group(name="m", description="commands relating to the music player")
-
-
-
-
-
-    # await db.execute("""
-    #             CREATE TABLE IF NOT EXISTS Tracks(
-    #             playlist_id INTEGER FOREIGN KEY REFERENCE Playlists.id
-    #             id INTEGER AUTO INCREMENT
-    #             title TEXT DEFAULT 'Untitled'
-    #             duration INTEGER DEFAULT 0
-    #             encoded TEXT NOT NULL)
-    #             """)
-
-    """
-    Insert a new server, do this as soon as possible so that 
-    fetch a server whenever it is needed using a discord 
-    """
 
     async def cog_load(self) -> None:
         await self.database.init(drop=self.bot.config.drop_tables)
@@ -724,8 +680,9 @@ class Music(GroupCog,
             except discord.NotFound: continue
             music_settings = MusicDB.MusicSettings(guild_id=guild.id, music_enabled=True, playlists_enabled=True)
             await self.database.upsertMusicSettings(music_settings)
-
-            await self.database.upsertGuild(self.database.Guild.fromDiscord(guild))
+            info_db = self.bot.database
+            await info_db.upsertGuild(info_db.Guild.fromDiscord(guild))
+            # await self.database.upsertGuild(self.database.Guild.fromDiscord(guild))
             for playlist_name, playlist in server.playlists.items():
                 new_playlist = MusicDB.Playlist(server_id, playlist_name, playlist.description)
                 tracks = await convertTracks(server_id, playlist_name, playlist.tracks)

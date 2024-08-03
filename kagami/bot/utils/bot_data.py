@@ -325,7 +325,6 @@ class BotConfiguration:
     spotify: dict[str, str] = None
     drop_tables: bool = False
     # migrate_data: bool = False
-
     @classmethod
     def initFromEnv(cls):
         if not os.environ.get("BOT_TOKEN"):

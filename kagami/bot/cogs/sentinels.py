@@ -143,13 +143,13 @@ class SentinelDB(Database):
             DROP_TABLE = """
             DROP TABLE IF EXISTS DisabledSentinelChannels
             """
-            TRIGGER_BEFORE_INSERT_GUILD = """
-            CREATE TRIGGER IF NOT EXISTS DisabledSentinelChannels_insert_guild_before_insert
+            TRIGGER_BEFORE_INSERT_SETTINGS = """
+            CREATE TRIGGER IF NOT EXISTS DisabledSentinelChannels_insert_settings_before_insert
             BEFORE INSERT ON DisabledSentinelChannels
             BEGIN
-                INSERT INTO Guild(id)
+                INSERT INTO SentinelSettings(guild_id)
                 VALUES (NEW.guild_id)
-                ON CONFLICT(id) DO NOTHING;
+                ON CONFLICT(guild_id) DO NOTHING;
             END;
             """
             INSERT = """
@@ -358,28 +358,28 @@ class SentinelDB(Database):
                 WHERE id = OLD.response_id;
             END
             """
-            DELETE_TRIGGER_TRACKING_AFTER_DELETE = """
-            CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_trigger_tracking_after_delete
-            AFTER DELETE ON SentinelSuit
-            WHEN (
-                SELECT COUNT(*) FROM SentinelSuit WHERE trigger_id = OLD.trigger_id AND guild_id = OLD.guild_id
-            ) = 0
-            BEGIN
-                DELETE FROM SentinelTrigger
-                WHERE id = OLD.trigger_id;
-            END
-            """
-            DELETE_RESPONSE_TRACKING_AFTER_DELETE = """
-            CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_response_after_delete
-            AFTER DELETE ON SentinelSuit
-            WHEN (
-                SELECT COUNT(*) FROM SentinelSuit WHERE response_id = OLD.response_id AND guild_id = OLD.guild_id
-            ) = 0
-            BEGIN
-                DELETE FROM SentinelResponse
-                WHERE id = OLD.response_id;
-            END
-            """
+            # _DELETE_TRIGGER_TRACKING_AFTER_DELETE = """
+            # CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_trigger_tracking_after_delete
+            # AFTER DELETE ON SentinelSuit
+            # WHEN (
+            #     SELECT COUNT(*) FROM SentinelSuit WHERE trigger_id = OLD.trigger_id AND guild_id = OLD.guild_id
+            # ) = 0
+            # BEGIN
+            #     DELETE FROM SentinelTrigger
+            #     WHERE id = OLD.trigger_id;
+            # END
+            # """
+            # _DELETE_RESPONSE_TRACKING_AFTER_DELETE = """
+            # CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_response_after_delete
+            # AFTER DELETE ON SentinelSuit
+            # WHEN (
+            #     SELECT COUNT(*) FROM SentinelSuit WHERE response_id = OLD.response_id AND guild_id = OLD.guild_id
+            # ) = 0
+            # BEGIN
+            #     DELETE FROM SentinelResponse
+            #     WHERE id = OLD.response_id;
+            # END
+            # """
             INSERT = """
             INSERT OR IGNORE INTO SentinelSuit(guild_id, sentinel_name, name, weight, trigger_id, response_id)
             VALUES (:guild_id, :sentinel_name, :name, :weight, :trigger_id, :response_id)
@@ -547,184 +547,8 @@ class SentinelDB(Database):
             LIMIT 1
             """
 
-
-
-
-
-
-
-
-
-
-
-    @dataclass
-    class _SentinelSuit(Database.Row):
-        guild_id: int
-        sentinel_name: str
-        name: str
-        weight: int
-        enabled: bool
-        # trigger_id: int
-        # response_id: int
-        class Queries:
-            CREATE_TABLE = """
-            CREATE TABLE IF NOT EXISTS SentinelSuit(
-            guild_id INTEGER NOT NULL,
-            sentinel_name TEXT NOT NULL,
-            name TEXT NOT NULL,
-            weight INTEGER DEFAULT 10,
-            PRIMARY KEY (guild_id, sentinel_name, name),
-            FOREIGN KEY (guild_id) REFERENCES Guild(id)
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-            FOREIGN KEY (sentinel_name) REFERENCES Sentinel(name)
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
-            )
-            """
-            INSERT = """
-            INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, enabled)
-            VALUES (:guild_id, :sentinel_name, :name, :weight, :enabled)
-            ON CONFLICT ()DO NOTHING
-            """
-            UPSERT  = """
-            INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, enabled)
-            VALUES (:guild_id, :sentinel_name, :name, :weight, :enabled)
-            ON CONFLICT DO UPDATE
-            SET weight = :weight, enabled = :enabled
-            """
-
-    @dataclass
-    class _SentinelTrigger(Database.Row):
-        class TriggerType(IntEnum):
-            word = auto()
-            phrase = auto()
-            regex = auto()
-            reaction = auto()
-        guild_id: int
-        sentinel_name: str
-        suit_name: str
-        type: int
-        object: str
-        class Queries:
-            CREATE_TABLE = """
-            CREATE TABLE IF NOT EXISTS SentinelTrigger(
-            guild_id INTEGER NOT NULL,
-            sentinel_name TEXT NOT NULL,
-            suit_name TEXT NOT NULL,
-            type INTEGER NOT NULL DEFAULT 0,
-            object TEXT NOT NULL,
-            enabled INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 1,
-            FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-            FOREIGN KEY(sentinel_name) REFERENCES Sentinel(name)
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-            FOREIGN KEY(suit_name) REFERENCES SentinelSuit(name)
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-            UNIQUE (guild_id, sentinel_name, suit_name, type, object)
-            )
-            """
-            DROP_TABLE = """
-            DROP TABLE IF EXISTS SentinelTrigger
-            """
-            TRIGGER_BEFORE_INSERT_SENTINEL = """
-            CREATE TRIGGER IF NOT EXISTS insert_sentinel_before_insert
-            BEFORE INSERT ON SentinelTrigger
-            BEGIN
-                INSERT INTO Sentinel(guild_id, name)
-                VALUES (NEW.guild_id, NEW.sentinel_name)
-                ON CONFLICT DO NOTHING;
-            END
-            """
-            TRIGGER_BEFORE_INSERT_SUIT = """
-            CREATE TRIGGER IF NOT EXISTS insert_suit_before_insert
-            BEFORE INSERT ON SentinelTrigger
-            BEGIN
-                INSERT INTO SentinelSuit(guild_id, sentinel_name, name)
-                VALUES (NEW.guild_id, NEW.sentinel_name, NEW.suit_name)
-                ON CONFLICT DO NOTHING;
-            END
-            """
-            TRIGGER_AFTER_INSERT_USES = """
-            CREATE TRIGGER IF NOT EXISTS insert_uses_after_insert
-            AFTER INSERT ON SentinelTrigger
-            BEGIN
-                INSERT INTO SentinelTriggerUses(guild_id, trigger_object, user_id)
-                VALUES (NEW.guild_id, NEW.object, 0)
-                ON CONFLICT DO NOTHING;
-            END
-            """
-            INSERT = """
-            INSERT INTO SentinelTrigger (guild_id, sentinel_name, type, object)
-            VALUES (:guild_id, :sentinel_name, :type, :object)
-            ON CONFLICT DO NOTHING
-            """
-
-    @dataclass
-    class _SentinelResponse(Database.Row):
-        class ResponseType(IntEnum):
-            message = auto()
-            reply = auto()
-        guild_id: int
-        sentinel_name: str
-        suit_name: str
-        type: int
-        content: str
-        reactions: str  # a string which can be split by
-        # view: str
-        # somehow support
-        enabled: bool = True
-        
-        class Queries:
-            CREATE_TABLE = """
-            CREATE TABLE IF NOT EXISTS SentinelResponse(
-            guild_id INTEGER NOT NULL,
-            sentinel_name TEXT NOT NULL,
-            suit_name TEXT NOT NULL,
-            type INTEGER NOT NULL,
-            content TEXT,
-            reactions TEXT,
-            enabled INTEGER DEFAULT 1,
-            FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-            FOREIGN KEY(sentinel_name) REFERENCES Sentinel(name) 
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-            FOREIGN KEY(suit_name) REFERENCES SentinelSuit(name)
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-            UNIQUE (guild_id, sentinel_name, suit_name, type, content, reactions)
-            )
-            """
-            DROP_TABLE = """
-            DROP TABLE IF EXISTS SentinelResponse
-            """
-            TRIGGER_BEFORE_INSERT_SENTINEL = """
-            CREATE TRIGGER IF NOT EXISTS insert_sentinel_before_insert
-            BEFORE INSERT ON SentinelResponse
-            BEGIN
-                INSERT INTO Sentinel(guild_id, name)
-                VALUES (NEW.guild_id, NEW.sentinel_name)
-                ON CONFLICT DO NOTHING;
-            END
-            """
-            TRIGGER_BEFORE_INSERT_SUIT = """
-            CREATE TRIGGER IF NOT EXISTS insert_suit_before_insert
-            BEFORE INSERT ON SentinelResponse
-            BEGIN
-                INSERT INTO SentinelSuit(guild_id, sentinel_name, name)
-                VALUES (NEW.guild_id, NEW.sentinel_name, NEW.suit_name)
-                ON CONFLICT DO NOTHING;
-            END
-            """
-            INSERT = """
-            INSERT INTO SentinelResponse(guild_id, sentinel_name, type, content, reactions)
-            VALUES (:guild_id, :sentinel_name, :type, :content, :reactions)
-            ON CONFLICT DO NOTHING
-            """
-
-    # guild_id = 0 is for global uses by users
-    # only one instance for each user on a guild or globally
-    # user_id = 0 is for all users
-    # on sentinel usage, increase its tally for the local guild and global
-    # also increase the tally for all users locally and globally (user_id = 0)
-
+    # These dataclasses are from past attempts at a tracking implementation
+    # They are stored here as future reference for their triggers
     @dataclass
     class _SentinelSuitUses(Database.Row):
         class SuitPart(IntEnum):
@@ -841,56 +665,6 @@ class SentinelDB(Database):
 
     class InvalidRegex(errors.CustomCheck):
         MESSAGE = "The entered regex is not valid"
-
-
-    async def old_init(self, drop: bool=False):
-        if drop: await self.dropTables()
-        await self.createTables()
-        await self.createTriggers()
-
-    async def old_createTables(self):
-        async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(SentinelDB.SentinelSettings.Queries.CREATE_TABLE)
-            await db.execute(SentinelDB.Sentinel.Queries.CREATE_TABLE)
-            await db.execute(SentinelDB.SentinelSuit.Queries.CREATE_TABLE)
-            await db.execute(SentinelDB.SentinelTrigger.Queries.CREATE_TABLE)
-            await db.execute(SentinelDB.SentinelResponse.Queries.CREATE_TABLE)
-            await db.execute(SentinelDB.DisabledSentinelChannels.Queries.CREATE_TABLE)
-            # await db.execute(SentinelDB.SentinelTriggerUses.QUERY_CREATE_TABLE)
-            await db.commit()
-
-    async def old_createTriggers(self):
-        async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(SentinelDB.Sentinel.Queries.TRIGGER_BEFORE_INSERT_SETTINGS)
-            await db.execute(SentinelDB.SentinelSettings.Queries.TRIGGER_BEFORE_INSERT_GUILD)
-            # Suit Triggers
-            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_BEFORE_INSERT_SENTINEL)
-            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_DELETE_TRIGGER)
-            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_DELETE_RESPONSE)
-            await db.execute(SentinelDB.SentinelSuit.Queries.DELETE_TRIGGER_TRACKING_AFTER_DELETE)
-            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_UPDATE)
-            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_UPDATE_RESPONSE)
-            await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_UPDATE_TRIGGER)
-            await db.execute(SentinelDB.DisabledSentinelChannels.Queries.TRIGGER_BEFORE_INSERT_GUILD)
-            # await db.execute(SentinelDB.SentinelTrigger.Queries)
-            # Create the new triggers for the new suit system
-            # await db.execute(SentinelDB.SentinelTrigger.Queries.TRIGGER_BEFORE_INSERT_SENTINEL)
-            # await db.execute(SentinelDB.SentinelTrigger.Queries.TRIGGER_AFTER_INSERT_USES)
-            # await db.execute(SentinelDB.SentinelTriggerUses.Queries.TRIGGER_BEFORE_INSERT_USER)
-            # await db.execute(SentinelDB.SentinelResponse.Queries.TRIGGER_BEFORE_INSERT_SENTINEL)
-            await db.commit()
-
-    async def old_dropTables(self):
-        async with aiosqlite.connect(self.file_path) as db:
-
-            await db.execute(SentinelDB.Sentinel.Queries.DROP_TABLE)
-            await db.execute(SentinelDB.SentinelSettings.Queries.DROP_TABLE)
-            await db.execute(SentinelDB.SentinelTrigger.Queries.DROP_TABLE)
-            await db.execute(SentinelDB.SentinelResponse.Queries.DROP_TABLE)
-            await db.execute(SentinelDB.SentinelSuit.Queries.DROP_TABLE)
-            await db.execute(SentinelDB.DisabledSentinelChannels.Queries.DROP_TABLE)
-            # await db.execute(SentinelDB.SentinelTriggerUses.QUERY_DROP_TABLE)
-            await db.commit()
 
     async def upsertSentinelSettings(self, sentinel_settings: SentinelSettings):
         async with aiosqlite.connect(self.file_path) as db:
@@ -1294,9 +1068,9 @@ class Sentinels(GroupCog, name="s"):
         self.database = SentinelDB(bot.config.db_path)
 
     async def cog_load(self) -> None:
-        # await self.database.init(drop=self.config.drop_tables)
-        await self.database.init(drop=True)
-        await self.migrateData()
+        await self.database.init(drop=self.config.drop_tables)
+        # await self.database.init(drop=True)
+        # await self.migrateData()
         # pass
 
     async def cog_unload(self) -> None:
