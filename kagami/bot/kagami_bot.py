@@ -51,7 +51,7 @@ class Kagami(commands.Bot):
         self.load_data()
         self.newLoadData()
         bot_var.value = self
-        self.database = database.Database(self.config.db_path)
+        self.database = database.InfoDB(self.config.db_path)
 
     def changeCmdError(self):
         tree = self.tree

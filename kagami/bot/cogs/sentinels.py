@@ -18,7 +18,7 @@ from bot.kagami_bot import Kagami
 from bot.utils.bot_data import Server, OldSentinel
 from bot.utils.interactions import respond
 from bot.utils.ui import MessageScroller
-from bot.utils.database import Database
+from bot.utils.database import Database, InfoDB
 from bot.utils.pages import createPageList, createPageInfoText, CustomRepr
 from typing import (
     Literal, Union, List, Any
@@ -30,7 +30,6 @@ class SentinelDB(Database):
     class SentinelSettings(Database.Row):
         guild_id: int
         sentinels_enabled: bool = True
-
         class Queries:
             CREATE_TABLE = """
             CREATE TABLE IF NOT EXISTS SentinelSettings(
@@ -119,7 +118,68 @@ class SentinelDB(Database):
             WHERE (guild_id = ?) AND (name LIKE ?)
             LIMIT ? OFFSET ?
             """
+            TOGGLE = """
+            UPDATE Sentinel
+            SET
+                enabled = NOT enabled
+            WHERE
+                guild_id = ? AND
+                name = ?
+            """
 
+    class DisabledSentinelChannels(Database.Row):
+        guild_id: int
+        channel_id: int
+        class Queries:
+            CREATE_TABLE = f"""
+            CREATE TABLE IF NOT EXISTS DisabledSentinelChannels(
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                PRIMARY KEY(guild_id, channel_id),
+                FOREIGN KEY(guild_id) REFERENCES GUILD(id)
+                    ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+            )
+            """
+            DROP_TABLE = """
+            DROP TABLE IF EXISTS DisabledSentinelChannels
+            """
+            TRIGGER_BEFORE_INSERT_GUILD = """
+            CREATE TRIGGER IF NOT EXISTS DisabledSentinelChannels_insert_guild_before_insert
+            BEFORE INSERT ON DisabledSentinelChannels
+            BEGIN
+                INSERT INTO Guild(id)
+                VALUES (NEW.guild_id)
+                ON CONFLICT(id) DO NOTHING;
+            END;
+            """
+            INSERT = """
+            INSERT OR IGNORE INTO DisabledSentinelChannels(guild_id, channel_id)
+            VALUES(:guild_id, :channel_id)
+            """
+            DELETE = """
+            DELETE FROM DisabledSentinelChannels
+            WHERE guild_id = :guild_id AND channel_id = :channel_id
+            """
+            TOGGLE = f"""
+            SELECT CASE WHEN EXISTS (
+                    SELECT 1 FROM DisabledSentinelChannels WHERE 
+                        guild_id = :guild_id AND channel_id = : channel_id
+                ) THEN
+                {DELETE}
+            ELSE
+                {INSERT}
+            END;
+            """
+            SELECT_EXISTS = """
+            SELECT CASE WHEN EXISTS (
+                SELECT 1 FROM DisabledSentinelChannels
+                WHERE
+                    guild_id = :guild_id AND channel_id = : channel_id
+            )
+            THEN 1
+            ELSE 0
+            END;
+            """
 
     @dataclass
     class SentinelTrigger(Database.Row):
@@ -374,12 +434,17 @@ class SentinelDB(Database):
             WHERE guild_id = ? AND sentinel_name = ? AND name LIKE ?
             LIMIT ? OFFSET ?
             """
+            TOGGLE = """
+            UPDATE SentinelSuit
+            SET
+                enabled = NOT enabled
+            WHERE
+                guild_id = ? AND
+                sentinel_name = ? AND
+                name = ?
+            """
             DELETE = """
             DELETE FROM SentinelSuit WHERE guild_id = ? AND sentinel_name = ? AND name = ?
-            """
-
-            FETCH = """
-            SELECT * FROM 
             """
             __space_regex = "[,.;:''\"?!@#$%^&*()~`+=|/\\ ]" # sql escaped space regex
             GET_SUITS_FROM_MESSAGE = f"""
@@ -392,15 +457,21 @@ class SentinelDB(Database):
                     trigger_id,
                     response_id,
                     enabled
+                    Sentinel.enabled AS sentinel_enabled
                 FROM SentinelSuit
-                LEFT JOIN SentinelTrigger ON SentinelSuit.trigger_id = SentinelTrigger.id
-                WHERE (
-                    (SentinelTrigger.type = 1 AND ' '||:message_content||' ' REGEXP '{__space_regex}'||SentinelTrigger.object||'{__space_regex}')
-                OR  (SentinelTrigger.type = 2 AND instr(:message_content, SentinelTrigger.object))
-                OR  (SentinelTrigger.type = 3 AND :message_content REGEXP SentinelTrigger.object)
-                )
-                AND guild_id = :guild_id
-                AND enabled = 1
+                LEFT JOIN SentinelTrigger ON 
+                    SentinelTrigger.id = SentinelSuit.trigger_id 
+                LEFT JOIN Sentinel ON 
+                    Sentinel.name = SentinelSuit.name
+                WHERE 
+                    (
+                        (SentinelTrigger.type = 1 AND ' '||:message_content||' ' REGEXP '{__space_regex}'||SentinelTrigger.object||'{__space_regex}') OR  
+                        (SentinelTrigger.type = 2 AND instr(:message_content, SentinelTrigger.object)) OR  
+                        (SentinelTrigger.type = 3 AND :message_content REGEXP SentinelTrigger.object)
+                    ) AND
+                    guild_id = :guild_id AND 
+                    enabled = 1 AND
+                    sentinel_enabled = 1
                 ORDER BY sentinel_name DESC
             ),
             sentinel_suit_info AS (
@@ -418,7 +489,8 @@ class SentinelDB(Database):
                     (weight / (t_weight * 1.0)) AS prob,
                     sum((weight / (t_weight * 1.0))) OVER (PARTITION BY suits.sentinel_name ORDER BY name) AS c_prob
                 FROM triggered_suits AS suits
-                LEFT JOIN sentinel_suit_info AS sentinel_info ON sentinel_info.sentinel_name = suits.sentinel_name
+                LEFT JOIN sentinel_suit_info AS sentinel_info ON 
+                    sentinel_info.sentinel_name = suits.sentinel_name
                 ORDER BY suits.sentinel_name
             ),
             selected_suits AS (
@@ -431,8 +503,11 @@ class SentinelDB(Database):
                     response_id,
                     enabled
                 FROM triggered_suits AS suits
-                LEFT JOIN sentinel_suit_info AS sentinel_info ON sentinel_info.sentinel_name = suits.sentinel_name
-                LEFT JOIN cumulative_probabilities AS c_probs ON c_probs.sentinel_name = suits.sentinel_name AND c_probs.name = suits.name
+                LEFT JOIN sentinel_suit_info AS sentinel_info ON 
+                    sentinel_info.sentinel_name = suits.sentinel_name
+                LEFT JOIN cumulative_probabilities AS c_probs ON 
+                    c_probs.sentinel_name = suits.sentinel_name AND
+                    c_probs.name = suits.name
                 WHERE c_prob >= r_val
                 GROUP BY suits.sentinel_name
             )
@@ -445,7 +520,10 @@ class SentinelDB(Database):
                 SELECT
                     *
                 FROM SentinelSuit
-                WHERE trigger_id ISNULL AND sentinel_name = :sentinel_name
+                WHERE
+                    trigger_id ISNULL AND
+                    sentinel_name = :sentinel_name AND
+                    enabled = 1
             ),
             c_probs AS (
                 SELECT
@@ -463,10 +541,12 @@ class SentinelDB(Database):
                 response_id,
                 enabled
             FROM null_trigger_suits AS suits
-            INNER JOIN c_probs ON c_probs.name = suits.name
+            INNER JOIN c_probs ON
+                c_probs.name = suits.name
             WHERE c_prob >= (abs(random() % 1000) / 1000.0)
             LIMIT 1
             """
+
 
 
 
@@ -760,22 +840,23 @@ class SentinelDB(Database):
         MESSAGE = "The entered regex is not valid"
 
 
-    async def init(self, drop: bool=False):
+    async def old_init(self, drop: bool=False):
         if drop: await self.dropTables()
         await self.createTables()
         await self.createTriggers()
 
-    async def createTables(self):
+    async def old_createTables(self):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(SentinelDB.SentinelSettings.Queries.CREATE_TABLE)
             await db.execute(SentinelDB.Sentinel.Queries.CREATE_TABLE)
             await db.execute(SentinelDB.SentinelSuit.Queries.CREATE_TABLE)
             await db.execute(SentinelDB.SentinelTrigger.Queries.CREATE_TABLE)
             await db.execute(SentinelDB.SentinelResponse.Queries.CREATE_TABLE)
+            await db.execute(SentinelDB.DisabledSentinelChannels.Queries.CREATE_TABLE)
             # await db.execute(SentinelDB.SentinelTriggerUses.QUERY_CREATE_TABLE)
             await db.commit()
 
-    async def createTriggers(self):
+    async def old_createTriggers(self):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(SentinelDB.Sentinel.Queries.TRIGGER_BEFORE_INSERT_SETTINGS)
             await db.execute(SentinelDB.SentinelSettings.Queries.TRIGGER_BEFORE_INSERT_GUILD)
@@ -787,6 +868,7 @@ class SentinelDB(Database):
             await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_UPDATE)
             await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_UPDATE_RESPONSE)
             await db.execute(SentinelDB.SentinelSuit.Queries.TRIGGER_AFTER_UPDATE_TRIGGER)
+            await db.execute(SentinelDB.DisabledSentinelChannels.Queries.TRIGGER_BEFORE_INSERT_GUILD)
             # await db.execute(SentinelDB.SentinelTrigger.Queries)
             # Create the new triggers for the new suit system
             # await db.execute(SentinelDB.SentinelTrigger.Queries.TRIGGER_BEFORE_INSERT_SENTINEL)
@@ -795,13 +877,15 @@ class SentinelDB(Database):
             # await db.execute(SentinelDB.SentinelResponse.Queries.TRIGGER_BEFORE_INSERT_SENTINEL)
             await db.commit()
 
-    async def dropTables(self):
+    async def old_dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
+
             await db.execute(SentinelDB.Sentinel.Queries.DROP_TABLE)
             await db.execute(SentinelDB.SentinelSettings.Queries.DROP_TABLE)
             await db.execute(SentinelDB.SentinelTrigger.Queries.DROP_TABLE)
             await db.execute(SentinelDB.SentinelResponse.Queries.DROP_TABLE)
             await db.execute(SentinelDB.SentinelSuit.Queries.DROP_TABLE)
+            await db.execute(SentinelDB.DisabledSentinelChannels.Queries.DROP_TABLE)
             # await db.execute(SentinelDB.SentinelTriggerUses.QUERY_DROP_TABLE)
             await db.commit()
 
@@ -811,7 +895,7 @@ class SentinelDB(Database):
             await db.commit()
 
     async def fetchSentinelSettings(self, guild_id: int):
-        async with aiosqlite(self.file_path) as db:
+        async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = SentinelDB.SentinelSettings.rowFactory
             result = await db.execute_fetchall(SentinelDB.SentinelSettings.Queries.SELECT, (guild_id,))
             return result[0][0] if result else None
@@ -976,6 +1060,28 @@ class SentinelDB(Database):
             db.row_factory = SentinelDB.SentinelResponse.rowFactory
             async with db.execute(SentinelDB.SentinelResponse.Queries.SELECT_RESPONSE, (response_id,)) as cur:
                 return await cur.fetchone()
+
+    async def toggleSentinel(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.Sentinel.Queries.TOGGLE)
+            await db.commit()
+
+    async def toggleSuit(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.SentinelSuit.Queries.TOGGLE)
+            await db.commit()
+
+    async def toggleChannel(self, guild_id: int, channel_id: int):
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = lambda row: row[0]
+            params = {"guild_id": guild_id, "channel_id": channel_id}
+            cur = await db.execute(SentinelDB.DisabledSentinelChannels.Queries.SELECT_EXISTS, params)
+            disabled = bool(await cur.fetchone())
+            if disabled:
+                await db.execute(SentinelDB.DisabledSentinelChannels.Queries.DELETE, params)
+            else:
+                await db.execute(SentinelDB.DisabledSentinelChannels.Queries.INSERT, params)
+            await db.commit()
 
     async def getTriggerIds(self, message_content: str):
         async with aiosqlite.connect(self.file_path) as db:
@@ -1172,7 +1278,7 @@ class Sentinels(GroupCog, name="s"):
 
     async def cog_load(self) -> None:
         # await self.database.init(drop=self.config.drop_tables)
-        await self.database.init(drop=False)
+        await self.database.init(drop=True)
         await self.migrateData()
         # pass
 
@@ -1186,8 +1292,9 @@ class Sentinels(GroupCog, name="s"):
     remove_group = Group(name="remove", description="commands for removing sentinel components")
     edit_group = Group(name="edit", description="commands for editing sentinel components")
     view_group = Group(name="view", description="commands for viewing sentinel information")
+    toggle_group = Group(name="toggle", description="commands for toggling sentinels")
 
-    Guild_Transform = Transform[Database.Guild, GuildTransformer]
+    Guild_Transform = Transform[InfoDB.Guild, GuildTransformer]
     Sentinel_Transform = Transform[SentinelDB.Sentinel, SentinelTransformer]
     SuitNullTrigger_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="trigger_id")]
     SuitNullResponse_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="response_id")]
@@ -1226,12 +1333,6 @@ class Sentinels(GroupCog, name="s"):
             # phrase: check if object in content
             # word: check if object in content split by spaces
             # regex: just match the regex to the content
-
-
-
-
-
-
             pass
         elif event.type == "reaction":
             # take the reaction string and find a suit with that trigger
@@ -1367,7 +1468,7 @@ class Sentinels(GroupCog, name="s"):
     def validate_regex(self, regex: str) -> bool:
         pass
 
-
+    # App Command
     @app_commands.rename(trigger_type="type", trigger_object="object")
     @add_group.command(name="trigger", description="add a sentinel trigger")
     async def add_trigger(self, interaction: Interaction, scope: SentinelScope,
@@ -1480,6 +1581,27 @@ class Sentinels(GroupCog, name="s"):
         suit.weight = weight
         await self.database.updateSuit(suit)
         await respond(interaction, f"Edited a response on suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
+
+
+    @toggle_group.command(name="suit", description="toggle an individual suit")
+    async def toggle_suit(self, interaction: Interaction, scope: SentinelScope,
+                          sentinel: Sentinel_Transform, suit: Suit_Transform):
+
+        pass
+
+    @toggle_group.command(name="sentinel", description="toggle an entire sentinel")
+    async def toggle_sentinel(self, interaction: Interaction, scope: SentinelScope,
+                              sentinel: Sentinel_Transform):
+        raise NotImplementedError
+
+    async def channel_autocomplete(self, interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
+        return [Choice(name=channel.name, value=channel.id) for channel in interaction.guild.channels if channel.name in current or int(current) == channel.id]
+
+    @toggle_group.command(name="channel", description="toggle all sentinels for a channel")
+    @app_commands.rename(channel_id="channel")
+    @autocomplete(channel_id=channel_autocomplete)
+    async def toggle_channel(self, interaction: Interaction, channel_id: int):
+        raise NotImplementedError
 
     @view_group.command(name="all", description="view all sentinels on a guild")
     async def view_all(self, interaction: Interaction):
