@@ -364,7 +364,7 @@ class Tags(GroupCog, group_name="t"):
 
     async def cog_load(self) -> None:
         await self.database.init(drop=self.bot.config.drop_tables)
-        # await self.migrateTagData()
+        if self.bot.config.migrate_data: await self.migrateTagData()
 
     async def interaction_check(self, interaction: discord.Interaction[ClientT], /) -> bool:
         # await self.bot.database.upsertGuild(interaction.guild)

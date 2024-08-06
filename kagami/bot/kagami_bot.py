@@ -48,7 +48,6 @@ class Kagami(commands.Bot):
         self.raw_data = {}
         self.data: BotData = BotData()
 
-        self.load_data()
         self.newLoadData()
         bot_var.value = self
         self.database = database.InfoDB(self.config.db_path)
@@ -58,17 +57,8 @@ class Kagami(commands.Bot):
         self._old_tree_error = tree.on_error
         tree.on_error = errors.on_app_command_error
 
-    async def connectWavelinkNodes(self):
-        spotify_client = spotify.SpotifyClient(**self.config.spotify)
-        node = wavelink.Node(**self.config.lavalink)
-        await wavelink.NodePool.connect(
-            client=self,
-            nodes=[node],
-            spotify=spotify_client
-        )
 
     async def setup_hook(self):
-        await self.connectWavelinkNodes()
         await self.database.init(drop=self.config.drop_tables)
         # guilds = [self.database.Guild.fromDiscord(guild) for guild in list(self.guilds)]
         # await self.database.upsertGuilds(guilds)
@@ -170,8 +160,6 @@ class Kagami(commands.Bot):
         else:
             return None
 
-
-
     def getServerData(self, server_id: int | str) ->ServerData:
         server_id = str(server_id)
         data = self.data.servers.get(server_id, ServerData())
@@ -249,31 +237,6 @@ class Kagami(commands.Bot):
     #     super()
 
 
-
-    def save_data(self):
-        data_path = self.config.local_data_path
-        self.update_data()
-        with open(f"{data_path}/old_data.json", "w") as f:
-            json.dump(self.old_data, f, indent=4)
-
-    def load_data(self):
-        data_path = self.config.local_data_path
-        try:
-            with open(f"{data_path}/old_data.json", "r") as f:
-                self.old_data = json.load(f)
-        except FileNotFoundError:
-            print(f"Missing old_data.json file at {data_path}")
-            print("path=", os.path.dirname(sys.argv[0]))
-            raise FileNotFoundError
-
-        self.create_server_list()
-
-        if "globals" in self.old_data.keys():
-            self.global_data: dict[str, dict] = self.old_data["globals"]
-        else:
-            self.global_data = {}
-
-
     async def close(self):
         # for node_id, node in wavelink.NodePool.nodes.values():
         #     await node.disconnect()
@@ -283,7 +246,6 @@ class Kagami(commands.Bot):
             await cog_obj.cog_unload()
 
         self.update_data()
-        self.save_data()
         self.newSaveData()
         print("ran atexit\n")
         await super().close()

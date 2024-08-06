@@ -13,6 +13,7 @@ from discord.ext.commands import GroupCog, Cog
 from discord.ui import Modal, TextInput
 from discord.utils import MISSING
 from wavelink import TrackEventPayload
+from wavelink.ext import spotify
 from wavelink.exceptions import WavelinkException, InvalidLavalinkResponse
 
 from bot.ext.ui.custom_view import MessageInfo
@@ -649,9 +650,19 @@ class Music(GroupCog,
     music_group = app_commands
     # music_group = Group(name="m", description="commands relating to the music player")
 
+    async def connectWavelinkNodes(self):
+        spotify_client = spotify.SpotifyClient(**self.bot.config.spotify)
+        node = wavelink.Node(**self.bot.config.lavalink)
+        await wavelink.NodePool.connect(
+            client=self.bot,
+            nodes=[node], spotify=spotify_client
+        )
+        print(f"Connected to node: {node.id}")
+
     async def cog_load(self) -> None:
+        await self.connectWavelinkNodes()
         await self.database.init(drop=self.bot.config.drop_tables)
-        # await self.migrateMusicData()
+        if self.bot.config.migrate_data: await self.migrateMusicData()
 
     @commands.is_owner()
     @commands.command(name="migrate_music")

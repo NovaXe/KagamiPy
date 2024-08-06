@@ -1061,7 +1061,7 @@ class Sentinels(GroupCog, name="s"):
     async def cog_load(self) -> None:
         await self.database.init(drop=self.config.drop_tables)
         # await self.database.init(drop=True)
-        # await self.migrateData()
+        if self.bot.config.migrate_data: await self.migrateData()
         # pass
 
     async def cog_unload(self) -> None:
