@@ -274,7 +274,7 @@ class SentinelDB(Database):
         guild_id: int
         sentinel_name: str
         name: str
-        weight: int = 10
+        weight: int = 100
         trigger_id: int = None
         response_id: int = None
         enabled: bool = True
@@ -449,34 +449,34 @@ class SentinelDB(Database):
             GET_SUITS_FROM_MESSAGE = f"""
             WITH triggered_suits AS (
                 SELECT
-                    guild_id,
-                    sentinel_name,
-                    name,
+                    SentinelSuit.guild_id,
+                    SentinelSuit.sentinel_name,
+                    SentinelSuit.name,
                     weight,
                     trigger_id,
                     response_id,
-                    enabled
+                    SentinelSuit.enabled,
                     Sentinel.enabled AS sentinel_enabled
                 FROM SentinelSuit
                 LEFT JOIN SentinelTrigger ON 
                     SentinelTrigger.id = SentinelSuit.trigger_id 
                 LEFT JOIN Sentinel ON 
-                    Sentinel.name = SentinelSuit.name
+                    Sentinel.name = SentinelSuit.sentinel_name
                 WHERE 
                     (
                         (SentinelTrigger.type = 1 AND ' '||:message_content||' ' REGEXP '{__space_regex}'||SentinelTrigger.object||'{__space_regex}') OR  
                         (SentinelTrigger.type = 2 AND instr(:message_content, SentinelTrigger.object)) OR  
                         (SentinelTrigger.type = 3 AND :message_content REGEXP SentinelTrigger.object)
                     ) AND
-                    guild_id = :guild_id AND 
-                    enabled = 1 AND
+                    SentinelSuit.guild_id = :guild_id AND 
+                    SentinelSuit.enabled = 1 AND
                     sentinel_enabled = 1
                 ORDER BY sentinel_name DESC
             ),
             sentinel_suit_info AS (
                 SELECT
                     sentinel_name,
-                    abs(random() % 1000) / 1000.0 AS r_val,
+                    (abs(random()) / 9223372036854775807.0) AS r_val,
                     SUM(weight) AS t_weight
                 FROM triggered_suits
                 GROUP BY sentinel_name
@@ -494,7 +494,7 @@ class SentinelDB(Database):
             ),
             selected_suits AS (
                 SELECT 
-                    guild_id,
+                    suits.guild_id,
                     suits.sentinel_name,
                     suits.name,
                     weight,
@@ -542,8 +542,72 @@ class SentinelDB(Database):
             FROM null_trigger_suits AS suits
             INNER JOIN c_probs ON
                 c_probs.name = suits.name
-            WHERE c_prob >= (abs(random() % 1000) / 1000.0)
+            WHERE c_prob >= (abs(random()) / 9223372036854775807.0)
             LIMIT 1
+            """
+            GET_SUITS_FROM_REACTION = f"""
+            WITH triggered_suits AS (
+                SELECT
+                    SentinelSuit.guild_id,
+                    SentinelSuit.sentinel_name,
+                    SentinelSuit.name,
+                    weight,
+                    trigger_id,
+                    response_id,
+                    SentinelSuit.enabled,
+                    Sentinel.enabled AS sentinel_enabled
+                FROM SentinelSuit
+                LEFT JOIN SentinelTrigger ON 
+                    SentinelTrigger.id = SentinelSuit.trigger_id 
+                LEFT JOIN Sentinel ON 
+                    Sentinel.name = SentinelSuit.sentinel_name
+                WHERE 
+                    SentinelTrigger.type = 4 AND SentinelTrigger.object = :reaction_str AND
+                    SentinelSuit.guild_id = :guild_id AND 
+                    SentinelSuit.enabled = 1 AND
+                    sentinel_enabled = 1
+                ORDER BY sentinel_name DESC
+            ),
+            sentinel_suit_info AS (
+                SELECT
+                    sentinel_name,
+                    (abs(random()) / 9223372036854775807.0) AS r_val,
+                    SUM(weight) AS t_weight
+                FROM triggered_suits
+                GROUP BY sentinel_name
+            ),
+            cumulative_probabilities AS (
+                SELECT
+                    suits.sentinel_name,
+                    name,
+                    (weight / (t_weight * 1.0)) AS prob,
+                    sum((weight / (t_weight * 1.0))) OVER (PARTITION BY suits.sentinel_name ORDER BY name) AS c_prob
+                FROM triggered_suits AS suits
+                LEFT JOIN sentinel_suit_info AS sentinel_info ON 
+                    sentinel_info.sentinel_name = suits.sentinel_name
+                ORDER BY suits.sentinel_name
+            ),
+            selected_suits AS (
+                SELECT 
+                    suits.guild_id,
+                    suits.sentinel_name,
+                    suits.name,
+                    weight,
+                    trigger_id,
+                    response_id,
+                    enabled
+                FROM triggered_suits AS suits
+                LEFT JOIN sentinel_suit_info AS sentinel_info ON 
+                    sentinel_info.sentinel_name = suits.sentinel_name
+                LEFT JOIN cumulative_probabilities AS c_probs ON 
+                    c_probs.sentinel_name = suits.sentinel_name AND
+                    c_probs.name = suits.name
+                WHERE c_prob >= r_val
+                GROUP BY suits.sentinel_name
+            )
+            SELECT
+                *
+            FROM selected_suits;
             """
 
     # These dataclasses are from past attempts at a tracking implementation
@@ -823,6 +887,14 @@ class SentinelDB(Database):
                 suit: SentinelDB.SentinelSuit
                 return await cur.fetchall()
 
+    async def getMatchingSuitsFromReaction(self, guild_id: int, reaction_str: str) -> list[SentinelSuit]:
+        async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = SentinelDB.SentinelSuit.rowFactory
+            params = {"guild_id": guild_id, "reaction_str": reaction_str}
+            async with db.execute(SentinelDB.SentinelSuit.Queries.GET_SUITS_FROM_REACTION, params) as cur:
+                suit: SentinelDB.SentinelSuit
+                return await cur.fetchall()
+
     async def getWeightedRandomResponseID(self, guild_id: int, sentinel_name: str) -> int:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = SentinelDB.SentinelSuit.rowFactory
@@ -908,13 +980,6 @@ class SentinelDB(Database):
                 ids = await cur.fetchall()
                 return ids
 
-    async def getResponsesForMessage(self, message_content: str):
-        async with aiosqlite.connect(self.file_path) as db:
-            pass
-            # async with db.execute()
-    # async def getResponseID(self, guild_id: int, trigger_id: int):
-    #
-
     async def getSuits(self, guild_id: int, message_content: str):
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = SentinelDB.SentinelSuit.rowFactory
@@ -923,8 +988,6 @@ class SentinelDB(Database):
             WHERE guild_id = :guild_id 
             AND trigger_id = (SELECT id FROM SentinelTrigger WHERE object = :trigger_object)
             """)
-
-
             pass
 
 
@@ -1133,12 +1196,24 @@ class Sentinels(GroupCog, name="s"):
 
         pass
 
-
     async def getResponsesForMessage(self, guild_id: int, content: str) -> list[SentinelDB.SentinelResponse]:
-        triggered_suits: list[SentinelDB.SentinelSuit] = await self.database.getMatchingSuitsFromMessage(guild_id, content)
+        triggered_suits: list[SentinelDB.SentinelSuit]
+        triggered_suits = await self.database.getMatchingSuitsFromMessage(guild_id, content)
         responses = []
         for suit in triggered_suits:
             response_id = suit.response_id or await self.database.getWeightedRandomResponseID(guild_id, suit.sentinel_name)
+            response: SentinelDB.SentinelResponse = await self.database.fetchResponse(response_id)
+            responses += [response]
+        return responses
+
+    async def getResponsesForReaction(self, guild_id: int, reaction: discord.Reaction):
+        reaction_str = str(reaction)
+        triggered_suits: list[SentinelDB.SentinelSuit]
+        triggered_suits = await self.database.getMatchingSuitsFromReaction(guild_id, reaction_str)
+        responses = []
+        for suit in triggered_suits:
+            response_id = suit.response_id or await self.database.getWeightedRandomResponseID(guild_id,
+                                                                                              suit.sentinel_name)
             response: SentinelDB.SentinelResponse = await self.database.fetchResponse(response_id)
             responses += [response]
         return responses
@@ -1156,6 +1231,8 @@ class Sentinels(GroupCog, name="s"):
                     await original_message.add_reaction(partial_emoji)
 
 
+
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.id == self.bot.user.id:
@@ -1167,17 +1244,25 @@ class Sentinels(GroupCog, name="s"):
         await self.handleResponses(message, global_responses)
 
 
-        # await self.onSentinelEvent(event=self.SentinelEvent(
-        #     type="message",
-        #     content=message.content,
-        #     user=message.author,
-        #     guild=message.guild,
-        #     channel=message.channel
-        # ))
+    # @commands.Cog.listener()
+    # async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User | discord.Member):
+    #     if user.id == self.bot.user.id:
+    #         return
+    #     responses = await self.getResponsesForReaction(reaction.message.guild.id, reaction)
+    #     global_responses = await self.getResponsesForReaction(0, reaction)
+    #     await self.handleResponses(reaction.message, responses)
+    #     await self.handleResponses(reaction.message, global_responses)
 
     @commands.Cog.listener()
-    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User | discord.Member):
-        pass
+    async def on_raw_reaction_add(self, event: discord.RawReactionActionEvent):
+        if event.user_id == self.bot.user.id:
+            return
+        responses = await self.getResponsesForReaction(guild_id=event.guild_id, reaction=event.emoji)
+        global_responses = await self.getResponsesForReaction(guild_id=0, reaction=event.emoji)
+        channel = await self.bot.fetch_channel(event.channel_id)
+        message = await channel.fetch_message(event.message_id)
+        await self.handleResponses(message, responses)
+        await self.handleResponses(message, global_responses)
 
     @commands.is_owner()
     @commands.command(name="migrate_sentinels")
@@ -1258,7 +1343,7 @@ class Sentinels(GroupCog, name="s"):
     async def add_trigger(self, interaction: Interaction, scope: SentinelScope,
                           sentinel: Sentinel_Transform, suit: SuitNullTrigger_Transform,
                           trigger_type: SentinelDB.SentinelTrigger.TriggerType, trigger_object: str,
-                          weight: int=10):
+                          weight: int=100):
         await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         if trigger_type == 3:
@@ -1289,7 +1374,7 @@ class Sentinels(GroupCog, name="s"):
                            sentinel: Sentinel_Transform, suit: SuitNullResponse_Transform,
                            response_type: SentinelDB.SentinelResponse.ResponseType,
                            content: str="", reactions: str="",
-                           weight: int=10):
+                           weight: int=100):
         await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         # guild_id = scope * interaction.guild_id
@@ -1341,8 +1426,8 @@ class Sentinels(GroupCog, name="s"):
     @edit_group.command(name="trigger", description="edit a suit's trigger")
     async def edit_trigger(self, interaction: Interaction, scope: SentinelScope,
                            sentinel: Sentinel_Transform, suit: Suit_Transform,
-                           trigger_type: SentinelDB.SentinelTrigger.TriggerType, trigger_object: str,
-                           weight: int=10):
+                           trigger_type: SentinelDB.SentinelTrigger.TriggerType=None, trigger_object: str=None,
+                           weight: int=None):
         await respond(interaction)
         if sentinel is None: raise SentinelDB.SentinelDoesNotExist
         if suit is None: raise SentinelDB.SuitDoesNotExist
@@ -1351,26 +1436,34 @@ class Sentinels(GroupCog, name="s"):
                 re.compile(trigger_object)
             except re.error:
                 raise SentinelDB.InvalidRegex
-        trigger = SentinelDB.SentinelTrigger(type=trigger_type, object=trigger_object)
-        trigger_id = await self.database.insertTrigger(trigger)
-        suit.trigger_id = trigger_id
-        suit.weight = weight
+
+        if trigger_type and trigger_object:
+            trigger = SentinelDB.SentinelTrigger(type=trigger_type, object=trigger_object)
+            trigger_id = await self.database.insertTrigger(trigger)
+            suit.trigger_id = trigger_id
+        if weight is not None:
+            suit.weight = weight
         await self.database.updateSuit(suit)
         await respond(interaction, f"Added edited a trigger on suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
 
     @edit_group.command(name="response", description="edit a suit's response")
     async def edit_response(self, interaction: Interaction, scope: SentinelScope,
                             sentinel: Sentinel_Transform, suit: Suit_Transform,
-                            response_type: SentinelDB.SentinelResponse.ResponseType,
-                            content: str="", reactions: str="",
-                            weight: int=10):
+                            response_type: SentinelDB.SentinelResponse.ResponseType=None,
+                            content: str=None, reactions: str=None,
+                            weight: int=None):
         await respond(interaction)
         if sentinel is None: raise SentinelDB.SentinelDoesNotExist
         if suit is None: raise SentinelDB.SuitDoesNotExist
-        response = SentinelDB.SentinelResponse(type=response_type, content=content, reactions=reactions)
-        response_id = await self.database.insertResponse(response)
-        suit.response_id = response_id
-        suit.weight = weight
+
+        if response_type and (content or reactions):
+            reactions = reactions or ""
+            content = content or ""
+            response = SentinelDB.SentinelResponse(type=response_type, content=content, reactions=reactions)
+            response_id = await self.database.insertResponse(response)
+            suit.response_id = response_id
+        if weight is not None:
+            suit.weight = weight
         await self.database.updateSuit(suit)
         await respond(interaction, f"Edited a response on suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
 

@@ -36,7 +36,7 @@ class Kagami(commands.Bot):
         super().__init__(command_prefix=self.config.prefix,
                          intents=intents,
                          owner_id=self.config.owner_id)
-        self.activity=discord.CustomActivity("Testing new things")
+        self.activity = discord.CustomActivity("Testing new things")
         self.changeCmdError()
 
         self.old_data = {}
