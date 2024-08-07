@@ -6,10 +6,7 @@ Probably has a lot of bugs that make it undesirable for large servers but has so
 - Lavalink Version [3.7.11](https://github.com/lavalink-devs/Lavalink/releases/tag/3.7.11)
   - The include [application config](./lavalink/application.yml) should suffice
 ### Building Docker Images
-AMD64:
-`docker build --build-arg platform=linux/amd64 -f Dockerfile -t kagami_bot:amd64 .`
-
-ARM64: `docker build --build-arg platform=linux/arm64 -f Dockerfile -t kagami_bot:arm64 .`
+`docker build -f Dockerfile -t kagami_bot:amd64 .`
 
 ### Docker Compose
 

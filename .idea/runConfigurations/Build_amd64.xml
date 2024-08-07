@@ -13,6 +13,7 @@
         </option>
         <option name="buildOnly" value="true" />
         <option name="containerName" value="" />
+        <option name="showCommandPreview" value="true" />
         <option name="sourceFilePath" value="kagami/Dockerfile" />
       </settings>
     </deployment>
