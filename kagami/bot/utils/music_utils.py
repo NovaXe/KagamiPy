@@ -230,6 +230,8 @@ upgrade old message scroller and player controls to utilize new dynamic shit
 def addedToQueueMessage(track_count: int, duration: int):
     return f"{track_count} tracks with a duration of {secondsToTime(duration // 1000)} were added to the queue"
 
+
+
 async def respondWithTracks(bot: Kagami, interaction: Interaction,
                             tracks: list[Track] | list[WavelinkTrack],
                             info_text: str=None, send_followup=False, timeout=60):

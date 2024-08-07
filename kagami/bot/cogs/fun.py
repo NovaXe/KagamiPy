@@ -1,3 +1,4 @@
+import enum
 from typing import (
     List,
     Literal
@@ -12,8 +13,11 @@ from io import BytesIO
 
 import discord
 import discord.utils
+from discord.app_commands import Choice
 from discord.ext import commands
 from discord import app_commands, Interaction
+
+from bot.ext import errors
 from bot.utils.ui import MessageReply
 from bot.utils.bot_data import Server
 from bot.utils.interactions import respond
@@ -56,11 +60,20 @@ class Fun(commands.Cog):
         await channel.send(string)
         await respond(interaction, content="echoed", ephemeral=True, delete_after=1)
 
-    @app_commands.command(name="status", description="sets the custom status of the bot")
-    async def set_status(self, interaction: discord.Interaction, status: str = None):
+
+    # activities = [discord.Game, discord.Streaming, discord.CustomActivity]
+    class ActivityChoices(enum.Enum):
+        Game = discord.Game
+        Custom = discord.CustomActivity
+
+    @app_commands.command(name="setstatus", description="sets the custom status of the bot")
+    async def set_status(self, interaction: discord.Interaction,
+                         status: str=None, activity_type: ActivityChoices=ActivityChoices.Custom):
         await respond(interaction)
-        await self.bot.change_presence(activity=discord.Game(name=status))
-        await respond(interaction, "status changed", ephemeral=True, delete_after=1)
+        new_activity = activity_type.value(name=status)
+        await self.bot.change_presence(activity=new_activity)
+        await respond(interaction, f"Changed status to: `{new_activity}`", ephemeral=True, delete_after=3)
+
 
     @app_commands.command(name="color", description="lets you select any color from the server")
     async def color_role(self, interaction: discord.Interaction, color: str):

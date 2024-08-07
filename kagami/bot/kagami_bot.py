@@ -2,9 +2,12 @@ import json
 import logging
 import os
 import sys
+import aiosqlite
 import wavelink
 from discord.utils import MISSING
 from wavelink.ext import spotify
+from bot.utils import database
+
 
 import discord
 import discord.utils
@@ -15,7 +18,7 @@ from typing import (
 )
 
 from bot.ext import errors
-from bot.utils.bot_data import Server, BotData, Tag, Sentinel, Track, Playlist, ServerData, server_data, \
+from bot.utils.bot_data import Server, BotData, OldTag, OldSentinel, Track, Playlist, ServerData, server_data, \
     BotConfiguration
 from bot.utils.music_helpers import OldPlaylist
 from bot.utils.context_vars import CVar
@@ -33,7 +36,7 @@ class Kagami(commands.Bot):
         super().__init__(command_prefix=self.config.prefix,
                          intents=intents,
                          owner_id=self.config.owner_id)
-
+        self.activity = discord.CustomActivity("Testing new things")
         self.changeCmdError()
 
         self.old_data = {}
@@ -45,16 +48,36 @@ class Kagami(commands.Bot):
         self.raw_data = {}
         self.data: BotData = BotData()
 
-        self.load_data()
         self.newLoadData()
         bot_var.value = self
-
+        self.database = database.InfoDB(self.config.db_path)
 
     def changeCmdError(self):
         tree = self.tree
         self._old_tree_error = tree.on_error
         tree.on_error = errors.on_app_command_error
 
+
+    async def setup_hook(self):
+        await self.database.init(drop=self.config.drop_tables)
+        # guilds = [self.database.Guild.fromDiscord(guild) for guild in list(self.guilds)]
+        # await self.database.upsertGuilds(guilds)
+
+        for file in os.listdir("bot/cogs"):
+            if file.endswith(".py"):
+                name = file[:-3]
+                path = f"bot.cogs.{name}"
+                await self.load_extension(path)
+
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        await self.database.upsertGuild(self.database.Guild.fromDiscord(guild))
+
+    async def on_guild_leave(self, guild: discord.Guild) -> None:
+        await self.database.deleteGuild(guild.id)
+
+    async def on_guild_update(self, before: discord.Guild, after: discord.Guild):
+        if before.name != after.name:
+            await self.database.upsertGuild(self.database.Guild.fromDiscord(after))
 
     # DATA_PATH = "bot/data/old_data.json"
     def newLoadData(self):
@@ -84,8 +107,8 @@ class Kagami(commands.Bot):
         g_tags = _globals['tags']
         g_sentinels = _globals['sentinels']
 
-        self.data.globals.tags = {name: Tag(**data) for name, data in g_tags.items()}
-        self.data.globals.sentinels = {name: Sentinel(**data) for name, data in g_sentinels.items()}
+        self.data.globals.tags = {name: OldTag(**data) for name, data in g_tags.items()}
+        self.data.globals.sentinels = {name: OldSentinel(**data) for name, data in g_sentinels.items()}
         pass # eof
 
     def loadServers(self):
@@ -116,8 +139,8 @@ class Kagami(commands.Bot):
                 })
 
             soundboard = {s_name: s_id for s_name, s_id in s_soundboard.items()}
-            tags = {t_name: Tag(**t_data) for t_name, t_data in s_tags.items()}
-            sentinels = {name: Sentinel(**data) for name, data in s_sentinels.items()}
+            tags = {t_name: OldTag(**t_data) for t_name, t_data in s_tags.items()}
+            sentinels = {name: OldSentinel(**data) for name, data in s_sentinels.items()}
 
             self.data.servers.update({
                 s_id: ServerData(
@@ -136,8 +159,6 @@ class Kagami(commands.Bot):
             return channel.get_partial_message(message_id)
         else:
             return None
-
-
 
     def getServerData(self, server_id: int | str) ->ServerData:
         server_id = str(server_id)
@@ -205,7 +226,6 @@ class Kagami(commands.Bot):
 
         self.old_data = data
 
-
     async def start(self, token, reconnect=True):
         await super().start(token, reconnect=reconnect)
 
@@ -217,31 +237,6 @@ class Kagami(commands.Bot):
     #     super()
 
 
-
-    def save_data(self):
-        data_path = self.config.local_data_path
-        self.update_data()
-        with open(f"{data_path}/old_data.json", "w") as f:
-            json.dump(self.old_data, f, indent=4)
-
-    def load_data(self):
-        data_path = self.config.local_data_path
-        try:
-            with open(f"{data_path}/old_data.json", "r") as f:
-                self.old_data = json.load(f)
-        except FileNotFoundError:
-            print(f"Missing old_data.json file at {data_path}")
-            print("path=", os.path.dirname(sys.argv[0]))
-            raise FileNotFoundError
-
-        self.create_server_list()
-
-        if "globals" in self.old_data.keys():
-            self.global_data: dict[str, dict] = self.old_data["globals"]
-        else:
-            self.global_data = {}
-
-
     async def close(self):
         # for node_id, node in wavelink.NodePool.nodes.values():
         #     await node.disconnect()
@@ -251,31 +246,12 @@ class Kagami(commands.Bot):
             await cog_obj.cog_unload()
 
         self.update_data()
-        self.save_data()
         self.newSaveData()
         print("ran atexit\n")
         await super().close()
 
     # @tasks.loop(seconds=10)
-    async def connectWavelinkNodes(self):
-        spotify_client = spotify.SpotifyClient(**self.config.spotify)
-        node = wavelink.Node(**self.config.lavalink)
 
-        await wavelink.NodePool.connect(
-            client=self,
-            nodes=[node],
-            spotify=spotify_client
-        )
-
-
-    async def setup_hook(self):
-        for file in os.listdir("bot/cogs"):
-            if file.endswith(".py"):
-                name = file[:-3]
-                path = f"bot.cogs.{name}"
-                await self.load_extension(path)
-
-        await self.connectWavelinkNodes()
 
     LOG_CHANNEL = 825529492982333461
     # TODO change the config system to utilize a dataclass
@@ -298,7 +274,10 @@ class Kagami(commands.Bot):
     #     # current_interaction.value = interaction
     #     server_data.value = self.getServerData(interaction.guild_id)
 
-
+    async def on_interaction(self, interaction: Interaction):
+        pass
+        # guild = self.database.Guild.fromDiscord(interaction.guild)
+        # await self.database.upsertGuild(guild)
 
 
     async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:

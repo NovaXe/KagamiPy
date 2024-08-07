@@ -7,3 +7,10 @@
 /lavalink/compose.yaml
 /.env
 /compose.yaml
+__pycache__
+/.venv
+/lavalink/logs/*
+/kagami/bot/cogs/database.py
+/lavalink/Lavalink*.jar
+/lavalink/plugins
+/temp/*

@@ -52,7 +52,6 @@ class Admin(commands.Cog):
         latency = int(self.bot.latency * 1000)
         await ctx.send(f"Pong! {latency}ms")
 
-
     @commands.command(name="reload_all", description="reloads all cogs")
     @commands.is_owner()
     async def reload_all_cogs(self, ctx):
@@ -69,7 +68,7 @@ class Admin(commands.Cog):
             if file.endswith(".py"):
                 name = file[:-3]
                 if name.lower() == cog_name.lower():
-                    await self.bot.reload_extension(f"cogs.{name}")
+                    await self.bot.reload_extension(f"bot.cogs.{name}")
                     break
         else:
             await ctx.send(f"No cog with that name could be found")
@@ -125,3 +124,4 @@ class Admin(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Admin(bot))
+
