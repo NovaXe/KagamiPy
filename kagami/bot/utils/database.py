@@ -56,6 +56,13 @@ class Database:
             queries += [row_class.Queries.DROP_TABLE]
         return queries
 
+    @classmethod
+    def get_queries(cls, query_name: str):
+        queries = []
+        for row_class in cls.get_nested_row_classes():
+            if query := row_class.Queries.__dict__.get(query_name, False):
+                queries += [query]
+        return queries
 
     @dataclass
     class Row:
@@ -77,6 +84,20 @@ class Database:
                 if isinstance(obj, str) and name.lower().startswith("trigger"):
                     queries += [obj]
             return queries
+
+        @classmethod
+        def has_query(cls, field_name: str):
+            """returns true if a matching query is found"""
+            if not hasattr(cls, "Queries") and isinstance(getattr(cls, "Queries"), type):
+                return False
+            for name, obj in cls.Queries.__dict__.items():
+                if isinstance(obj, str) and name.lower() == field_name.lower():
+                    return True
+
+        @classmethod
+        def get_query(cls, field_name: str):
+            if not hasattr(cls, "Queries") and isinstance(getattr(cls, "Queries"), type):
+                return None
 
         # @classmethod
         # def has_query_class(cls):
@@ -108,13 +129,22 @@ class Database:
                 await db.execute(query)
             await db.commit()
 
+    async def migrate_tables(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            for query in self.get_create_temp_table_queries():
+                await db.execute(query)
+
+
     async def dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
             for query in self.get_drop_table_queries():
                 await db.execute(query)
             await db.commit()
 
-    async def init(self, drop: bool=False):
+    async def init(self, drop: bool=False, migrate: bool=False):
+        if migrate:
+            ...
+
         if drop: await self.dropTables()
         await self.createTables()
         await self.createTriggers()

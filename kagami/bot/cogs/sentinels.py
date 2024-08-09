@@ -84,12 +84,24 @@ class SentinelDB(Database):
             uses INTEGER DEFAULT 0,
             enabled INTEGER DEFAULT 1,
             PRIMARY KEY(guild_id, name),
-            FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
+            FOREIGN KEY(guild_id) REFERENCES SentinelSettings(guild_id) 
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
             )
             """
             DROP_TABLE = """
             DROP TABLE IF EXISTS Sentinel
+            """
+            CREATE_TEMP_TABLE = """
+            CREATE TABLE temp_sentinel AS
+            SELECT * FROM Sentinel
+            """
+            INSERT_FROM_TEMP_TABLE = """
+            INSERT INTO Sentinel(guild_id, name, enabled)
+            SELECT guild_id, name, enabled 
+            FROM temp_sentinel
+            """
+            DROP_TEMP_TABLE = """
+            DROP TABLE IF EXISTS temp_sentinel
             """
             TRIGGER_BEFORE_INSERT_SETTINGS = """
             CREATE TRIGGER IF NOT EXISTS Sentinel_insert_settings_before_insert
@@ -298,9 +310,7 @@ class SentinelDB(Database):
             response_id INTEGER DEFAULT NULL,
             enabled INTEGER NOT NULL DEFAULT 1,
             PRIMARY KEY (guild_id, sentinel_name, name),
-            FOREIGN KEY (guild_id) REFERENCES Guild(id)
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-            FOREIGN KEY (sentinel_name) REFERENCES Sentinel(name)
+            FOREIGN KEY (guild_id, sentinel_name) REFERENCES Sentinel(guild_id, name)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
             FOREIGN KEY (trigger_id) REFERENCES SentinelTrigger(id)
                 ON UPDATE RESTRICT ON DELETE SET NULL,
@@ -761,6 +771,12 @@ class SentinelDB(Database):
     class SuitHasNoResponse(errors.CustomCheck):
         MESSAGE = "The specified suit doesn't have a response"
 
+    class SuitAlreadyExists(errors.CustomCheck):
+        MESSAGE = "There is already a suit with that name"
+
+    class SentinelAlreadyExists(errors.CustomCheck):
+        MESSAGE = "There is already a sentinel with that name"
+
     async def upsertSentinelSettings(self, sentinel_settings: SentinelSettings):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(SentinelDB.SentinelSettings.Queries.UPSERT, sentinel_settings.asdict())
@@ -1073,9 +1089,12 @@ class GuildTransformer(Transformer):
 
 
 class SentinelTransformer(Transformer):
+    def __init__(self, guild_field="scope"):
+        self.guild_field = guild_field
     async def autocomplete(self, interaction: Interaction,
                            current: str, /) -> list[Choice[str]]:
-        guild_id = interaction.namespace.scope
+        # guild_id = interaction.namespace.scope
+        guild_id = interaction.namespace[self.guild_field]
         if guild_id == SentinelScope.LOCAL:
             guild_id = interaction.guild_id
         bot: Kagami = interaction.client
@@ -1096,14 +1115,17 @@ class SentinelTransformer(Transformer):
 
 
 class SentinelSuitTransformer(Transformer):
-    def __init__(self, empty_field: Literal["trigger_id", "response_id"]=None):
+    def __init__(self, empty_field: Literal["trigger_id", "response_id"]=None,
+                 guild_field="scope", sentinel_field="sentinel"):
         self.empty_field = empty_field
+        self.guild_field = guild_field
+        self.sentinel_field = sentinel_field
 
     async def autocomplete(self, interaction: Interaction,
                            current: str, /) -> List[Choice[str]]:
-        guild_id = interaction.namespace.scope
+        guild_id = interaction.namespace[self.guild_field]
         if guild_id == SentinelScope.LOCAL: guild_id = interaction.guild_id
-        sentinel_name = interaction.namespace.sentinel
+        sentinel_name = interaction.namespace[self.sentinel_field]
         bot: Kagami = interaction.client
         db = SentinelDB(bot.config.db_path)
         if self.empty_field == "trigger_id":
@@ -1179,6 +1201,7 @@ class Sentinels(GroupCog, name="s"):
     enable_group = Group(name="enable", description="commands for enabling sentinel components")
     disable_group = Group(name="disable", description="commands for disabling sentinel components")
     copy_group = Group(name="copy", description="commands for copying sentinel components")
+    move_group = Group(name="move", description="commands for moving sentinel components")
 
     Guild_Transform = Transform[InfoDB.Guild, GuildTransformer]
     Sentinel_Transform = Transform[SentinelDB.Sentinel, SentinelTransformer]
@@ -1407,8 +1430,8 @@ class Sentinels(GroupCog, name="s"):
         if sentinel is None: raise SentinelDB.SentinelDoesNotExist
         if suit is None: raise SentinelDB.SuitDoesNotExist
 
-        if interaction.namespace.sentinel:
-            suit.sentinel_name = interaction.namespace.sentinel
+        if interaction.namespace.new_sentinel:
+            suit.sentinel_name = interaction.namespace.new_sentinel
 
         if fields == "trigger":
             if not suit.trigger_id: raise SentinelDB.SuitHasNoTrigger
@@ -1424,6 +1447,34 @@ class Sentinels(GroupCog, name="s"):
         await self.database.insertSuit(suit)
         await respond(interaction, f"Copied the Suit `{interaction.namespace.suit}` "
                                    f"as `{suit.name}` on Sentinel `{suit.sentinel_name}`", delete_after=5)
+
+    @move_group.command(name="suit", description="Move a suit from one sentinel to another")
+    async def move_suit(self, interaction: Interaction, scope: SentinelScope,
+                        sentinel: Sentinel_Transform, suit: Suit_Transform,
+                        new_sentinel: Sentinel_Transform,
+                        new_name: Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(sentinel_field="new_sentinel")]=None):
+        await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
+        if suit is None: raise SentinelDB.SuitDoesNotExist
+        if new_name: raise SentinelDB.SuitAlreadyExists
+        await self.database.deleteSuit(suit)
+        suit.sentinel_name = interaction.namespace.new_sentinel
+        suit.name = interaction.namespace.new_name or suit.name
+        # suit.guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        await self.database.insertSuit(suit)
+
+    @move_group.command(name="sentinel", description="Move a sentinel and all its suits to another scope")
+    async def move_sentinel(self, interaction: Interaction,
+                            scope: SentinelScope, sentinel: Sentinel_Transform,
+                            new_scope: SentinelScope,
+                            new_name: Transform[SentinelDB.Sentinel, SentinelTransformer(guild_field="new_scope")]):
+        await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
+        if new_name: raise SentinelDB.SentinelAlreadyExists()
+        # "There is already a sentinel with that name, either change the name or merge the suits"
+        # add more advanced moving in the future
+
+
 
     # App Command
     @app_commands.rename(trigger_type="type", trigger_object="object")
