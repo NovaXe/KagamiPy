@@ -445,8 +445,8 @@ class SentinelDB(Database):
             DELETE = """
             DELETE FROM SentinelSuit WHERE guild_id = ? AND sentinel_name = ? AND name = ?
             """
-            __space_regex = "[,.;:''\"?!@#$%^&*()~`+=|/\\ ]" # sql escaped space regex
-            GET_SUITS_FROM_MESSAGE = f"""
+            __space_regex = r"\b" # sql escaped space regex
+            GET_SUITS_FROM_MESSAGE = rf"""
             WITH triggered_suits AS (
                 SELECT
                     SentinelSuit.guild_id,
@@ -464,8 +464,8 @@ class SentinelDB(Database):
                     Sentinel.name = SentinelSuit.sentinel_name
                 WHERE 
                     (
-                        (SentinelTrigger.type = 1 AND ' '||:message_content||' ' REGEXP '{__space_regex}'||SentinelTrigger.object||'{__space_regex}') OR  
-                        (SentinelTrigger.type = 2 AND instr(:message_content, SentinelTrigger.object)) OR  
+                        (SentinelTrigger.type = 1 AND :message_content REGEXP '(?i)\b'||SentinelTrigger.object||'\b') OR  
+                        (SentinelTrigger.type = 2 AND :message_content REGEXP '(?i)'||SentinelTrigger.object OR  
                         (SentinelTrigger.type = 3 AND :message_content REGEXP SentinelTrigger.object)
                     ) AND
                     SentinelSuit.guild_id = :guild_id AND 
