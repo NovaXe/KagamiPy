@@ -53,6 +53,17 @@ class SentinelDB(Database):
                 ON CONFLICT(id) DO NOTHING;
             END;
             """
+            _TRIGGER_BEFORE_INSERT_GLOBAL = """
+            CREATE TRIGGER IF NOT EXISTS SentinelSettings_set_global_defaults
+            AFTER INSERT ON SentinelSettings
+            FOR EACH ROW
+            WHEN NEW.guild_id = 0
+            BEGIN
+                UPDATE SentinelSettings
+                SET global_enabled = 1
+                WHERE rowid = NEW.rowid;
+            END;
+            """
             UPSERT = """
             INSERT INTO SentinelSettings(guild_id, local_enabled, global_enabled)
             VALUES(:guild_id, :local_enabled, :global_enabled)
@@ -92,7 +103,7 @@ class SentinelDB(Database):
             DROP TABLE IF EXISTS Sentinel
             """
             CREATE_TEMP_TABLE = """
-            CREATE TABLE temp_sentinel AS
+            CREATE TEMPORARY TABLE temp_sentinel AS
             SELECT * FROM Sentinel
             """
             INSERT_FROM_TEMP_TABLE = """
@@ -155,12 +166,24 @@ class SentinelDB(Database):
                 guild_id INTEGER NOT NULL,
                 channel_id INTEGER NOT NULL,
                 PRIMARY KEY(guild_id, channel_id),
-                FOREIGN KEY(guild_id) REFERENCES GUILD(id)
+                FOREIGN KEY(guild_id) REFERENCES SentinelSettings(guild_id)
                     ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
             )
             """
             DROP_TABLE = """
             DROP TABLE IF EXISTS DisabledSentinelChannels
+            """
+            CREATE_TEMP_TABLE = """
+            CREATE TEMPORARY TABLE temp_disabled_channels AS
+            SELECT * FROM DisabledSentinelChannels
+            """
+            INSERT_FROM_TEMP_TABLE = """
+            INSERT INTO DisabledSentinelChannels(guild_id, channel_id)
+            SELECT guild_id, channel_id
+            FROM temp_disabled_channels
+            """
+            DROP_TEMP_TABLE = """
+            DROP TABLE IF EXISTS temp_disabled_channels
             """
             TRIGGER_BEFORE_INSERT_SETTINGS = """
             CREATE TRIGGER IF NOT EXISTS DisabledSentinelChannels_insert_settings_before_insert
@@ -320,6 +343,18 @@ class SentinelDB(Database):
             """
             DROP_TABLE = """
             DROP TABLE IF EXISTS SentinelSuit
+            """
+            CREATE_TEMP_TABLE = """
+            CREATE TEMPORARY TABLE temp_sentinel_suit AS
+            SELECT * FROM SentinelSuit
+            """
+            INSERT_FROM_TEMP_TABLE = """
+            INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, trigger_id, response_id)
+            SELECT guild_id, sentinel_name, name, weight, trigger_id, response_id
+            FROM temp_sentinel_suit
+            """
+            DROP_TEMP_TABLE = """
+            DROP TABLE IF EXISTS temp_sentinel_suit
             """
             TRIGGER_BEFORE_INSERT_SENTINEL = """
             CREATE TRIGGER IF NOT EXISTS SentinelSuit_insert_sentinel_before_insert
@@ -1182,7 +1217,7 @@ class Sentinels(GroupCog, name="s"):
         self.database = SentinelDB(bot.config.db_path)
 
     async def cog_load(self) -> None:
-        await self.database.init(drop=self.config.drop_tables)
+        await self.database.init(drop=self.config.drop_tables, schema_update=self.config.schema_update)
         # await self.database.init(drop=True)
         if self.bot.config.migrate_data: await self.migrateData()
         # pass

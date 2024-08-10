@@ -1,5 +1,6 @@
 import abc
 import sqlite3
+import typing
 
 import aiosqlite
 from dataclasses import dataclass, asdict, astuple
@@ -63,6 +64,21 @@ class Database:
             if query := row_class.Queries.__dict__.get(query_name, False):
                 queries += [query]
         return queries
+
+    @classmethod
+    def get_batched_queries(cls, query_names: typing.Iterable[str]):
+        batches = []
+        for row_class in cls.get_nested_row_classes():
+            query_results = []
+            for name in query_names:
+                query = row_class.Queries.__dict__.get(name, False)
+                if query:
+                    query_results += [query]
+                else:
+                    break
+            if len(query_results) == len(query_names):
+                batches += [tuple(query_results)]
+        return batches
 
     @dataclass
     class Row:
@@ -129,11 +145,35 @@ class Database:
                 await db.execute(query)
             await db.commit()
 
-    async def migrate_tables(self):
+    async def schemaUpdate(self):
         async with aiosqlite.connect(self.file_path) as db:
-            for query in self.get_create_temp_table_queries():
-                await db.execute(query)
+            try:
+                # await db.execute("PRAGMA foreign_keys = OFF;")
+                query_order = ("CREATE_TEMP_TABLE",
+                               "DROP_TABLE",
+                               "CREATE_TABLE",
+                               "INSERT_FROM_TEMP_TABLE",
+                               "DROP_TEMP_TABLE")
+                batched_queries = self.get_batched_queries(query_order)
+                for batch in batched_queries:
+                    for qry in batch:
+                        await db.execute(qry)
 
+                # await db.execute("PRAGMA foreign_keys = ON;")
+            except sqlite3.OperationalError as e:
+                raise e
+            await db.commit()
+
+    # 0	fish
+    # 0	sleep
+    # 0	big packet
+    # 0	bool
+    # 0	see
+    # 0	sus
+    # 0	logsday
+    # 0	sludge
+    # 0	grape
+    # 0	nig
 
     async def dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
@@ -141,10 +181,8 @@ class Database:
                 await db.execute(query)
             await db.commit()
 
-    async def init(self, drop: bool=False, migrate: bool=False):
-        if migrate:
-            ...
-
+    async def init(self, drop: bool=False, schema_update: bool=False):
+        if schema_update: await self.schemaUpdate()
         if drop: await self.dropTables()
         await self.createTables()
         await self.createTriggers()
