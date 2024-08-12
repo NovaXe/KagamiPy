@@ -1074,7 +1074,8 @@ class Music(GroupCog,
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         music_settings = await self.database.fetchMusicSettings(interaction.guild_id)
         if music_settings is None:
-            await self.database.upsertMusicSettings(MusicDB.MusicSettings(interaction.guild_id))
+            music_settings = MusicDB.MusicSettings(interaction.guild_id)
+            await self.database.upsertMusicSettings(music_settings)
         if not music_settings.music_enabled:
             raise MusicDB.MusicSettings
         old_server_data.value = self.bot.getServerData(interaction.guild_id)
@@ -1480,7 +1481,8 @@ class PlaylistCog(GroupCog,
     async def interaction_check(self, interaction: Interaction):
         music_settings = await self.database.fetchMusicSettings(interaction.guild_id)
         if music_settings is None:
-            await self.database.upsertMusicSettings(MusicDB.MusicSettings(interaction.guild_id))
+            music_settings = MusicDB.MusicSettings(interaction.guild_id)
+            await self.database.upsertMusicSettings(music_settings)
         if not music_settings.playlists_enabled:
             raise MusicDB.PlaylistsDisabled
 
