@@ -520,10 +520,9 @@ class MusicDB(Database):
     async def fetchMusicSettings(self, guild_id: int) -> MusicSettings:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = MusicDB.MusicSettings.rowFactory
-            settings = await db.execute_fetchall(MusicDB.MusicSettings.Queries.SELECT, (guild_id,))
-            settings = settings[0]
+            settings: list[MusicDB.MusicSettings] = await db.execute_fetchall(MusicDB.MusicSettings.Queries.SELECT, (guild_id,))
             # await db.commit()
-        return settings
+        return settings[0] if settings else None
 
     async def fetchPlaylist(self, guild_id: int, playlist_name: str) -> Playlist:
         async with aiosqlite.connect(self.file_path) as db:
@@ -1074,6 +1073,8 @@ class Music(GroupCog,
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         music_settings = await self.database.fetchMusicSettings(interaction.guild_id)
+        if music_settings is None:
+            await self.database.upsertMusicSettings(MusicDB.MusicSettings(interaction.guild_id))
         if not music_settings.music_enabled:
             raise MusicDB.MusicSettings
         old_server_data.value = self.bot.getServerData(interaction.guild_id)
@@ -1478,6 +1479,8 @@ class PlaylistCog(GroupCog,
 
     async def interaction_check(self, interaction: Interaction):
         music_settings = await self.database.fetchMusicSettings(interaction.guild_id)
+        if music_settings is None:
+            await self.database.upsertMusicSettings(MusicDB.MusicSettings(interaction.guild_id))
         if not music_settings.playlists_enabled:
             raise MusicDB.PlaylistsDisabled
 
