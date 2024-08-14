@@ -53,7 +53,7 @@ class SentinelDB(Database):
                 ON CONFLICT(id) DO NOTHING;
             END;
             """
-            _TRIGGER_BEFORE_INSERT_GLOBAL = """
+            TRIGGER_BEFORE_INSERT_GLOBAL = """
             CREATE TRIGGER IF NOT EXISTS SentinelSettings_set_global_defaults
             AFTER INSERT ON SentinelSettings
             FOR EACH ROW
@@ -1268,39 +1268,6 @@ class Sentinels(GroupCog, name="s"):
         guild: discord.Guild
         channel: discord.TextChannel
 
-    async def onSentinelEvent(self, event: SentinelEvent):
-        guild_settings = await self.database.fetchSentinelSettings(event.guild.id)
-        global_settings = await self.database.fetchSentinelSettings(0)
-        if event.type == "message":
-            # iterate through every suit that have their trigger match
-            # the queries should return suits one by one that would be triggered by the message
-            # the content will be passed along with the guild_id to a generator function
-            # a return suit should only have a specific sentinel for a guild once
-
-            # potential methods
-            # method 1: iterate through all suits for each sentinel on a guild
-            # check each of their triggers and note the suits that triggered
-            # either pick at random or decide based off trigger weight which suit is activated
-            # then determine the response based off of weight if there isn't a paired response
-            # phrase: check if object in content
-            # word: check if object in content split by spaces
-            # regex: just match the regex to the content
-            pass
-        elif event.type == "reaction":
-            # take the reaction string and find a suit with that trigger
-            pass
-
-        lower = event.content.lower()
-
-    async def getSentinel(self, trigger_object: str):
-        # check each sentinel for a trigger that procs on the message
-        # each sentinel should only give one response even if it has multiple triggers proc
-        # then if the trigger is parts of a suit, give the suit response
-        # if there is not a paired response then pick any response that doesn't have a paired trigger
-
-
-        pass
-
     async def getResponsesForMessage(self, guild_id: int, content: str) -> list[SentinelDB.SentinelResponse]:
         triggered_suits: list[SentinelDB.SentinelSuit]
         triggered_suits = await self.database.getMatchingSuitsFromMessage(guild_id, content)
@@ -1334,8 +1301,6 @@ class Sentinels(GroupCog, name="s"):
                 for reaction in response.reactions.split(";"):
                     partial_emoji = discord.PartialEmoji.from_str(reaction.strip())
                     await original_message.add_reaction(partial_emoji)
-
-
 
 
     @commands.Cog.listener()
