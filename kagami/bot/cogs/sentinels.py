@@ -984,13 +984,13 @@ class SentinelDB(Database):
                 suit: SentinelDB.SentinelSuit
                 return await cur.fetchall()
 
-    async def getWeightedRandomResponseID(self, guild_id: int, sentinel_name: str) -> int:
+    async def getWeightedRandomResponseSuit(self, guild_id: int, sentinel_name: str) -> SentinelSuit:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = SentinelDB.SentinelSuit.rowFactory
             params = {"guild_id": guild_id, "sentinel_name": sentinel_name}
             async with db.execute(SentinelDB.SentinelSuit.Queries.GET_RANDOM_RESPONSE_SUIT, params) as cur:
                 suit: SentinelDB.SentinelSuit = await cur.fetchone()
-                return suit.response_id
+                return suit
 
     async def fetchResponse(self, response_id) -> SentinelResponse:
         async with aiosqlite.connect(self.file_path) as db:
@@ -1273,7 +1273,11 @@ class Sentinels(GroupCog, name="s"):
         triggered_suits = await self.database.getMatchingSuitsFromMessage(guild_id, content)
         responses = []
         for suit in triggered_suits:
-            response_id = suit.response_id or await self.database.getWeightedRandomResponseID(guild_id, suit.sentinel_name)
+            response_id = suit.response_id
+            if not response_id:
+                suit = await self.database.getWeightedRandomResponseSuit(guild_id, suit.sentinel_name)
+                if not suit: continue
+                response_id = suit.response_id
             response: SentinelDB.SentinelResponse = await self.database.fetchResponse(response_id)
             responses += [response]
         return responses
@@ -1284,8 +1288,11 @@ class Sentinels(GroupCog, name="s"):
         triggered_suits = await self.database.getMatchingSuitsFromReaction(guild_id, reaction_str)
         responses = []
         for suit in triggered_suits:
-            response_id = suit.response_id or await self.database.getWeightedRandomResponseID(guild_id,
-                                                                                              suit.sentinel_name)
+            response_id = suit.response_id
+            if not response_id:
+                suit = await self.database.getWeightedRandomResponseSuit(guild_id, suit.sentinel_name)
+                if not suit: continue
+                response_id = suit.response_id
             response: SentinelDB.SentinelResponse = await self.database.fetchResponse(response_id)
             responses += [response]
         return responses

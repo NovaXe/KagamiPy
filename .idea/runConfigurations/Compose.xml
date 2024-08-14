@@ -2,13 +2,7 @@
   <configuration default="false" name="Compose" type="docker-deploy" factoryName="docker-compose.yml" server-name="Docker">
     <deployment type="docker-compose.yml">
       <settings>
-        <option name="envFilePath" value="$PROJECT_DIR$/.env" />
-        <option name="services">
-          <list>
-            <option value="kagami" />
-            <option value="lavalink" />
-          </list>
-        </option>
+        <option name="envFilePath" value="" />
         <option name="sourceFilePath" value="compose.yaml" />
         <option name="upDetach" value="false" />
       </settings>
