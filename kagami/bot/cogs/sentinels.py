@@ -205,7 +205,7 @@ class SentinelDB(Database):
             TOGGLE = f"""
             SELECT CASE WHEN EXISTS (
                     SELECT 1 FROM DisabledSentinelChannels WHERE 
-                        guild_id = :guild_id AND channel_id = : channel_id
+                        guild_id = :guild_id AND channel_id = :channel_id
                 ) THEN
                 {DELETE}
             ELSE
@@ -216,7 +216,7 @@ class SentinelDB(Database):
             SELECT CASE WHEN EXISTS (
                 SELECT 1 FROM DisabledSentinelChannels
                 WHERE
-                    guild_id = :guild_id AND channel_id = : channel_id
+                    guild_id = :guild_id AND channel_id = :channel_id
             )
             THEN 1
             ELSE 0
@@ -536,13 +536,12 @@ class SentinelDB(Database):
                 WHERE 
                     (
                         (SentinelTrigger.type = 1 AND :message_content REGEXP '(?i)\b'||SentinelTrigger.object||'\b') OR  
-                        (SentinelTrigger.type = 2 AND :message_content REGEXP '(?i)'||SentinelTrigger.object OR  
+                        (SentinelTrigger.type = 2 AND :message_content REGEXP '(?i)'||SentinelTrigger.object) OR  
                         (SentinelTrigger.type = 3 AND :message_content REGEXP SentinelTrigger.object)
                     ) AND
                     SentinelSuit.guild_id = :guild_id AND 
                     SentinelSuit.enabled = 1 AND
                     sentinel_enabled = 1
-                ORDER BY sentinel_name DESC
             ),
             sentinel_suit_info AS (
                 SELECT
@@ -637,7 +636,6 @@ class SentinelDB(Database):
                     SentinelSuit.guild_id = :guild_id AND 
                     SentinelSuit.enabled = 1 AND
                     sentinel_enabled = 1
-                ORDER BY sentinel_name DESC
             ),
             sentinel_suit_info AS (
                 SELECT
@@ -1030,10 +1028,11 @@ class SentinelDB(Database):
 
     async def getChannelDisabledStatus(self, guild_id: int, channel_id: int) -> bool:
         async with aiosqlite.connect(self.file_path) as db:
+            db.row_factory = lambda row: row[0]
             params = {"guild_id": guild_id, "channel_id": channel_id}
             async with db.execute(SentinelDB.DisabledSentinelChannels.Queries.SELECT_EXISTS, params) as cur:
                 result = await cur.fetchone()
-            return bool(result)
+        return result[0] == 1
 
 
     async def enableChannel(self, guild_id: int, channel_id: int):
@@ -1314,17 +1313,17 @@ class Sentinels(GroupCog, name="s"):
     async def on_message(self, message: discord.Message):
         if message.author.id == self.bot.user.id:
             return
-        if await self.database.getChannelDisabledStatus(message.guild.id, message.channel.id):
-            return
 
         global_settings = await self.database.fetchSentinelSettings(0)
+        channel_global_disabled = await self.database.getChannelDisabledStatus(0, message.channel.id)
         guild_settings = await self.database.fetchSentinelSettings(message.guild.id)
+        channel_local_disabled = await self.database.getChannelDisabledStatus(message.guild.id, message.channel.id)
 
-        if global_settings.global_enabled and guild_settings.global_enabled:
+        if global_settings.global_enabled and guild_settings.global_enabled and not channel_global_disabled:
             global_responses = await self.getResponsesForMessage(0, message.content)
             await self.handleResponses(message, global_responses)
 
-        if global_settings.local_enabled and guild_settings.local_enabled:
+        if global_settings.local_enabled and guild_settings.local_enabled and not channel_local_disabled:
             responses = await self.getResponsesForMessage(message.guild.id, message.content)
             await self.handleResponses(message, responses)
 
