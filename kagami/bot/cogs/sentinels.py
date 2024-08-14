@@ -1370,12 +1370,22 @@ class Sentinels(GroupCog, name="s"):
     async def on_raw_reaction_add(self, event: discord.RawReactionActionEvent):
         if event.user_id == self.bot.user.id:
             return
-        responses = await self.getResponsesForReaction(guild_id=event.guild_id, reaction=event.emoji)
-        global_responses = await self.getResponsesForReaction(guild_id=0, reaction=event.emoji)
+        if await self.database.getChannelDisabledStatus(event.guild_id, event.channel_id):
+            return
+
+        global_settings = await self.database.fetchSentinelSettings(0)
+        guild_settings = await self.database.fetchSentinelSettings(event.guild_id)
+
         channel = await self.bot.fetch_channel(event.channel_id)
         message = await channel.fetch_message(event.message_id)
-        await self.handleResponses(message, responses)
-        await self.handleResponses(message, global_responses)
+
+        if global_settings.global_enabled and guild_settings.global_enabled:
+            global_responses = await self.getResponsesForReaction(guild_id=0, reaction=event.emoji)
+            await self.handleResponses(message, global_responses)
+
+        if global_settings.local_enabled and guild_settings.local_enabled:
+            responses = await self.getResponsesForReaction(guild_id=event.guild_id, reaction=event.emoji)
+            await self.handleResponses(message, responses)
 
     @commands.is_owner()
     @commands.command(name="migrate_sentinels")
