@@ -1028,6 +1028,14 @@ class SentinelDB(Database):
             await db.execute(SentinelDB.DisabledSentinelChannels.Queries.INSERT, params)
             await db.commit()
 
+    async def getChannelDisabledStatus(self, guild_id: int, channel_id: int) -> bool:
+        async with aiosqlite.connect(self.file_path) as db:
+            params = {"guild_id": guild_id, "channel_id": channel_id}
+            async with db.execute(SentinelDB.DisabledSentinelChannels.Queries.SELECT_EXISTS, params) as cur:
+                result = await cur.fetchone()
+            return bool(result)
+
+
     async def enableChannel(self, guild_id: int, channel_id: int):
         async with aiosqlite.connect(self.file_path) as db:
             params = {"guild_id": guild_id, "channel_id": channel_id}
@@ -1334,11 +1342,19 @@ class Sentinels(GroupCog, name="s"):
     async def on_message(self, message: discord.Message):
         if message.author.id == self.bot.user.id:
             return
+        if await self.database.getChannelDisabledStatus(message.guild.id, message.channel.id):
+            return
 
-        responses = await self.getResponsesForMessage(message.guild.id, message.content)
-        global_responses = await self.getResponsesForMessage(0, message.content)
-        await self.handleResponses(message, responses)
-        await self.handleResponses(message, global_responses)
+        global_settings = await self.database.fetchSentinelSettings(0)
+        guild_settings = await self.database.fetchSentinelSettings(message.guild.id)
+
+        if global_settings.global_enabled and guild_settings.global_enabled:
+            global_responses = await self.getResponsesForMessage(0, message.content)
+            await self.handleResponses(message, global_responses)
+
+        if global_settings.local_enabled and guild_settings.local_enabled:
+            responses = await self.getResponsesForMessage(message.guild.id, message.content)
+            await self.handleResponses(message, responses)
 
 
     # @commands.Cog.listener()
@@ -1378,6 +1394,7 @@ class Sentinels(GroupCog, name="s"):
     async def getWordTriggerIDS(self, ctx: commands.Context, *, message: str):
         ids = await self.database.getWordTriggers(message_content=message)
         await ctx.send(f"message: {message} : {ids}")
+
 
 
     async def migrateData(self):
@@ -1503,6 +1520,7 @@ class Sentinels(GroupCog, name="s"):
                             scope: SentinelScope, sentinel: Sentinel_Transform,
                             new_scope: SentinelScope,
                             new_name: Transform[SentinelDB.Sentinel, SentinelTransformer(guild_field="new_scope")]):
+        raise errors.CustomCheck("Not Implemented yet")
         await respond(interaction)
         if sentinel is None: raise SentinelDB.SentinelDoesNotExist
         if new_name: raise SentinelDB.SentinelAlreadyExists()

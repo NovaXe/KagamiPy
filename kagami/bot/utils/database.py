@@ -66,8 +66,8 @@ class Database:
         return queries
 
     @classmethod
-    def get_batched_queries(cls, query_names: typing.Iterable[str]):
-        batches = []
+    def get_batched_queries(cls, query_names: typing.Iterable[str]) -> dict[str, tuple]:
+        batches = {}
         for row_class in cls.get_nested_row_classes():
             query_results = []
             for name in query_names:
@@ -77,7 +77,7 @@ class Database:
                 else:
                     break
             if len(query_results) == len(query_names):
-                batches += [tuple(query_results)]
+                batches[row_class.__class__.__name__] = tuple(query_results)
         return batches
 
     @dataclass
@@ -155,7 +155,9 @@ class Database:
                                "INSERT_FROM_TEMP_TABLE",
                                "DROP_TEMP_TABLE")
                 batched_queries = self.get_batched_queries(query_order)
-                for batch in batched_queries:
+                for table_name, batch in batched_queries.items():
+                    if not await self.queryTableExistance(table_name):
+                        continue
                     for qry in batch:
                         await db.execute(qry)
 
@@ -164,16 +166,12 @@ class Database:
                 raise e
             await db.commit()
 
-    # 0	fish
-    # 0	sleep
-    # 0	big packet
-    # 0	bool
-    # 0	see
-    # 0	sus
-    # 0	logsday
-    # 0	sludge
-    # 0	grape
-    # 0	nig
+    async def queryTableExistance(self, table_name: str):
+        async with aiosqlite.connect(self.file_path) as db:
+            query = f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'"
+            async with db.execute(query) as cur:
+                result = await cur.fetchone()
+                return bool(result)
 
     async def dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
