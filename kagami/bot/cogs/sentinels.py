@@ -1369,7 +1369,7 @@ class Sentinels(GroupCog, name="s"):
     @commands.command(name="clean_responses")
     async def cleanNoneRespones(self, ctx):
         await self.database.cleanNoneRespones()
-        await ctx.send("Removed `'None'` from sentinels responses and replaced with `''`")
+        await ctx.send("Removed `'None'` from sentinel response reactions and replaced it with `''`")
 
     @commands.is_owner()
     @commands.command(name="gpti")
@@ -1503,6 +1503,8 @@ class Sentinels(GroupCog, name="s"):
         suit.name = interaction.namespace.new_name or suit.name
         # suit.guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         await self.database.insertSuit(suit)
+        await respond(interaction, f"Moved the Suit `{interaction.namespace.suit}` "
+                                   f"as `{suit.name}` to Sentinel `{suit.sentinel_name}`", delete_after=5)
 
     @move_group.command(name="sentinel", description="Move a sentinel and all its suits to another scope")
     async def move_sentinel(self, interaction: Interaction,
