@@ -1028,7 +1028,7 @@ class SentinelDB(Database):
 
     async def getChannelDisabledStatus(self, guild_id: int, channel_id: int) -> bool:
         async with aiosqlite.connect(self.file_path) as db:
-            db.row_factory = lambda row: row[0]
+            # db.row_factory = lambda row: row[0]
             params = {"guild_id": guild_id, "channel_id": channel_id}
             async with db.execute(SentinelDB.DisabledSentinelChannels.Queries.SELECT_EXISTS, params) as cur:
                 result = await cur.fetchone()
@@ -1086,22 +1086,16 @@ class SentinelDB(Database):
             """)
             pass
 
-
-    async def suitGeneratorFromTrigger(self, guild_id, trigger_object: str):
+    async def cleanNoneRespones(self):
         async with aiosqlite.connect(self.file_path) as db:
-            id_query = SentinelDB.SentinelTrigger.Queries.SELECT_IDS
-            suit_query = SentinelDB.SentinelSuit.Queries.SELECT_FROM_TRIGGER_ID
-
-            async with db.execute(id_query, (trigger_object,)) as cursor:
-                async for row in cursor:
-                    trigger_id = row[0][0]
-
-
-            db.row_factory = SentinelDB.SentinelSuit
-            cur = await db.execute()
-            yield ..., ..., ...
-        # Test to see if output is what is expected
-
+            await db.execute("""
+            UPDATE SentinelResponse
+            SET
+                reactions = ''
+            WHERE
+                reactions = 'None'
+            """)
+            await db.commit()
 
 class SentinelScope(IntEnum):
     """
@@ -1306,7 +1300,9 @@ class Sentinels(GroupCog, name="s"):
             if len(response.reactions) > 0:
                 for reaction in response.reactions.split(";"):
                     partial_emoji = discord.PartialEmoji.from_str(reaction.strip())
-                    await original_message.add_reaction(partial_emoji)
+                    try:
+                        await original_message.add_reaction(partial_emoji)
+                    except discord.NotFound: pass
 
 
     @commands.Cog.listener()
@@ -1317,6 +1313,9 @@ class Sentinels(GroupCog, name="s"):
         global_settings = await self.database.fetchSentinelSettings(0)
         channel_global_disabled = await self.database.getChannelDisabledStatus(0, message.channel.id)
         guild_settings = await self.database.fetchSentinelSettings(message.guild.id)
+        if guild_settings is None:
+            guild_settings = SentinelDB.SentinelSettings(message.guild.id)
+            await self.database.upsertSentinelSettings(guild_settings)
         channel_local_disabled = await self.database.getChannelDisabledStatus(message.guild.id, message.channel.id)
 
         if global_settings.global_enabled and guild_settings.global_enabled and not channel_global_disabled:
@@ -1346,7 +1345,9 @@ class Sentinels(GroupCog, name="s"):
 
         global_settings = await self.database.fetchSentinelSettings(0)
         guild_settings = await self.database.fetchSentinelSettings(event.guild_id)
-
+        if guild_settings is None:
+            guild_settings = SentinelDB.SentinelSettings(event.guild_id)
+            await self.database.upsertSentinelSettings(guild_settings)
         channel = await self.bot.fetch_channel(event.channel_id)
         message = await channel.fetch_message(event.message_id)
 
@@ -1363,6 +1364,12 @@ class Sentinels(GroupCog, name="s"):
     async def migrateCommand(self, ctx):
         await self.migrateData()
         await ctx.send("Migrated sentinel data")
+
+    @commands.is_owner()
+    @commands.command(name="clean_responses")
+    async def cleanNoneRespones(self, ctx):
+        await self.database.cleanNoneRespones()
+        await ctx.send("Removed `'None'` from sentinels responses and replaced with `''`")
 
     @commands.is_owner()
     @commands.command(name="gpti")
@@ -1391,6 +1398,7 @@ class Sentinels(GroupCog, name="s"):
             _trigger = SentinelDB.SentinelTrigger(type=SentinelDB.SentinelTrigger.TriggerType.phrase,
                                                   object=_sentinel_name)
             reactions = ";".join(_sentinel.reactions)
+            if reactions == "None": reactions = ""
             _response = SentinelDB.SentinelResponse(type=SentinelDB.SentinelResponse.ResponseType.reply,
                                                     content=_sentinel.response, reactions=reactions)
             # _uses = SentinelDB.SentinelTriggerUses(guild_id=_guild_id, trigger_object=)
