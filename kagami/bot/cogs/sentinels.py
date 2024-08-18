@@ -1366,7 +1366,7 @@ class Sentinels(GroupCog, name="s"):
         if ctx.invoked_subcommand is None:
             await asyncio.gather(
                 ctx.message.delete(delay=5),
-                ctx.send("Please specific a valid sentinel command", delete_after=5)
+                ctx.send("Please specify a valid sentinel command", delete_after=5)
             )
 
     @commands.is_owner()

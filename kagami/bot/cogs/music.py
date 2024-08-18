@@ -1,3 +1,5 @@
+import asyncio
+
 from math import ceil
 from dataclasses import dataclass
 from math import ceil
@@ -664,7 +666,16 @@ class Music(GroupCog,
         if self.bot.config.migrate_data: await self.migrateMusicData()
 
     @commands.is_owner()
-    @commands.command(name="migrate_music")
+    @commands.group(name="music")
+    async def music(self, ctx: commands.Context):
+        if ctx.invoked_subcommand is None:
+            await asyncio.gather(
+                ctx.message.delete(delay=5),
+                ctx.send("Please specify a valid music command", delete_after=5)
+            )
+
+    @commands.is_owner()
+    @music.command(name="migrate")
     async def migrateCommand(self, ctx):
         await self.migrateMusicData()
         await ctx.send("migrated music probably")
@@ -1314,7 +1325,7 @@ class PlaylistCog(GroupCog,
     @view.command(name="all",
                   description="view all playlists")
     async def p_view_all(self, interaction: Interaction):
-
+        raise errors.NotImplementedYet
         await respond(interaction, "This command is currently non functional", delete_after=3)
         # TODO reimplement this command using sql
 
@@ -1378,6 +1389,7 @@ class PlaylistCog(GroupCog,
                   description="view all tracks in a playlist")
     async def p_view_tracks(self, interaction: Interaction,
                             playlist: Playlist_Transformer):
+        raise errors.NotImplementedYet
         await respond(interaction, "This command is currently non functional", delete_after=3) # TODO reimplement this command using sql
         #
         """
