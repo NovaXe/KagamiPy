@@ -14,6 +14,9 @@ class CustomCheck(CheckFailure):
         message = message or self.MESSAGE
         super().__init__(message, *args)
 
+class NotImplementedYet(CheckFailure):
+    MESSAGE = "Command not implemented yet, check back later"
+
 class NoVoiceChannel(CustomCheck):
     MESSAGE = "Specify or join a voice channel"
 

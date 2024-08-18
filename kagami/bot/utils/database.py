@@ -1,5 +1,6 @@
 import abc
 import sqlite3
+import typing
 
 import aiosqlite
 from dataclasses import dataclass, asdict, astuple
@@ -56,6 +57,28 @@ class Database:
             queries += [row_class.Queries.DROP_TABLE]
         return queries
 
+    @classmethod
+    def get_queries(cls, query_name: str):
+        queries = []
+        for row_class in cls.get_nested_row_classes():
+            if query := row_class.Queries.__dict__.get(query_name, False):
+                queries += [query]
+        return queries
+
+    @classmethod
+    def get_batched_queries(cls, query_names: typing.Iterable[str]) -> dict[str, tuple]:
+        batches = {}
+        for row_class in cls.get_nested_row_classes():
+            query_results = []
+            for name in query_names:
+                query = row_class.Queries.__dict__.get(name, False)
+                if query:
+                    query_results += [query]
+                else:
+                    break
+            if len(query_results) == len(query_names):
+                batches[row_class.__class__.__name__] = tuple(query_results)
+        return batches
 
     @dataclass
     class Row:
@@ -77,6 +100,20 @@ class Database:
                 if isinstance(obj, str) and name.lower().startswith("trigger"):
                     queries += [obj]
             return queries
+
+        @classmethod
+        def has_query(cls, field_name: str):
+            """returns true if a matching query is found"""
+            if not hasattr(cls, "Queries") and isinstance(getattr(cls, "Queries"), type):
+                return False
+            for name, obj in cls.Queries.__dict__.items():
+                if isinstance(obj, str) and name.lower() == field_name.lower():
+                    return True
+
+        @classmethod
+        def get_query(cls, field_name: str):
+            if not hasattr(cls, "Queries") and isinstance(getattr(cls, "Queries"), type):
+                return None
 
         # @classmethod
         # def has_query_class(cls):
@@ -108,13 +145,42 @@ class Database:
                 await db.execute(query)
             await db.commit()
 
+    async def schemaUpdate(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            try:
+                # await db.execute("PRAGMA foreign_keys = OFF;")
+                query_order = ("CREATE_TEMP_TABLE",
+                               "DROP_TABLE",
+                               "CREATE_TABLE",
+                               "INSERT_FROM_TEMP_TABLE",
+                               "DROP_TEMP_TABLE")
+                batched_queries = self.get_batched_queries(query_order)
+                for table_name, batch in batched_queries.items():
+                    if not await self.queryTableExistance(table_name):
+                        continue
+                    for qry in batch:
+                        await db.execute(qry)
+
+                # await db.execute("PRAGMA foreign_keys = ON;")
+            except sqlite3.OperationalError as e:
+                raise e
+            await db.commit()
+
+    async def queryTableExistance(self, table_name: str):
+        async with aiosqlite.connect(self.file_path) as db:
+            query = f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'"
+            async with db.execute(query) as cur:
+                result = await cur.fetchone()
+                return bool(result)
+
     async def dropTables(self):
         async with aiosqlite.connect(self.file_path) as db:
             for query in self.get_drop_table_queries():
                 await db.execute(query)
             await db.commit()
 
-    async def init(self, drop: bool=False):
+    async def init(self, drop: bool=False, schema_update: bool=False):
+        if schema_update: await self.schemaUpdate()
         if drop: await self.dropTables()
         await self.createTables()
         await self.createTriggers()

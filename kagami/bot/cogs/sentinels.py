@@ -1,3 +1,4 @@
+import asyncio
 import re
 from abc import ABC
 from copy import deepcopy
@@ -11,7 +12,7 @@ from discord.ext import commands
 from discord import app_commands, Interaction, InteractionMessage, InteractionResponse
 from discord.ext.commands import GroupCog, Cog
 from discord. app_commands import AppCommand, Transform, Transformer, Range, Group, Choice, autocomplete
-
+from discord import Permissions
 from bot.ext import errors
 from bot.kagami_bot import Kagami
 from bot.utils.bot_data import Server, OldSentinel
@@ -28,14 +29,16 @@ class SentinelDB(Database):
     @dataclass
     class SentinelSettings(Database.Row):
         guild_id: int
-        sentinels_enabled: bool = True
+        local_enabled: bool = True
+        global_enabled: bool = True
         class Queries:
             CREATE_TABLE = """
             CREATE TABLE IF NOT EXISTS SentinelSettings(
             guild_id INTEGER NOT NULL,
-            sentinels_enabled INTEGER DEFAULT 1,
+            local_enabled INTEGER DEFAULT 1,
+            global_enabled INTEGER DEFAULT 0,
             PRIMARY KEY(guild_id),
-            FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
+            FOREIGN KEY(guild_id) REFERENCES GUILD(id)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
             )
             """
@@ -51,11 +54,24 @@ class SentinelDB(Database):
                 ON CONFLICT(id) DO NOTHING;
             END;
             """
+            TRIGGER_BEFORE_INSERT_GLOBAL = """
+            CREATE TRIGGER IF NOT EXISTS SentinelSettings_set_global_defaults
+            AFTER INSERT ON SentinelSettings
+            FOR EACH ROW
+            WHEN NEW.guild_id = 0
+            BEGIN
+                UPDATE SentinelSettings
+                SET global_enabled = 1
+                WHERE rowid = NEW.rowid;
+            END;
+            """
             UPSERT = """
-            INSERT INTO SentinelSettings (guild_id, sentinels_enabled)
-            VALUES(:guild_id, :sentinels_enabled)
+            INSERT INTO SentinelSettings(guild_id, local_enabled, global_enabled)
+            VALUES(:guild_id, :local_enabled, :global_enabled)
             ON CONFLICT (guild_id)
-            DO UPDATE SET sentinels_enabled = :sentinels_enabled
+            DO UPDATE SET 
+                local_enabled = :local_enabled,
+                global_enabled = :global_enabled
             """
             SELECT = """
             SELECT * FROM SentinelSettings
@@ -80,12 +96,24 @@ class SentinelDB(Database):
             uses INTEGER DEFAULT 0,
             enabled INTEGER DEFAULT 1,
             PRIMARY KEY(guild_id, name),
-            FOREIGN KEY(guild_id) REFERENCES GUILD(id) 
+            FOREIGN KEY(guild_id) REFERENCES SentinelSettings(guild_id) 
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
             )
             """
             DROP_TABLE = """
             DROP TABLE IF EXISTS Sentinel
+            """
+            CREATE_TEMP_TABLE = """
+            CREATE TEMPORARY TABLE temp_sentinel AS
+            SELECT * FROM Sentinel
+            """
+            INSERT_FROM_TEMP_TABLE = """
+            INSERT INTO Sentinel(guild_id, name, enabled)
+            SELECT guild_id, name, enabled 
+            FROM temp_sentinel
+            """
+            DROP_TEMP_TABLE = """
+            DROP TABLE IF EXISTS temp_sentinel
             """
             TRIGGER_BEFORE_INSERT_SETTINGS = """
             CREATE TRIGGER IF NOT EXISTS Sentinel_insert_settings_before_insert
@@ -99,6 +127,10 @@ class SentinelDB(Database):
             INSERT = """
             INSERT OR IGNORE INTO Sentinel(guild_id, name)
             VALUES(:guild_id, :name)
+            """
+            DELETE = """
+            DELETE FROM Sentinel
+            WHERE guild_id = :guild_id AND name = :name
             """
             INCREMENT_USES = """
             UPDATE Sentinel SET uses = uses + 1
@@ -135,12 +167,24 @@ class SentinelDB(Database):
                 guild_id INTEGER NOT NULL,
                 channel_id INTEGER NOT NULL,
                 PRIMARY KEY(guild_id, channel_id),
-                FOREIGN KEY(guild_id) REFERENCES GUILD(id)
+                FOREIGN KEY(guild_id) REFERENCES SentinelSettings(guild_id)
                     ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
             )
             """
             DROP_TABLE = """
             DROP TABLE IF EXISTS DisabledSentinelChannels
+            """
+            CREATE_TEMP_TABLE = """
+            CREATE TEMPORARY TABLE temp_disabled_channels AS
+            SELECT * FROM DisabledSentinelChannels
+            """
+            INSERT_FROM_TEMP_TABLE = """
+            INSERT INTO DisabledSentinelChannels(guild_id, channel_id)
+            SELECT guild_id, channel_id
+            FROM temp_disabled_channels
+            """
+            DROP_TEMP_TABLE = """
+            DROP TABLE IF EXISTS temp_disabled_channels
             """
             TRIGGER_BEFORE_INSERT_SETTINGS = """
             CREATE TRIGGER IF NOT EXISTS DisabledSentinelChannels_insert_settings_before_insert
@@ -162,7 +206,7 @@ class SentinelDB(Database):
             TOGGLE = f"""
             SELECT CASE WHEN EXISTS (
                     SELECT 1 FROM DisabledSentinelChannels WHERE 
-                        guild_id = :guild_id AND channel_id = : channel_id
+                        guild_id = :guild_id AND channel_id = :channel_id
                 ) THEN
                 {DELETE}
             ELSE
@@ -173,7 +217,7 @@ class SentinelDB(Database):
             SELECT CASE WHEN EXISTS (
                 SELECT 1 FROM DisabledSentinelChannels
                 WHERE
-                    guild_id = :guild_id AND channel_id = : channel_id
+                    guild_id = :guild_id AND channel_id = :channel_id
             )
             THEN 1
             ELSE 0
@@ -290,9 +334,7 @@ class SentinelDB(Database):
             response_id INTEGER DEFAULT NULL,
             enabled INTEGER NOT NULL DEFAULT 1,
             PRIMARY KEY (guild_id, sentinel_name, name),
-            FOREIGN KEY (guild_id) REFERENCES Guild(id)
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-            FOREIGN KEY (sentinel_name) REFERENCES Sentinel(name)
+            FOREIGN KEY (guild_id, sentinel_name) REFERENCES Sentinel(guild_id, name)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
             FOREIGN KEY (trigger_id) REFERENCES SentinelTrigger(id)
                 ON UPDATE RESTRICT ON DELETE SET NULL,
@@ -302,6 +344,18 @@ class SentinelDB(Database):
             """
             DROP_TABLE = """
             DROP TABLE IF EXISTS SentinelSuit
+            """
+            CREATE_TEMP_TABLE = """
+            CREATE TEMPORARY TABLE temp_sentinel_suit AS
+            SELECT * FROM SentinelSuit
+            """
+            INSERT_FROM_TEMP_TABLE = """
+            INSERT INTO SentinelSuit(guild_id, sentinel_name, name, weight, trigger_id, response_id)
+            SELECT guild_id, sentinel_name, name, weight, trigger_id, response_id
+            FROM temp_sentinel_suit
+            """
+            DROP_TEMP_TABLE = """
+            DROP TABLE IF EXISTS temp_sentinel_suit
             """
             TRIGGER_BEFORE_INSERT_SENTINEL = """
             CREATE TRIGGER IF NOT EXISTS SentinelSuit_insert_sentinel_before_insert
@@ -357,6 +411,24 @@ class SentinelDB(Database):
                 WHERE id = OLD.response_id;
             END
             """
+            _TRIGGER_AFTER_DELETE_SENTINEL = """
+            CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_sentinel_after_delete
+            AFTER DELETE ON SentinelSuit
+            WHEN (
+                SELECT COUNT(*) 
+                FROM SentinelSuit 
+                WHERE 
+                    sentinel_name = OLD.sentinel_name AND
+                    guild_id = OLD.guild_id
+            )
+            BEGIN
+                DELETE FROM Sentinel
+                WHERE 
+                    guild_id = OLD.guild_id AND
+                    name = OLD.sentinel_name;
+            END
+            """
+
             # _DELETE_TRIGGER_TRACKING_AFTER_DELETE = """
             # CREATE TRIGGER IF NOT EXISTS SentinelSuit_delete_trigger_tracking_after_delete
             # AFTER DELETE ON SentinelSuit
@@ -445,8 +517,8 @@ class SentinelDB(Database):
             DELETE = """
             DELETE FROM SentinelSuit WHERE guild_id = ? AND sentinel_name = ? AND name = ?
             """
-            __space_regex = "[,.;:''\"?!@#$%^&*()~`+=|/\\ ]" # sql escaped space regex
-            GET_SUITS_FROM_MESSAGE = f"""
+            __space_regex = r"\b" # sql escaped space regex
+            GET_SUITS_FROM_MESSAGE = rf"""
             WITH triggered_suits AS (
                 SELECT
                     SentinelSuit.guild_id,
@@ -464,14 +536,13 @@ class SentinelDB(Database):
                     Sentinel.name = SentinelSuit.sentinel_name
                 WHERE 
                     (
-                        (SentinelTrigger.type = 1 AND ' '||:message_content||' ' REGEXP '{__space_regex}'||SentinelTrigger.object||'{__space_regex}') OR  
-                        (SentinelTrigger.type = 2 AND instr(:message_content, SentinelTrigger.object)) OR  
+                        (SentinelTrigger.type = 1 AND :message_content REGEXP '(?i)\b'||SentinelTrigger.object||'\b') OR  
+                        (SentinelTrigger.type = 2 AND :message_content REGEXP '(?i)'||SentinelTrigger.object) OR  
                         (SentinelTrigger.type = 3 AND :message_content REGEXP SentinelTrigger.object)
                     ) AND
                     SentinelSuit.guild_id = :guild_id AND 
                     SentinelSuit.enabled = 1 AND
                     sentinel_enabled = 1
-                ORDER BY sentinel_name DESC
             ),
             sentinel_suit_info AS (
                 SELECT
@@ -566,7 +637,6 @@ class SentinelDB(Database):
                     SentinelSuit.guild_id = :guild_id AND 
                     SentinelSuit.enabled = 1 AND
                     sentinel_enabled = 1
-                ORDER BY sentinel_name DESC
             ),
             sentinel_suit_info AS (
                 SELECT
@@ -729,16 +799,29 @@ class SentinelDB(Database):
     class InvalidRegex(errors.CustomCheck):
         MESSAGE = "The entered regex is not valid"
 
+    class SuitHasNoTrigger(errors.CustomCheck):
+        MESSAGE = "The specified suit doesn't have a trigger"
+
+    class SuitHasNoResponse(errors.CustomCheck):
+        MESSAGE = "The specified suit doesn't have a response"
+
+    class SuitAlreadyExists(errors.CustomCheck):
+        MESSAGE = "There is already a suit with that name"
+
+    class SentinelAlreadyExists(errors.CustomCheck):
+        MESSAGE = "There is already a sentinel with that name"
+
     async def upsertSentinelSettings(self, sentinel_settings: SentinelSettings):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(SentinelDB.SentinelSettings.Queries.UPSERT, sentinel_settings.asdict())
             await db.commit()
 
-    async def fetchSentinelSettings(self, guild_id: int):
+    async def fetchSentinelSettings(self, guild_id: int) -> SentinelSettings:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = SentinelDB.SentinelSettings.rowFactory
             result = await db.execute_fetchall(SentinelDB.SentinelSettings.Queries.SELECT, (guild_id,))
-            return result[0][0] if result else None
+            return result[0] if result else None
+
     async def insertSentinel(self, sentinel: Sentinel) -> bool:
         async with aiosqlite.connect(self.file_path) as db:
             cursor = await db.execute(SentinelDB.Sentinel.Queries.INSERT, sentinel.asdict())
@@ -806,6 +889,11 @@ class SentinelDB(Database):
     async def deleteSuit(self, suit: SentinelSuit):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute(SentinelDB.SentinelSuit.Queries.DELETE, (suit.guild_id, suit.sentinel_name, suit.name))
+            await db.commit()
+
+    async def deleteSentinel(self, sentinel: Sentinel):
+        async with aiosqlite.connect(self.file_path) as db:
+            await db.execute(SentinelDB.Sentinel.Queries.DELETE, sentinel)
             await db.commit()
 
     async def insertSuitPair(self, guild_id: int, sentinel_name: str, name: str, trigger: SentinelTrigger=None, response: SentinelResponse=None, weight=None):
@@ -939,6 +1027,15 @@ class SentinelDB(Database):
             await db.execute(SentinelDB.DisabledSentinelChannels.Queries.INSERT, params)
             await db.commit()
 
+    async def getChannelDisabledStatus(self, guild_id: int, channel_id: int) -> bool:
+        async with aiosqlite.connect(self.file_path) as db:
+            # db.row_factory = lambda row: row[0]
+            params = {"guild_id": guild_id, "channel_id": channel_id}
+            async with db.execute(SentinelDB.DisabledSentinelChannels.Queries.SELECT_EXISTS, params) as cur:
+                result = await cur.fetchone()
+        return result[0] == 1
+
+
     async def enableChannel(self, guild_id: int, channel_id: int):
         async with aiosqlite.connect(self.file_path) as db:
             params = {"guild_id": guild_id, "channel_id": channel_id}
@@ -990,22 +1087,16 @@ class SentinelDB(Database):
             """)
             pass
 
-
-    async def suitGeneratorFromTrigger(self, guild_id, trigger_object: str):
+    async def cleanNoneResponses(self):
         async with aiosqlite.connect(self.file_path) as db:
-            id_query = SentinelDB.SentinelTrigger.Queries.SELECT_IDS
-            suit_query = SentinelDB.SentinelSuit.Queries.SELECT_FROM_TRIGGER_ID
-
-            async with db.execute(id_query, (trigger_object,)) as cursor:
-                async for row in cursor:
-                    trigger_id = row[0][0]
-
-
-            db.row_factory = SentinelDB.SentinelSuit
-            cur = await db.execute()
-            yield ..., ..., ...
-        # Test to see if output is what is expected
-
+            await db.execute("""
+            UPDATE SentinelResponse
+            SET
+                reactions = ''
+            WHERE
+                reactions = 'None'
+            """)
+            await db.commit()
 
 class SentinelScope(IntEnum):
     """
@@ -1035,9 +1126,12 @@ class GuildTransformer(Transformer):
 
 
 class SentinelTransformer(Transformer):
+    def __init__(self, guild_field="scope"):
+        self.guild_field = guild_field
     async def autocomplete(self, interaction: Interaction,
                            current: str, /) -> list[Choice[str]]:
-        guild_id = interaction.namespace.scope
+        # guild_id = interaction.namespace.scope
+        guild_id = interaction.namespace[self.guild_field]
         if guild_id == SentinelScope.LOCAL:
             guild_id = interaction.guild_id
         bot: Kagami = interaction.client
@@ -1058,14 +1152,17 @@ class SentinelTransformer(Transformer):
 
 
 class SentinelSuitTransformer(Transformer):
-    def __init__(self, empty_field: Literal["trigger_id", "response_id"]=None):
+    def __init__(self, empty_field: Literal["trigger_id", "response_id"]=None,
+                 guild_field="scope", sentinel_field="sentinel"):
         self.empty_field = empty_field
+        self.guild_field = guild_field
+        self.sentinel_field = sentinel_field
 
     async def autocomplete(self, interaction: Interaction,
                            current: str, /) -> List[Choice[str]]:
-        guild_id = interaction.namespace.scope
+        guild_id = interaction.namespace[self.guild_field]
         if guild_id == SentinelScope.LOCAL: guild_id = interaction.guild_id
-        sentinel_name = interaction.namespace.sentinel
+        sentinel_name = interaction.namespace[self.sentinel_field]
         bot: Kagami = interaction.client
         db = SentinelDB(bot.config.db_path)
         if self.empty_field == "trigger_id":
@@ -1122,7 +1219,7 @@ class Sentinels(GroupCog, name="s"):
         self.database = SentinelDB(bot.config.db_path)
 
     async def cog_load(self) -> None:
-        await self.database.init(drop=self.config.drop_tables)
+        await self.database.init(drop=self.config.drop_tables, schema_update=self.config.schema_update)
         # await self.database.init(drop=True)
         if self.bot.config.migrate_data: await self.migrateData()
         # pass
@@ -1140,6 +1237,8 @@ class Sentinels(GroupCog, name="s"):
     toggle_group = Group(name="toggle", description="commands for toggling sentinel components")
     enable_group = Group(name="enable", description="commands for enabling sentinel components")
     disable_group = Group(name="disable", description="commands for disabling sentinel components")
+    copy_group = Group(name="copy", description="commands for copying sentinel components")
+    move_group = Group(name="move", description="commands for moving sentinel components")
 
     Guild_Transform = Transform[InfoDB.Guild, GuildTransformer]
     Sentinel_Transform = Transform[SentinelDB.Sentinel, SentinelTransformer]
@@ -1162,39 +1261,6 @@ class Sentinels(GroupCog, name="s"):
         user: discord.User
         guild: discord.Guild
         channel: discord.TextChannel
-
-    async def onSentinelEvent(self, event: SentinelEvent):
-        guild_settings = await self.database.fetchSentinelSettings(event.guild.id)
-        global_settings = await self.database.fetchSentinelSettings(0)
-        if event.type == "message":
-            # iterate through every suit that have their trigger match
-            # the queries should return suits one by one that would be triggered by the message
-            # the content will be passed along with the guild_id to a generator function
-            # a return suit should only have a specific sentinel for a guild once
-
-            # potential methods
-            # method 1: iterate through all suits for each sentinel on a guild
-            # check each of their triggers and note the suits that triggered
-            # either pick at random or decide based off trigger weight which suit is activated
-            # then determine the response based off of weight if there isn't a paired response
-            # phrase: check if object in content
-            # word: check if object in content split by spaces
-            # regex: just match the regex to the content
-            pass
-        elif event.type == "reaction":
-            # take the reaction string and find a suit with that trigger
-            pass
-
-        lower = event.content.lower()
-
-    async def getSentinel(self, trigger_object: str):
-        # check each sentinel for a trigger that procs on the message
-        # each sentinel should only give one response even if it has multiple triggers proc
-        # then if the trigger is parts of a suit, give the suit response
-        # if there is not a paired response then pick any response that doesn't have a paired trigger
-
-
-        pass
 
     async def getResponsesForMessage(self, guild_id: int, content: str) -> list[SentinelDB.SentinelResponse]:
         triggered_suits: list[SentinelDB.SentinelSuit]
@@ -1235,9 +1301,9 @@ class Sentinels(GroupCog, name="s"):
             if len(response.reactions) > 0:
                 for reaction in response.reactions.split(";"):
                     partial_emoji = discord.PartialEmoji.from_str(reaction.strip())
-                    await original_message.add_reaction(partial_emoji)
-
-
+                    try:
+                        await original_message.add_reaction(partial_emoji)
+                    except discord.NotFound: pass
 
 
     @commands.Cog.listener()
@@ -1245,10 +1311,21 @@ class Sentinels(GroupCog, name="s"):
         if message.author.id == self.bot.user.id:
             return
 
-        responses = await self.getResponsesForMessage(message.guild.id, message.content)
-        global_responses = await self.getResponsesForMessage(0, message.content)
-        await self.handleResponses(message, responses)
-        await self.handleResponses(message, global_responses)
+        global_settings = await self.database.fetchSentinelSettings(0)
+        channel_global_disabled = await self.database.getChannelDisabledStatus(0, message.channel.id)
+        guild_settings = await self.database.fetchSentinelSettings(message.guild.id)
+        if guild_settings is None:
+            guild_settings = SentinelDB.SentinelSettings(message.guild.id)
+            await self.database.upsertSentinelSettings(guild_settings)
+        channel_local_disabled = await self.database.getChannelDisabledStatus(message.guild.id, message.channel.id)
+
+        if global_settings.global_enabled and guild_settings.global_enabled and not channel_global_disabled:
+            global_responses = await self.getResponsesForMessage(0, message.content)
+            await self.handleResponses(message, global_responses)
+
+        if global_settings.local_enabled and guild_settings.local_enabled and not channel_local_disabled:
+            responses = await self.getResponsesForMessage(message.guild.id, message.content)
+            await self.handleResponses(message, responses)
 
 
     # @commands.Cog.listener()
@@ -1264,31 +1341,51 @@ class Sentinels(GroupCog, name="s"):
     async def on_raw_reaction_add(self, event: discord.RawReactionActionEvent):
         if event.user_id == self.bot.user.id:
             return
-        responses = await self.getResponsesForReaction(guild_id=event.guild_id, reaction=event.emoji)
-        global_responses = await self.getResponsesForReaction(guild_id=0, reaction=event.emoji)
+        if await self.database.getChannelDisabledStatus(event.guild_id, event.channel_id):
+            return
+
+        global_settings = await self.database.fetchSentinelSettings(0)
+        guild_settings = await self.database.fetchSentinelSettings(event.guild_id)
+        if guild_settings is None:
+            guild_settings = SentinelDB.SentinelSettings(event.guild_id)
+            await self.database.upsertSentinelSettings(guild_settings)
         channel = await self.bot.fetch_channel(event.channel_id)
         message = await channel.fetch_message(event.message_id)
-        await self.handleResponses(message, responses)
-        await self.handleResponses(message, global_responses)
+
+        if global_settings.global_enabled and guild_settings.global_enabled:
+            global_responses = await self.getResponsesForReaction(guild_id=0, reaction=event.emoji)
+            await self.handleResponses(message, global_responses)
+
+        if global_settings.local_enabled and guild_settings.local_enabled:
+            responses = await self.getResponsesForReaction(guild_id=event.guild_id, reaction=event.emoji)
+            await self.handleResponses(message, responses)
 
     @commands.is_owner()
-    @commands.command(name="migrate_sentinels")
+    @commands.group(name="sentinels")
+    async def sentinel(self, ctx: commands.Context):
+        if ctx.invoked_subcommand is None:
+            await asyncio.gather(
+                ctx.message.delete(delay=5),
+                ctx.send("Please specific a valid sentinel command", delete_after=5)
+            )
+
+    @commands.is_owner()
+    @sentinel.command(name="migrate")
     async def migrateCommand(self, ctx):
         await self.migrateData()
-        await ctx.send("Migrated sentinel data")
+        await asyncio.gather(
+            ctx.message.delete(delay=5),
+            ctx.send("Migrated sentinel data", delete_after=5)
+        )
 
     @commands.is_owner()
-    @commands.command(name="gpti")
-    async def getPhraseTriggerIDS(self, ctx: commands.Context, *, message: str):
-        ids = await self.database.getPhraseTriggers(message_content=message)
-        await ctx.send(f"message: {message}, {ids}")
-
-    @commands.is_owner()
-    @commands.command(name="gwti")
-    async def getWordTriggerIDS(self, ctx: commands.Context, *, message: str):
-        ids = await self.database.getWordTriggers(message_content=message)
-        await ctx.send(f"message: {message} : {ids}")
-
+    @sentinel.command(name="clean_responses")
+    async def cleanNoneResponses(self, ctx):
+        await self.database.cleanNoneResponses()
+        await asyncio.gather(
+            ctx.message.delete(delay=5),
+            ctx.send("Removed `'None'` from sentinel response reactions and replaced it with `''`", delete_after=5)
+        )
 
     async def migrateData(self):
         """
@@ -1303,6 +1400,7 @@ class Sentinels(GroupCog, name="s"):
             _trigger = SentinelDB.SentinelTrigger(type=SentinelDB.SentinelTrigger.TriggerType.phrase,
                                                   object=_sentinel_name)
             reactions = ";".join(_sentinel.reactions)
+            if reactions == "None": reactions = ""
             _response = SentinelDB.SentinelResponse(type=SentinelDB.SentinelResponse.ResponseType.reply,
                                                     content=_sentinel.response, reactions=reactions)
             # _uses = SentinelDB.SentinelTriggerUses(guild_id=_guild_id, trigger_object=)
@@ -1341,8 +1439,88 @@ class Sentinels(GroupCog, name="s"):
             # await self.database.insertTriggers(triggers)
             # await self.database.insertResponses(responses)
 
-    def validate_regex(self, regex: str) -> bool:
-        pass
+    @remove_group.command(name="sentinel", description="deletes a sentinel and all its suits")
+    async def remove_sentinel(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform):
+        await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
+        await self.database.deleteSentinel(sentinel)
+        await respond(interaction, f"Removed the Sentinel `{sentinel.name}` and all its Suits")
+
+    @toggle_group.command(name="functionality", description="toggles whether global sentinels will be triggered on this server")
+    @app_commands.default_permissions(manage_guild=True)
+    async def toggle_functionality(self, interaction: Interaction,
+                                   extent: Literal["global", "local", "both"],
+                                   state: Literal["on", "off"]):
+        await respond(interaction)
+        settings = await self.database.fetchSentinelSettings(interaction.guild_id)
+        if settings is None:
+            settings = SentinelDB.SentinelSettings(interaction.guild_id)
+        settings.local_enabled = state == "on" if extent in ["local", "both"] else settings.local_enabled
+        settings.global_enabled = state == "on" if extent in ["global", "both"] else settings.global_enabled
+        await self.database.upsertSentinelSettings(settings)
+        state_str = lambda s: "enabled" if s else "disabled"
+        await respond(interaction, f"Sentinel Functionality Status: global sentinels `{state_str(settings.global_enabled)}` "
+                                   f"- local sentinels `{state_str(settings.local_enabled)}`", delete_after=5)
+
+
+
+    @copy_group.command(name="suit", description="copy a suit's trigger and/or response")
+    async def copy_suit(self, interaction: Interaction, scope: SentinelScope,
+                        sentinel: Sentinel_Transform, suit: Suit_Transform,
+                        fields: Literal["trigger", "response", "both"]="both",
+                        new_sentinel: Sentinel_Transform=None):
+        await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
+        if suit is None: raise SentinelDB.SuitDoesNotExist
+
+        if interaction.namespace.new_sentinel:
+            suit.sentinel_name = interaction.namespace.new_sentinel
+
+        if fields == "trigger":
+            if not suit.trigger_id: raise SentinelDB.SuitHasNoTrigger
+            suit.name += " (trigger copy)"
+            suit.response_id = None
+        elif fields == "response":
+            if not suit.response_id: raise SentinelDB.SuitHasNoResponse
+            suit.name += " (response copy)"
+            suit.trigger_id = None
+        else:
+            suit.name += " (copy)"
+
+        await self.database.insertSuit(suit)
+        await respond(interaction, f"Copied the Suit `{interaction.namespace.suit}` "
+                                   f"as `{suit.name}` on Sentinel `{suit.sentinel_name}`", delete_after=5)
+
+    @move_group.command(name="suit", description="Move a suit from one sentinel to another")
+    async def move_suit(self, interaction: Interaction, scope: SentinelScope,
+                        sentinel: Sentinel_Transform, suit: Suit_Transform,
+                        new_sentinel: Sentinel_Transform,
+                        new_name: Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(sentinel_field="new_sentinel")]=None):
+        await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
+        if suit is None: raise SentinelDB.SuitDoesNotExist
+        if new_name: raise SentinelDB.SuitAlreadyExists
+        await self.database.deleteSuit(suit)
+        suit.sentinel_name = interaction.namespace.new_sentinel
+        suit.name = interaction.namespace.new_name or suit.name
+        # suit.guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        await self.database.insertSuit(suit)
+        await respond(interaction, f"Moved the Suit `{interaction.namespace.suit}` "
+                                   f"as `{suit.name}` to Sentinel `{suit.sentinel_name}`", delete_after=5)
+
+    @move_group.command(name="sentinel", description="Move a sentinel and all its suits to another scope")
+    async def move_sentinel(self, interaction: Interaction,
+                            scope: SentinelScope, sentinel: Sentinel_Transform,
+                            new_scope: SentinelScope,
+                            new_name: Transform[SentinelDB.Sentinel, SentinelTransformer(guild_field="new_scope")]):
+        raise errors.NotImplementedYet
+        await respond(interaction)
+        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
+        if new_name: raise SentinelDB.SentinelAlreadyExists()
+        # "There is already a sentinel with that name, either change the name or merge the suits"
+        # add more advanced moving in the future
+
+
 
     # App Command
     @app_commands.rename(trigger_type="type", trigger_object="object")
@@ -1569,15 +1747,15 @@ class Sentinels(GroupCog, name="s"):
 
     @view_group.command(name="all", description="view all sentinels on a guild")
     async def view_all(self, interaction: Interaction):
-        raise NotImplementedError
+        raise errors.NotImplementedYet
 
     @view_group.command(name="sentinel", description="view all suits in a sentinel")
     async def view_sentinel(self, interaction: Interaction):
-        raise NotImplementedError
+        raise errors.NotImplementedYet
 
     @view_group.command(name="suit", description="view the trigger and response associated with a suit")
     async def view_suit(self, interaction: Interaction):
-        raise NotImplementedError
+        raise errors.NotImplementedYet
 
 
 async def setup(bot):
