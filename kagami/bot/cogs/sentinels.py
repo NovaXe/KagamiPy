@@ -1,3 +1,4 @@
+import asyncio
 import re
 from abc import ABC
 from copy import deepcopy
@@ -1086,7 +1087,7 @@ class SentinelDB(Database):
             """)
             pass
 
-    async def cleanNoneRespones(self):
+    async def cleanNoneResponses(self):
         async with aiosqlite.connect(self.file_path) as db:
             await db.execute("""
             UPDATE SentinelResponse
@@ -1360,30 +1361,31 @@ class Sentinels(GroupCog, name="s"):
             await self.handleResponses(message, responses)
 
     @commands.is_owner()
-    @commands.command(name="migrate_sentinels")
+    @commands.group(name="sentinels")
+    async def sentinel(self, ctx: commands.Context):
+        if ctx.invoked_subcommand is None:
+            await asyncio.gather(
+                ctx.message.delete(delay=5),
+                ctx.send("Please specific a valid sentinel command", delete_after=5)
+            )
+
+    @commands.is_owner()
+    @sentinel.command(name="migrate")
     async def migrateCommand(self, ctx):
         await self.migrateData()
-        await ctx.send("Migrated sentinel data")
+        await asyncio.gather(
+            ctx.message.delete(delay=5),
+            ctx.send("Migrated sentinel data", delete_after=5)
+        )
 
     @commands.is_owner()
-    @commands.command(name="clean_responses")
-    async def cleanNoneRespones(self, ctx):
-        await self.database.cleanNoneRespones()
-        await ctx.send("Removed `'None'` from sentinel response reactions and replaced it with `''`")
-
-    @commands.is_owner()
-    @commands.command(name="gpti")
-    async def getPhraseTriggerIDS(self, ctx: commands.Context, *, message: str):
-        ids = await self.database.getPhraseTriggers(message_content=message)
-        await ctx.send(f"message: {message}, {ids}")
-
-    @commands.is_owner()
-    @commands.command(name="gwti")
-    async def getWordTriggerIDS(self, ctx: commands.Context, *, message: str):
-        ids = await self.database.getWordTriggers(message_content=message)
-        await ctx.send(f"message: {message} : {ids}")
-
-
+    @sentinel.command(name="clean_responses")
+    async def cleanNoneResponses(self, ctx):
+        await self.database.cleanNoneResponses()
+        await asyncio.gather(
+            ctx.message.delete(delay=5),
+            ctx.send("Removed `'None'` from sentinel response reactions and replaced it with `''`", delete_after=5)
+        )
 
     async def migrateData(self):
         """
@@ -1511,7 +1513,7 @@ class Sentinels(GroupCog, name="s"):
                             scope: SentinelScope, sentinel: Sentinel_Transform,
                             new_scope: SentinelScope,
                             new_name: Transform[SentinelDB.Sentinel, SentinelTransformer(guild_field="new_scope")]):
-        raise errors.CustomCheck("Not Implemented yet")
+        raise errors.NotImplementedYet
         await respond(interaction)
         if sentinel is None: raise SentinelDB.SentinelDoesNotExist
         if new_name: raise SentinelDB.SentinelAlreadyExists()
@@ -1745,15 +1747,15 @@ class Sentinels(GroupCog, name="s"):
 
     @view_group.command(name="all", description="view all sentinels on a guild")
     async def view_all(self, interaction: Interaction):
-        raise NotImplementedError
+        raise errors.NotImplementedYet
 
     @view_group.command(name="sentinel", description="view all suits in a sentinel")
     async def view_sentinel(self, interaction: Interaction):
-        raise NotImplementedError
+        raise errors.NotImplementedYet
 
     @view_group.command(name="suit", description="view the trigger and response associated with a suit")
     async def view_suit(self, interaction: Interaction):
-        raise NotImplementedError
+        raise errors.NotImplementedYet
 
 
 async def setup(bot):
