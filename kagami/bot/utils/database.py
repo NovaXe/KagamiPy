@@ -77,7 +77,8 @@ class Database:
                 else:
                     break
             if len(query_results) == len(query_names):
-                batches[row_class.__class__.__name__] = tuple(query_results)
+                class_name = row_class.__name__
+                batches[class_name] = tuple(query_results)
         return batches
 
     @dataclass
