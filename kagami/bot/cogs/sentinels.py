@@ -45,6 +45,18 @@ class SentinelDB(Database):
             DROP_TABLE = """
             DROP TABLE IF EXISTS SentinelSettings
             """
+            CREATE_TEMP_TABLE = """
+            CREATE TEMPORARY TABLE temp_sentinel_settings AS
+            SELECT * FROM SentinelSettings
+            """
+            INSERT_FROM_TEMP_TABLE = """
+            INSERT INTO SentinelSettings(guild_id, name, enabled)
+            SELECT guild_id, name, enabled 
+            FROM temp_sentinel_settings
+            """
+            DROP_TEMP_TABLE = """
+            DROP TABLE IF EXISTS temp_sentinel_settings
+            """
             TRIGGER_BEFORE_INSERT_GUILD = """
             CREATE TRIGGER IF NOT EXISTS SentinelSettings_insert_guild_before_insert
             BEFORE INSERT ON SentinelSettings
