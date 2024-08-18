@@ -50,8 +50,8 @@ class SentinelDB(Database):
             SELECT * FROM SentinelSettings
             """
             INSERT_FROM_TEMP_TABLE = """
-            INSERT INTO SentinelSettings(guild_id, name, enabled)
-            SELECT guild_id, name, enabled 
+            INSERT INTO SentinelSettings(guild_id)
+            SELECT guild_id
             FROM temp_sentinel_settings
             """
             DROP_TEMP_TABLE = """
