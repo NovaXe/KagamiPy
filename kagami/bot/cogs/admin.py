@@ -93,7 +93,17 @@ class Admin(commands.Cog):
         self.bot.newLoadData()
         await ctx.send("Loaded data from file")
 
+    @commands.command(name="clear_global", description="clears the global command tree")
+    @commands.is_owner()
+    async def clear_global(self, ctx: commands.Context):
+        self.bot.tree.clear_commands(guild=None)
+        await ctx.send("Cleared the global command tree, the tree needs to be synced")
 
+    @commands.command(name="clear_local", description="clears the local command tree")
+    @commands.is_owner()
+    async def clear_local(self, ctx: commands.Context):
+        self.bot.tree.clear_commands(guild=ctx.guild)
+        await ctx.send("Cleared the local command tree, the tree needs to be synced")
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
