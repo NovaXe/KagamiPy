@@ -1,3 +1,4 @@
+import asyncio
 import json
 from dataclasses import dataclass
 import aiosqlite
@@ -334,7 +335,16 @@ class Tags(GroupCog, group_name="t"):
     # ignored_key_values: list = ['content', 'attachments']
 
     @commands.is_owner()
-    @commands.command(name="migrate_tags")
+    @commands.group(name="tags")
+    async def tags(self, ctx: commands.Context):
+        if ctx.invoked_subcommand is None:
+            await asyncio.gather(
+                ctx.message.delete(delay=5),
+                ctx.send("Please specify a valid tag command", delete_after=5)
+            )
+
+    @commands.is_owner()
+    @tags.command(name="migrate")
     async def migrateCommand(self, ctx):
         await self.migrateTagData()
         await ctx.send("migrated tags probably")
