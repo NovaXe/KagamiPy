@@ -30,7 +30,7 @@ class SentinelDB(Database):
     class SentinelSettings(Database.Row):
         guild_id: int
         local_enabled: bool = True
-        global_enabled: bool = True
+        global_enabled: bool = False
         class Queries:
             CREATE_TABLE = """
             CREATE TABLE IF NOT EXISTS SentinelSettings(
@@ -1223,7 +1223,7 @@ async def responseSanitizer(response_type: SentinelDB.SentinelResponse.ResponseT
                             reactions: str) -> tuple[SentinelDB.SentinelResponse.ResponseType, str, str]:
     raise NotImplementedError
 
-
+@app_commands.default_permissions(manage_emojis_and_stickers=True)
 class Sentinels(GroupCog, name="s"):
     def __init__(self, bot: Kagami):
         self.bot: Kagami = bot
@@ -1459,7 +1459,7 @@ class Sentinels(GroupCog, name="s"):
         await respond(interaction, f"Removed the Sentinel `{sentinel.name}` and all its Suits")
 
     @toggle_group.command(name="functionality", description="toggles whether global sentinels will be triggered on this server")
-    @app_commands.default_permissions(manage_guild=True)
+    # @commands.has_permissions(manage_guild=True)
     async def toggle_functionality(self, interaction: Interaction,
                                    extent: Literal["global", "local", "both"],
                                    state: Literal["on", "off"]):
@@ -1666,6 +1666,7 @@ class Sentinels(GroupCog, name="s"):
 
 
     @toggle_group.command(name="suit", description="toggle an individual suit")
+    # @commands.has_permissions(manage_guild=True)
     async def toggle_suit(self, interaction: Interaction, scope: SentinelScope,
                           sentinel: Sentinel_Transform, suit: Suit_Transform):
         await respond(interaction)
@@ -1676,6 +1677,7 @@ class Sentinels(GroupCog, name="s"):
         await respond(interaction, f"The suit `{suit.name}` on sentinel `{sentinel.name}` is now `{state}`")
 
     @toggle_group.command(name="sentinel", description="toggle an entire sentinel")
+    # @commands.has_permissions(manage_guild=True)
     async def toggle_sentinel(self, interaction: Interaction, scope: SentinelScope,
                               sentinel: Sentinel_Transform):
         await respond(interaction)
@@ -1694,8 +1696,7 @@ class Sentinels(GroupCog, name="s"):
         return options
 
     @toggle_group.command(name="channel", description="toggle all sentinels for a channel")
-    # @app_commands.rename(channel_id="channel")
-    # @autocomplete(channel_id=channel_autocomplete)
+    # @commands.has_permissions(manage_channels=True)
     async def toggle_channel(self, interaction: Interaction, channel: discord.TextChannel | discord.VoiceChannel=None, state: Literal["Enabled", "Disabled"]="Disabled", extent: Literal["all", "local", "global"]="all"):
         await respond(interaction)
         if channel is None:
@@ -1721,6 +1722,7 @@ class Sentinels(GroupCog, name="s"):
             await respond(interaction, content=f"Local and Global sentinels are now `{state_str}` in `{channel.name}`")
 
     @enable_group.command(name="channel", description="enable all sentinels for a channel")
+    # @commands.has_permissions(manage_channels=True)
     async def enable_channel(self, interaction: Interaction, channel: discord.TextChannel | discord.VoiceChannel=None, extent: Literal["all", "local", "global"]="all"):
         await respond(interaction)
         if channel is None:
@@ -1738,6 +1740,7 @@ class Sentinels(GroupCog, name="s"):
             await respond(interaction, content=f"Local and Global sentinels are now `enabled` in `{channel.name}`")
 
     @disable_group.command(name="channel", description="enable all sentinels for a channel")
+    # @commands.has_permissions(manage_channels=True)
     async def disable_channel(self, interaction: Interaction,
                               channel: discord.TextChannel | discord.VoiceChannel = None,
                               extent: Literal["all", "local", "global"] = "all"):

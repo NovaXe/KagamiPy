@@ -1,9 +1,12 @@
+import asyncio
 import json
 import logging
 import os
 import sys
 import aiosqlite
 import wavelink
+from discord.ext.commands import Context
+from discord.ext.commands._types import BotT
 from discord.utils import MISSING
 from wavelink.ext import spotify
 from bot.utils import database
@@ -278,6 +281,18 @@ class Kagami(commands.Bot):
         pass
         # guild = self.database.Guild.fromDiscord(interaction.guild)
         # await self.database.upsertGuild(guild)
+
+    async def on_command_error(self, context: Context | Interaction, exception: commands.CommandError, /) -> None:
+        await super().on_command_error(context, exception)
+        if isinstance(exception, commands.MissingPermissions):
+            if isinstance(context, Interaction):
+                await context.response.send_message("You don't have the necessary permissions to use this command",
+                                                    ephemeral=True)
+            else:
+                await asyncio.gather(
+                    context.message.delete(delay=5),
+                    context.send("You don't have the necessary permissions to use this command", delete_after=5)
+                )
 
 
     async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:
