@@ -1242,6 +1242,9 @@ class Sentinels(GroupCog, name="s"):
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         return True
 
+    # @app_commands(name="add", description="commands for adding sentinel components")
+    # async def add_group(self, interaction: Interaction):
+    #     pass
     add_group = Group(name="add", description="commands for adding sentinel components")
     remove_group = Group(name="remove", description="commands for removing sentinel components")
     edit_group = Group(name="edit", description="commands for editing sentinel components")

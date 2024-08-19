@@ -3,7 +3,7 @@ import sqlite3
 import typing
 
 import aiosqlite
-from dataclasses import dataclass, asdict, astuple
+from dataclasses import dataclass, asdict, astuple, fields
 from enum import Enum, Flag, IntFlag, auto
 import discord
 
@@ -101,6 +101,11 @@ class Database:
                 if isinstance(obj, str) and name.lower().startswith("trigger"):
                     queries += [obj]
             return queries
+
+        @classmethod
+        def get_columns(cls):
+            """returns a list of all table columns in the order they're defined"""
+            return [field.name for field in fields(cls)]
 
         @classmethod
         def has_query(cls, field_name: str):
@@ -333,4 +338,20 @@ class InfoDB(Database):
             deleted_settings = await db.execute_fetchall(Database.GuildSettings.Queries.DELETE, (guild_id,))
             await db.commit()
             return deleted_settings
+
+
+class AccessDB(Database):
+    @dataclass
+    class KnownRoles(Database.Row):
+        guild_id: int
+        alias: str # group/sub_command_group/command
+        role_id: int
+
+        class Queries:
+            __table_name = (lambda: AccessDB.KnownRoles.__name__)()
+            __table_columns = ",".join((lambda: AccessDB.KnownRoles.get_columns())())
+            CREATE_TABLE = f"""
+            CREATE TABLE IF NOT EXISTS {__table_name}({__table_columns})
+            """
+
 
