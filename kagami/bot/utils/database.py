@@ -334,3 +334,64 @@ class InfoDB(Database):
             await db.commit()
             return deleted_settings
 
+
+
+class Table:
+    __registry_class__: type["Registry"] = None # forward declaration resolved after Registry class
+    __tablename__: str
+    __create_query__: str
+    __triggers__: list[str]
+
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        await db.execute(f"CREATE TABLE IF NOT EXISTS {cls.__tablename__}(rowid INTEGER PRIMARY KEY)")
+
+    @classmethod
+    async def drop_table(cls, db: aiosqlite.Connection):
+        await db.execute(f"DROP TABLE IF EXISTS {cls.__tablename__}")
+
+    @classmethod
+    async def update_schema(cls, db: aiosqlite.Connection):
+        await db.execute(f"CREATE TABLE IF NOT EXISTS temp_{cls.__tablename__} AS SELECT * FROM {cls.__tablename__}")
+        await cls.drop_table(db)
+        await cls.create_table(db)
+        await db.execute(f"INSERT INTO {cls.__tablename__} SELECT * FROM temp_{cls.__tablename__}")
+        await db.execute(f"DROP TABLE IF EXISTS temp_{cls.__tablename__}")
+
+    @classmethod
+    async def create_triggers(cls, db: aiosqlite.Connection):
+        for trigger in cls.__triggers__:
+            await db.execute(trigger)
+
+
+class Registry:
+    __table_class__: type["Table"] = None # forward declaration resolved after class
+    tables: dict[str, type[__table_class__]] = {}
+    @classmethod
+    def register_table(cls, table: type[__table_class__]):
+        cls.tables[table.__name__] = table
+
+    @classmethod
+    async def create_tables(cls, db: aiosqlite.Connection):
+        for tablename, tableclass in cls.tables.items():
+            await tableclass.create_table(db)
+
+    @classmethod
+    async def create_triggers(cls, db: aiosqlite.Connection):
+        for tablename, tableclass in cls.tables.items():
+            await tableclass.create_triggers(db)
+
+
+Table.__registry_class__ = Registry
+Registry.__table_class__ = Table
+
+class DatabaseManager:
+    __registry_class__: type[Registry] = Registry
+    def __init__(self, db_path: str):
+        self.file_path = db_path
+
+    async def setup(self):
+        async with aiosqlite.connect(self.file_path) as db:
+            await self.__registry_class__.create_tables(db)
+            await db.commit()
+
