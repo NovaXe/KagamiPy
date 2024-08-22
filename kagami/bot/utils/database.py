@@ -305,7 +305,7 @@ class InfoDB(Database):
 
     async def upsertGuilds(self, guilds: list[Guild]) -> list[Guild]:
         async with aiosqlite.connect(self.file_path) as db:
-            db.row_factory = Database.Guild.rowFactory
+            db.row_factory = Database.Guild.row_factory
             guilds: list[Database.Guild] = await db.executemany(Database.Guild.Queries.UPSERT, guilds)
             await db.commit()
         return guilds
@@ -319,7 +319,7 @@ class InfoDB(Database):
 
     async def fetchGuild(self, guild_id: int) -> Guild:
         async with aiosqlite.connect(self.file_path) as db:
-            db.row_factory = Database.Guild.rowFactory
+            db.row_factory = Database.Guild.row_factory
             guild: Database.Guild = await db.execute_fetchall(Database.Guild.Queries.SELECT, (guild_id,))
             await db.commit()
             return guild
@@ -409,7 +409,12 @@ class TableNameError(ValueError):
 
 @dataclass
 class Table(metaclass=TableMeta, table_registry=None):
-
+    # def __init__(self, *args, **kwargs): pass
+    @classmethod
+    def _row_factory(cls, cur: aiosqlite.Cursor, row: tuple):
+        """Instantiates the dataclass from a row in the SQL table"""
+        return cls(**{col[0]: row[idx] for idx, col in enumerate(cur.description)})
+    row_factory = _row_factory
     # @property
     # @classmethod
     # def __tablename__(cls: type["Table"]) -> str:
@@ -435,12 +440,33 @@ class Table(metaclass=TableMeta, table_registry=None):
         await db.execute(f"DROP TABLE IF EXISTS {cls.__tablename__}")
 
     @classmethod
+    async def create_temp_copy(cls, db: aiosqlite.Connection):
+        await db.execute(f"CREATE TABLE temp_{cls.__tablename__} "
+                         f"AS SELECT * FROM {cls.__tablename__}")
+
+    @classmethod
+    async def insert_from_temp(cls, db: aiosqlite.Connection):
+        """
+        Depending on what has changed in the schema this may need an override
+        """
+        await db.execute(f"INSERT INTO {cls.__tablename__} "
+                         f"SELECT * FROM temp_{cls.__tablename__}")
+
+    @classmethod
+    async def drop_temp(cls, db: aiosqlite.Connection):
+        await db.execute(f"DROP TABLE IF EXISTS temp_{cls.__tablename__}")
+
+
+    @classmethod
     async def update_schema(cls, db: aiosqlite.Connection):
-        await db.execute(f"CREATE TABLE IF NOT EXISTS temp_{cls.__tablename__} AS SELECT * FROM {cls.__tablename__}")
+        """
+        Override if a custom set of steps is needed
+        """
+        await cls.create_temp_copy(db)
         await cls.drop_table(db)
         await cls.create_table(db)
-        await db.execute(f"INSERT INTO {cls.__tablename__} SELECT * FROM temp_{cls.__tablename__}")
-        await db.execute(f"DROP TABLE IF EXISTS temp_{cls.__tablename__}")
+        await cls.insert_from_temp(db)
+        await cls.drop_temp(db)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -464,8 +490,36 @@ class Table(metaclass=TableMeta, table_registry=None):
         query = f"INSERT INTO {self.__tablename__} VALUES ({placeholders})"
         await db.execute(query, self.astuple())
 
-    async def delete(self, db: aiosqlite.Connection):
-        pass
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, *args, **kwargs) -> "Table":
+        """
+        Override to select a row from the table, returning an instance of the Table as the row
+        """
+        raise NotImplementedError("Subclasses need to implement this method")
+
+    async def select(self, db: aiosqlite.Connection) -> "Table":
+        """
+        Selects a row from the table using a table instance for key values.
+        Override to add functionality
+        """
+        raise NotImplementedError("Subclasses need to implement this method")
+        # return None
+
+    # noinspection PyMethodParameters
+    @classmethod
+    async def deleteWhere(cls, db: aiosqlite.Connection, *args, **kwargs) -> "Table":
+        """
+        Override to delete a row from the table, returning an instance of the Table as the deleted row
+        """
+        raise NotImplementedError("Subclasses need to implement this method")
+
+
+    async def delete(self, db: aiosqlite.Connection) -> "Table":
+        """
+        Deletes a row from the table using a table instance for key values.
+        Override to add functionality
+        """
+        raise NotImplementedError("Subclasses need to implement this method")
 
 
 class ManagerMeta(type):

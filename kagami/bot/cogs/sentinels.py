@@ -18,11 +18,532 @@ from bot.kagami_bot import Kagami
 from bot.utils.bot_data import Server, OldSentinel
 from bot.utils.interactions import respond
 from bot.utils.ui import MessageScroller
-from bot.utils.database import Database, InfoDB
+from bot.utils.database import Database, InfoDB, Table, TableRegistry, DatabaseManager
 from bot.utils.pages import createPageList, createPageInfoText, CustomRepr
 from typing import (
-    Literal, Union, List, Any
+    Literal, Union, List, Any, override, Self
 )
+
+@dataclass
+class SentinelSettings(Table):
+    guild_id: int
+    local_enabled: bool = True
+    global_enabled: bool = False
+
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = """
+        CREATE TABLE IF NOT EXISTS SentinelSettings(
+            guild_id INTEGER NOT NULL,
+            local_enabled INTEGER DEFAULT 1,
+            global_enabled INTEGER DEFAULT 0,
+            PRIMARY KEY(guild_id),
+            FOREIGN KEY(guild_id) REFERENCES GUILD(id)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        )
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def insert_from_temp(cls, db: aiosqlite.Connection):
+        query = """
+            INSERT INTO SentinelSettings(guild_id)
+            SELECT guild_id
+            FROM temp_sentinel_settings
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def create_triggers(cls, db: aiosqlite.Connection):
+        triggers = [
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {cls.__tablename__}_insert_guild_before_insert
+            BEFORE INSERT ON {cls.__tablename__}
+            BEGIN
+                INSERT INTO Guild(id)
+                VALUES (NEW.guild_id)
+                ON CONFLICT(id) DO NOTHING;
+            END;
+            """, f"""
+            CREATE TRIGGER IF NOT EXISTS {cls.__tablename__}_set_global_defaults
+            AFTER INSERT ON {cls.__tablename__}
+            FOR EACH ROW
+            WHEN NEW.guild_id = 0
+            BEGIN
+                UPDATE {cls.__tablename__}
+                SET global_enabled = 1
+                WHERE rowid = NEW.rowid;
+            END;
+            """
+        ]
+        for trigger in triggers:
+            await db.execute(trigger)
+
+    async def upsert(self, db: aiosqlite.Connection) -> "SentinelSettings":
+        query = f"""
+        INSERT INTO {self.__tablename__}(guild_id, local_enabled, global_enabled)
+        VALUES(:guild_id, :local_enabled, :global_enabled)
+        ON CONFLICT (guild_id)
+        DO UPDATE SET 
+            local_enabled = :local_enabled,
+            global_enabled = :global_enabled
+        RETURNING *
+        """
+        db.row_factory = self.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int):
+        query = f"""
+        SELECT * FROM {cls.__tablename__}
+        WHERE guild_id = ?
+        """
+        db.row_factory = cls.row_factory
+        async with db.execute(query, guild_id) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "SentinelSettings":
+        db.row_factory = cls.row_factory
+        query = """
+        DELETE FROM SentinelSettings
+        WHERE guild_id = ?
+        RETURNING *
+        """
+        async with db.execute(query, guild_id) as cur:
+            result = await cur.fetchone()
+        return result
+
+
+@dataclass
+class Sentinel(Table):
+    guild_id: int
+    name: str
+    uses: int
+    enabled: bool = True
+
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {cls.__tablename__}(
+        guild_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        uses INTEGER DEFAULT 0,
+        enabled INTEGER DEFAULT 1,
+        PRIMARY KEY(guild_id, name),
+        FOREIGN KEY(guild_id) REFERENCES {SentinelSettings.__tablename__}(guild_id) 
+            ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        )
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def insert_from_temp(cls, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {cls.__tablename__}(guild_id, name, enabled)
+        SELECT guild_id, name, enabled 
+        FROM temp_{cls.__tablename__}
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def create_triggers(cls, db: aiosqlite.Connection):
+        trigger = f"""
+        CREATE TRIGGER IF NOT EXISTS {cls.__tablename__}_insert_settings_before_insert
+        BEFORE INSERT ON {cls.__tablename__}
+        BEGIN
+            INSERT INTO {SentinelSettings.__tablename__}(guild_id)
+            VALUES (NEW.guild_id)
+            ON CONFLICT(guild_id) DO NOTHING;
+        END;
+        """
+        await db.execute(trigger)
+
+    async def insert(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT OR IGNORE INTO {self.__tablename__}(guild_id, name)
+        VALUES(:guild_id, :name)
+        """
+        await db.execute(query, self.asdict())
+
+    @classmethod
+    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Sentinel":
+        query = f"""
+        DELETE FROM {cls.__tablename__}
+        WHERE guild_id = ? AND name = ?
+        RETURNING *
+        """
+        db.row_factory = cls.row_factory
+        async with db.execute(query, (guild_id, name)) as cur:
+            result = await cur.fetchone()
+        return result
+
+    async def delete(self, db: aiosqlite.Connection) -> "Sentinel":
+        query = f"""
+        DELETE FROM {self.__tablename__}
+        WHERE guild_id = :guild_id AND name = :name
+        RETURNING *
+        """
+        db.row_factory = self.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Sentinel":
+        query = f"""
+        SELECT * FROM {cls.__tablename__}
+        WHERE guild_id = ? AND name = ?
+        """
+        async with db.execute(query, (guild_id, name)) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def selectLikeNamesWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str, limit: int=None, offset: int=0):
+        query = f"""
+        SELECT name FROM {cls.__tablename__}
+        WHERE (guild_id = ?) AND (name LIKE ?)
+        LIMIT ? OFFSET ?
+        """
+        db.row_factory = cls.row_factory
+        async with db.execute(query, (guild_id, name, limit, offset)) as cur:
+            results = await cur.fetchall()
+        return results
+
+
+    @classmethod
+    async def toggleWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str):
+        query = f"""
+        UPDATE {cls.__tablename__}
+        SET
+            enabled = NOT enabled
+        WHERE
+            guild_id = ? AND
+            name = ?
+        RETURNING *
+        """
+        async with db.execute(query, (guild_id, name)) as cur:
+            result = await cur.fetchone()
+        return result
+
+@dataclass
+class DisabledSentinelChannels(Table):
+    guild_id: int
+    channel_id: int
+
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {cls.__tablename__}(
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            PRIMARY KEY(guild_id, channel_id),
+            FOREIGN KEY(guild_id) REFERENCES {SentinelSettings.__tablename__}(guild_id)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        )
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def insert_from_temp(cls, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {cls.__tablename__}(guild_id, channel_id)
+        SELECT guild_id, channel_id
+        FROM temp_{cls.__tablename__}
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def create_triggers(cls, db: aiosqlite.Connection):
+        trigger = f"""
+        CREATE TRIGGER IF NOT EXISTS {cls.__tablename__}_insert_settings_before_insert
+        BEFORE INSERT ON {cls.__tablename__}
+        BEGIN
+            INSERT INTO {SentinelSettings.__tablename__}(guild_id)
+            VALUES (NEW.guild_id)
+            ON CONFLICT(guild_id) DO NOTHING;
+        END;
+        """
+
+    async def insert(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT OR IGNORE INTO {self.__tablename__}(guild_id, channel_id)
+            VALUES(:guild_id, :channel_id)
+        """
+        await db.execute(query, self.asdict())
+
+    @classmethod
+    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> "Table":
+        params = {"guild_id": guild_id, "channel_id": channel_id}
+        query = f"""
+        DELETE FROM {cls.__tablename__}
+        WHERE guild_id = :guild_id AND channel_id = :channel_id
+        RETURNING *
+        """
+        async with db.execute(query, params) as cur:
+            result = await cur.fetchone()
+        return result
+
+    async def delete(self, db: aiosqlite.Connection) -> "Table":
+        query = f"""
+                DELETE FROM {self.__tablename__}
+                WHERE guild_id = :guild_id AND channel_id = :channel_id
+                RETURNING *
+                """
+        async with db.execute(query, self.asdict()) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def toggleWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int):
+        params = {"guild_id": guild_id, "channel_id": channel_id}
+        query = f"""
+        SELECT CASE WHEN EXISTS (
+                SELECT 1 FROM DisabledSentinelChannels WHERE 
+                    guild_id = :guild_id AND channel_id = :channel_id
+            ) THEN
+            DELETE FROM {cls.__tablename__}
+            WHERE guild_id = :guild_id AND channel_id = :channel_id
+        ELSE
+            INSERT OR IGNORE INTO {cls.__tablename__}(guild_id, channel_id)
+            VALUES(:guild_id, :channel_id)
+        END;
+        """
+        await db.execute(query, params)
+
+
+    @classmethod
+    async def selectExists(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int):
+        params = {"guild_id": guild_id, "channel_id": channel_id}
+        query = f"""
+        SELECT CASE WHEN EXISTS (
+            SELECT 1 FROM {cls.__tablename__}
+            WHERE
+                guild_id = :guild_id AND channel_id = :channel_id
+        )
+        THEN 1
+        ELSE 0
+        END;
+        """
+        async with db.execute(query, params) as cur:
+            result = await cur.fetchone()
+        return result[0]
+
+@dataclass
+class SentinelTrigger(Table):
+    class TriggerType(IntEnum):
+        word = 1  # in message split by spaces
+        phrase = 2  # in message as string
+        regex = 3  # regex matching
+        reaction = 4  # triggers on a reaction
+
+    type: TriggerType
+    object: str
+    id: int = None
+
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {cls.__tablename__}(
+            id INTEGER NOT NULL,
+            type INTEGER NOT NULL,
+            object TEXT NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE (type, object) 
+        )
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def selectID(cls, db: aiosqlite.Connection, trigger_type: TriggerType, trigger_object: str) -> int:
+        query = f"""
+        SELECT id FROM {cls.__tablename__}
+        WHERE type = ? AND object = ?
+        """
+        async with db.execute(query, (trigger_type, trigger_object)) as cur:
+            result = await cur.fetchone()
+        if result: result = result[0]
+        return result
+
+    async def insert(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {self.__tablename__}(type, object)
+        VALUES (:type, :object)
+        ON CONFLICT(type, object) DO NOTHING
+        RETURNING id
+        """
+        async with db.execute(query, self.asdict()) as cur:
+            result = await cur.fetchone()
+
+        if not result:
+            result = await SentinelTrigger.selectID(db, self.type, self.object)
+
+        return result[0]
+
+    async def delete(self, db: aiosqlite.Connection) -> "Table":
+        query = f"""
+        DELETE FROM {self.__tablename__}
+        WHERE id = ?
+        RETURNING *
+        """
+        db.row_factory = self.row_factory
+        async with db.execute(query, self.id) as cur:
+            result = await cur.fetchone()
+        return result
+
+
+@dataclass
+class SentinelResponse(Table):
+    class ResponseType(IntEnum):
+        message = 1
+        reply = 2
+    type: ResponseType
+    content: str
+    reactions: str
+    id: int = None
+
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {cls.__tablename__}(
+            id INTEGER NOT NULL,
+            type INTEGER NOT NULL,
+            content TEXT,
+            reactions TEXT,
+            PRIMARY KEY (id),
+            UNIQUE (type, content, reactions)
+        )
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def selectID(cls, db: aiosqlite.Connection, response_type: ResponseType, content: str, reactions: str) -> int:
+        query = f"""
+        SELECT id FROM {cls.__tablename__}
+        WHERE type = ? AND content = ? AND reactions = ?
+        """
+        async with db.execute(query, (response_type, content, reactions)) as cur:
+            result = await cur.fetchone()
+        if result: result = result[0]
+        return result
+
+    async def insert(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {self.__tablename__}(type, content, reactions)
+        VALUES (:type, :content, :reactions)
+        ON CONFLICT(type, content, reactions) DO NOTHING
+        RETURNING id
+        """
+        async with db.execute(query, self.asdict()) as cur:
+            result = await cur.fetchone()
+
+        if not result:
+            result = await SentinelResponse.selectID(db, self.type, self.content, self.reactions)
+
+        return result[0]
+
+@dataclass
+class SentinelSuit(Table):
+    guild_id: int
+    sentinel_name: str
+    name: str
+    weight: int = 100
+    trigger_id: int = None
+    response_id: int = None
+    enabled: bool = True
+
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {SentinelSuit.__tablename__}(
+            guild_id INTEGER NOT NULL,
+            sentinel_name TEXT NOT NULL,
+            name TEXT NOT NULL,
+            weight INTEGER NOT NULL ON CONFLICT REPLACE DEFAULT 10,
+            trigger_id INTEGER DEFAULT NULL,
+            response_id INTEGER DEFAULT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (guild_id, sentinel_name, name),
+            FOREIGN KEY (guild_id, sentinel_name) REFERENCES {Sentinel.__tablename__}(guild_id, name)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            FOREIGN KEY (trigger_id) REFERENCES {SentinelTrigger.__tablename__}(id)
+                ON UPDATE RESTRICT ON DELETE SET NULL,
+            FOREIGN KEY (response_id) REFERENCES {SentinelResponse.__tablename__}(id)
+                ON UPDATE RESTRICT ON DELETE SET NULL
+        )
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def insert_from_temp(cls, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {SentinelSuit.__tablename__}(guild_id, sentinel_name, name, weight, trigger_id, response_id)
+        SELECT guild_id, sentinel_name, name, weight, trigger_id, response_id
+        FROM temp_{SentinelSuit.__tablename__}
+        """
+
+    @classmethod
+    async def create_triggers(cls, db: aiosqlite.Connection):
+        triggers = [
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit.__tablename__}_insert_sentinel_before_insert
+            BEFORE INSERT ON {SentinelSuit.__tablename__}
+            BEGIN
+                INSERT INTO {Sentinel.__tablename__}(guild_id, name)
+                VALUES (NEW.guild_id, NEW.sentinel_name)
+                ON CONFLICT(guild_id, name) DO NOTHING;
+            END
+            """, f"""
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit.__tablename__}_delete_trigger_after_update
+            AFTER UPDATE OF trigger_id on {SentinelSuit.__tablename__}
+            WHEN (SELECT COUNT(*) FROM {SentinelSuit.__tablename__} WHERE trigger_id = OLD.trigger_id) = 0 
+            BEGIN
+                DELETE FROM {SentinelTrigger.__tablename__}
+                WHERE id = OLD.trigger_id;
+            END
+            """, f"""
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit.__tablename__}_delete_response_after_update
+            AFTER UPDATE OF response_id on {SentinelSuit.__tablename__}
+            WHEN (SELECT COUNT(*) FROM {SentinelSuit.__tablename__} WHERE response_id = OLD.response_id) = 0 
+            BEGIN
+                DELETE FROM {SentinelResponse.__tablename__}
+                WHERE id = OLD.response_id;
+            END
+            """, f"""
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_after_update
+            AFTER UPDATE ON {SentinelSuit.__tablename__}
+            WHEN NEW.trigger_id IS NULL AND NEW.response_id IS NULL
+            BEGIN
+                DELETE FROM {SentinelSuit.__tablename__}
+                WHERE guild_id = OLD.guild_id AND name = OLD.name AND sentinel_name = OLD.sentinel_name;
+            END
+            """, f"""
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit.__tablename__}_delete_trigger_after_delete
+            AFTER DELETE ON {SentinelSuit.__tablename__}
+            WHEN (SELECT COUNT(*) FROM {SentinelSuit.__tablename__} WHERE trigger_id = OLD.trigger_id) = 0
+            BEGIN
+                DELETE FROM {SentinelTrigger.__tablename__}
+                WHERE id = OLD.trigger_id;
+            END
+            """, f"""
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit.__tablename__}_delete_response_after_delete
+            AFTER DELETE ON {SentinelSuit.__tablename__}
+            WHEN (SELECT COUNT(*) FROM {SentinelSuit.__tablename__} WHERE response_id = OLD.response_id) = 0
+            BEGIN
+                DELETE FROM {SentinelResponse.__tablename__}
+                WHERE id = OLD.response_id;
+            END
+            """
+        ]
+
+
+
+
+
 
 
 class SentinelDB(Database):

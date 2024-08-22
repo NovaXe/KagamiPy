@@ -51,7 +51,7 @@ class TagDB(Database):
             END
             """
             UPSERT = """
-            INSERT INTO MusicSettings (guild_id, tags_enabled)
+            INSERT INTO TagSettings (guild_id, tags_enabled)
             VALUES(:guild_id, :tags_enabled)
             ON CONFLICT (guild_id)
             DO UPDATE SET tags_enabled = :tags_enabled
