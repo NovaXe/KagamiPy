@@ -1,9 +1,11 @@
 import abc
+import re
 import sqlite3
 import typing
+import warnings
 
 import aiosqlite
-from dataclasses import dataclass, asdict, astuple
+from dataclasses import dataclass, asdict, astuple, fields
 from enum import Enum, Flag, IntFlag, auto
 import discord
 
@@ -335,12 +337,94 @@ class InfoDB(Database):
             return deleted_settings
 
 
+class TableRegistry:
+    # __table_class__: type["Table"] # forward declaration resolved after class
+    TableType = type["Table"]
+    tables: dict[str, TableType] = {}
+    @classmethod
+    def register_table(cls, table: type["Table"]):
+        cls.tables[table.__name__] = table
 
-class Table:
-    __registry_class__: type["Registry"] = None # forward declaration resolved after Registry class
-    __tablename__: str
-    __create_query__: str
-    __triggers__: list[str]
+    @classmethod
+    def get_table(cls, tablename: str) -> TableType:
+        return cls.tables.get(tablename, None)
+
+    @classmethod
+    async def create_tables(cls, db: aiosqlite.Connection):
+        for tablename, tableclass in cls.tables.items():
+            await tableclass.create_table(db)
+
+    @classmethod
+    async def drop_tables(cls, db: aiosqlite.Connection):
+        for tablename, tableclass in cls.tables.items():
+            await tableclass.drop_table(db)
+
+    @classmethod
+    async def drop_unregistered(cls, db: aiosqlite.Connection):
+        names = cls.tables.keys()
+        async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cur:
+            result = await cur.fetchall()
+            existing_names = [e[0] for e in result]
+        for name in existing_names:
+            if name not in names:
+                await db.execute(f"DROP TABLE IF EXISTS {name}")
+
+
+    @classmethod
+    async def create_triggers(cls, db: aiosqlite.Connection):
+        for tablename, tableclass in cls.tables.items():
+            await tableclass.create_triggers(db)
+
+
+class TableMeta(type):
+    def __new__(mcs, name, bases, class_dict, *args,
+                table_registry: type["TableRegistry"]=TableRegistry, **kwargs):
+        cls = super().__new__(mcs, name, bases, class_dict)
+        cls.__table_registry__ = table_registry
+        cls.__tablename__ = name
+        if table_registry is not None:
+            table_registry.register_table(cls)
+        else:
+            warnings.warn(f"The table class: {name} has it's registry set to None")
+        return cls
+
+    def field_count(cls):
+        """
+        Gives the number of dataclass fields, will return 0 if not a dataclass
+        """
+        if hasattr(cls, "__dataclass_fields__"):
+            return len(cls.__dataclass_fields__)
+        return 0
+
+    # def __init__(cls, name, bases, class_dict, *args, **kwargs):
+    #     super().__init__(name, bases, class_dict)
+    #     if hasattr(cls, "__dataclass_fields__"):
+    #         cls._field_count = fields(cls)
+    #         # cls._field_count = len(cls.__dataclass_fields__)
+    #         pass
+
+class TableNameError(ValueError):
+    """Raised when a table name is invalid"""
+    pass
+
+@dataclass
+class Table(metaclass=TableMeta, table_registry=None):
+
+    # @property
+    # @classmethod
+    # def __tablename__(cls: type["Table"]) -> str:
+    #     return cls._tablename
+    #
+    # @__tablename__.setter
+    # @classmethod
+    # def __tablename__(cls: type["Table"], tablename: str):
+    #     validation_pattern = r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+    #     if re.match(validation_pattern, tablename) is not None:
+    #         cls._tablename = tablename
+    #     else:
+    #         raise TableNameError(
+    #             f"Invalid table name: '{tablename}'\n"
+    #             f"A valid name must start with a letter or underscore, followed by letters, digits or underscores")
 
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
@@ -360,38 +444,79 @@ class Table:
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
-        for trigger in cls.__triggers__:
+        """
+        Called under the assumption of creating all triggers for a specific table.
+        By default, this method does nothing and instead should be replaced when needed.
+        Example implementation,
+        triggers: list[str] = ["CREATE TRIGGER ...", "CREATE TRIGGER ..."]
+        for trigger in triggers:
             await db.execute(trigger)
+        """
+        pass
+
+    def asdict(self): return asdict(self)
+
+    def astuple(self): return astuple(self)
+
+    async def insert(self, db: aiosqlite.Connection):
+        field_count = self.__class__.field_count()
+        placeholders = ",".join('?' for _ in range(field_count))
+        query = f"INSERT INTO {self.__tablename__} VALUES ({placeholders})"
+        await db.execute(query, self.astuple())
+
+    async def delete(self, db: aiosqlite.Connection):
+        pass
 
 
-class Registry:
-    __table_class__: type["Table"] = None # forward declaration resolved after class
-    tables: dict[str, type[__table_class__]] = {}
-    @classmethod
-    def register_table(cls, table: type[__table_class__]):
-        cls.tables[table.__name__] = table
-
-    @classmethod
-    async def create_tables(cls, db: aiosqlite.Connection):
-        for tablename, tableclass in cls.tables.items():
-            await tableclass.create_table(db)
-
-    @classmethod
-    async def create_triggers(cls, db: aiosqlite.Connection):
-        for tablename, tableclass in cls.tables.items():
-            await tableclass.create_triggers(db)
+class ManagerMeta(type):
+    def __new__(mcs, name, bases, class_dict, *args,
+                table_registry: type["TableRegistry"]=TableRegistry, **kwargs):
+        cls = super().__new__(mcs, name, bases, class_dict)
+        cls.__table_registry__ = table_registry
+        if table_registry is None:
+            raise ValueError(f"table_registry for class: {name} cannot be None")
+        return cls
 
 
-Table.__registry_class__ = Registry
-Registry.__table_class__ = Table
-
-class DatabaseManager:
-    __registry_class__: type[Registry] = Registry
+class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
+    # __registry_class__: type["TableRegistry"] = TableRegistry
     def __init__(self, db_path: str):
         self.file_path = db_path
+        self._db: aiosqlite.Connection = None
 
     async def setup(self):
-        async with aiosqlite.connect(self.file_path) as db:
-            await self.__registry_class__.create_tables(db)
+        async with self as db:
+            await self.__table_registry__.create_tables(db)
             await db.commit()
 
+    async def connect(self) -> aiosqlite.Connection:
+        return await aiosqlite.connect(self.file_path)
+
+    async def __aenter__(self) -> aiosqlite.Connection:
+        self._db = await self.connect()
+        return self._db
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        if self._db:
+            await self._db.close()
+            self._db = None
+
+    async def drop_table(self, tablename: str):
+        async with self as db:
+            table: type[Table] = self.__table_registry__.get_table(tablename)
+            await table.drop_table(db)
+            await db.commit()
+
+    async def drop_unregistered(self):
+        async with self as db:
+            await self.__table_registry__.drop_unregistered(db)
+
+    __AsyncFunctionType = typing.Callable[[aiosqlite.Connection], typing.Awaitable]
+    async def handle(self, functions: tuple[__AsyncFunctionType]) -> list[typing.Any]:
+        async with self as db:
+            results = []
+            for function in functions:
+                result = await function(db)
+                results.append(result)
+            await db.commit()
+        return results
