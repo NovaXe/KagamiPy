@@ -57,20 +57,20 @@ class SentinelSettings(Table):
     async def create_triggers(cls, db: aiosqlite.Connection):
         triggers = [
             f"""
-            CREATE TRIGGER IF NOT EXISTS {cls.__tablename__}_insert_guild_before_insert
-            BEFORE INSERT ON {cls.__tablename__}
+            CREATE TRIGGER IF NOT EXISTS {SentinelSettings}_insert_guild_before_insert
+            BEFORE INSERT ON {SentinelSettings}
             BEGIN
                 INSERT INTO Guild(id)
                 VALUES (NEW.guild_id)
                 ON CONFLICT(id) DO NOTHING;
             END;
             """, f"""
-            CREATE TRIGGER IF NOT EXISTS {cls.__tablename__}_set_global_defaults
-            AFTER INSERT ON {cls.__tablename__}
+            CREATE TRIGGER IF NOT EXISTS {SentinelSettings}_set_global_defaults
+            AFTER INSERT ON {SentinelSettings}
             FOR EACH ROW
             WHEN NEW.guild_id = 0
             BEGIN
-                UPDATE {cls.__tablename__}
+                UPDATE {SentinelSettings}
                 SET global_enabled = 1
                 WHERE rowid = NEW.rowid;
             END;
@@ -81,7 +81,7 @@ class SentinelSettings(Table):
 
     async def upsert(self, db: aiosqlite.Connection) -> "SentinelSettings":
         query = f"""
-        INSERT INTO {self.__tablename__}(guild_id, local_enabled, global_enabled)
+        INSERT INTO {SentinelSettings}(guild_id, local_enabled, global_enabled)
         VALUES(:guild_id, :local_enabled, :global_enabled)
         ON CONFLICT (guild_id)
         DO UPDATE SET 
@@ -89,7 +89,7 @@ class SentinelSettings(Table):
             global_enabled = :global_enabled
         RETURNING *
         """
-        db.row_factory = self.row_factory
+        db.row_factory = SentinelSettings.row_factory
         async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
@@ -97,22 +97,22 @@ class SentinelSettings(Table):
     @classmethod
     async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int):
         query = f"""
-        SELECT * FROM {cls.__tablename__}
+        SELECT * FROM {SentinelSettings}
         WHERE guild_id = ?
         """
-        db.row_factory = cls.row_factory
+        db.row_factory = SentinelSettings.row_factory
         async with db.execute(query, guild_id) as cur:
             result = await cur.fetchone()
         return result
 
     @classmethod
     async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "SentinelSettings":
-        db.row_factory = cls.row_factory
         query = """
         DELETE FROM SentinelSettings
         WHERE guild_id = ?
         RETURNING *
         """
+        db.row_factory = SentinelSettings.row_factory
         async with db.execute(query, guild_id) as cur:
             result = await cur.fetchone()
         return result
@@ -128,13 +128,13 @@ class Sentinel(Table):
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
         query = f"""
-        CREATE TABLE IF NOT EXISTS {cls.__tablename__}(
+        CREATE TABLE IF NOT EXISTS {Sentinel}(
         guild_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         uses INTEGER DEFAULT 0,
         enabled INTEGER DEFAULT 1,
         PRIMARY KEY(guild_id, name),
-        FOREIGN KEY(guild_id) REFERENCES {SentinelSettings.__tablename__}(guild_id) 
+        FOREIGN KEY(guild_id) REFERENCES {Sentinel}(guild_id) 
             ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
@@ -143,19 +143,19 @@ class Sentinel(Table):
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
         query = f"""
-        INSERT INTO {cls.__tablename__}(guild_id, name, enabled)
+        INSERT INTO {Sentinel}(guild_id, name, enabled)
         SELECT guild_id, name, enabled 
-        FROM temp_{cls.__tablename__}
+        FROM temp_{Sentinel}
         """
         await db.execute(query)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
         trigger = f"""
-        CREATE TRIGGER IF NOT EXISTS {cls.__tablename__}_insert_settings_before_insert
-        BEFORE INSERT ON {cls.__tablename__}
+        CREATE TRIGGER IF NOT EXISTS {Sentinel}_insert_settings_before_insert
+        BEFORE INSERT ON {Sentinel}
         BEGIN
-            INSERT INTO {SentinelSettings.__tablename__}(guild_id)
+            INSERT INTO {Sentinel}(guild_id)
             VALUES (NEW.guild_id)
             ON CONFLICT(guild_id) DO NOTHING;
         END;
@@ -164,7 +164,7 @@ class Sentinel(Table):
 
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
-        INSERT OR IGNORE INTO {self.__tablename__}(guild_id, name)
+        INSERT OR IGNORE INTO {Sentinel}(guild_id, name)
         VALUES(:guild_id, :name)
         """
         await db.execute(query, self.asdict())
@@ -172,22 +172,22 @@ class Sentinel(Table):
     @classmethod
     async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Sentinel":
         query = f"""
-        DELETE FROM {cls.__tablename__}
+        DELETE FROM {Sentinel}
         WHERE guild_id = ? AND name = ?
         RETURNING *
         """
-        db.row_factory = cls.row_factory
+        db.row_factory = Sentinel.row_factory
         async with db.execute(query, (guild_id, name)) as cur:
             result = await cur.fetchone()
         return result
 
     async def delete(self, db: aiosqlite.Connection) -> "Sentinel":
         query = f"""
-        DELETE FROM {self.__tablename__}
+        DELETE FROM {Sentinel}
         WHERE guild_id = :guild_id AND name = :name
         RETURNING *
         """
-        db.row_factory = self.row_factory
+        db.row_factory = Sentinel.row_factory
         async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
@@ -195,7 +195,7 @@ class Sentinel(Table):
     @classmethod
     async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Sentinel":
         query = f"""
-        SELECT * FROM {cls.__tablename__}
+        SELECT * FROM {Sentinel}
         WHERE guild_id = ? AND name = ?
         """
         async with db.execute(query, (guild_id, name)) as cur:
@@ -205,11 +205,11 @@ class Sentinel(Table):
     @classmethod
     async def selectLikeNamesWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str, limit: int=None, offset: int=0):
         query = f"""
-        SELECT name FROM {cls.__tablename__}
+        SELECT name FROM {Sentinel}
         WHERE (guild_id = ?) AND (name LIKE ?)
         LIMIT ? OFFSET ?
         """
-        db.row_factory = cls.row_factory
+        db.row_factory = Sentinel.row_factory
         async with db.execute(query, (guild_id, name, limit, offset)) as cur:
             results = await cur.fetchall()
         return results
@@ -218,7 +218,7 @@ class Sentinel(Table):
     @classmethod
     async def toggleWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str):
         query = f"""
-        UPDATE {cls.__tablename__}
+        UPDATE {Sentinel}
         SET
             enabled = NOT enabled
         WHERE
@@ -238,11 +238,11 @@ class DisabledSentinelChannels(Table):
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
         query = f"""
-        CREATE TABLE IF NOT EXISTS {cls.__tablename__}(
+        CREATE TABLE IF NOT EXISTS {DisabledSentinelChannels}(
             guild_id INTEGER NOT NULL,
             channel_id INTEGER NOT NULL,
             PRIMARY KEY(guild_id, channel_id),
-            FOREIGN KEY(guild_id) REFERENCES {SentinelSettings.__tablename__}(guild_id)
+            FOREIGN KEY(guild_id) REFERENCES {SentinelSettings}(guild_id)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
@@ -251,19 +251,19 @@ class DisabledSentinelChannels(Table):
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
         query = f"""
-        INSERT INTO {cls.__tablename__}(guild_id, channel_id)
+        INSERT INTO {DisabledSentinelChannels}(guild_id, channel_id)
         SELECT guild_id, channel_id
-        FROM temp_{cls.__tablename__}
+        FROM temp_{DisabledSentinelChannels}
         """
         await db.execute(query)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
         trigger = f"""
-        CREATE TRIGGER IF NOT EXISTS {cls.__tablename__}_insert_settings_before_insert
-        BEFORE INSERT ON {cls.__tablename__}
+        CREATE TRIGGER IF NOT EXISTS {DisabledSentinelChannels}_insert_settings_before_insert
+        BEFORE INSERT ON {DisabledSentinelChannels}
         BEGIN
-            INSERT INTO {SentinelSettings.__tablename__}(guild_id)
+            INSERT INTO {SentinelSettings}(guild_id)
             VALUES (NEW.guild_id)
             ON CONFLICT(guild_id) DO NOTHING;
         END;
@@ -271,7 +271,7 @@ class DisabledSentinelChannels(Table):
 
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
-        INSERT OR IGNORE INTO {self.__tablename__}(guild_id, channel_id)
+        INSERT OR IGNORE INTO {DisabledSentinelChannels}(guild_id, channel_id)
             VALUES(:guild_id, :channel_id)
         """
         await db.execute(query, self.asdict())
@@ -280,7 +280,7 @@ class DisabledSentinelChannels(Table):
     async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> "Table":
         params = {"guild_id": guild_id, "channel_id": channel_id}
         query = f"""
-        DELETE FROM {cls.__tablename__}
+        DELETE FROM {DisabledSentinelChannels}
         WHERE guild_id = :guild_id AND channel_id = :channel_id
         RETURNING *
         """
@@ -290,7 +290,7 @@ class DisabledSentinelChannels(Table):
 
     async def delete(self, db: aiosqlite.Connection) -> "Table":
         query = f"""
-                DELETE FROM {self.__tablename__}
+                DELETE FROM {DisabledSentinelChannels}
                 WHERE guild_id = :guild_id AND channel_id = :channel_id
                 RETURNING *
                 """
@@ -306,10 +306,10 @@ class DisabledSentinelChannels(Table):
                 SELECT 1 FROM DisabledSentinelChannels WHERE 
                     guild_id = :guild_id AND channel_id = :channel_id
             ) THEN
-            DELETE FROM {cls.__tablename__}
+            DELETE FROM {DisabledSentinelChannels}
             WHERE guild_id = :guild_id AND channel_id = :channel_id
         ELSE
-            INSERT OR IGNORE INTO {cls.__tablename__}(guild_id, channel_id)
+            INSERT OR IGNORE INTO {DisabledSentinelChannels}(guild_id, channel_id)
             VALUES(:guild_id, :channel_id)
         END;
         """
@@ -321,7 +321,7 @@ class DisabledSentinelChannels(Table):
         params = {"guild_id": guild_id, "channel_id": channel_id}
         query = f"""
         SELECT CASE WHEN EXISTS (
-            SELECT 1 FROM {cls.__tablename__}
+            SELECT 1 FROM {DisabledSentinelChannels}
             WHERE
                 guild_id = :guild_id AND channel_id = :channel_id
         )
@@ -348,7 +348,7 @@ class SentinelTrigger(Table):
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
         query = f"""
-        CREATE TABLE IF NOT EXISTS {cls.__tablename__}(
+        CREATE TABLE IF NOT EXISTS {SentinelTrigger}(
             id INTEGER NOT NULL,
             type INTEGER NOT NULL,
             object TEXT NOT NULL,
@@ -361,7 +361,7 @@ class SentinelTrigger(Table):
     @classmethod
     async def selectID(cls, db: aiosqlite.Connection, trigger_type: TriggerType, trigger_object: str) -> int:
         query = f"""
-        SELECT id FROM {cls.__tablename__}
+        SELECT id FROM {SentinelTrigger}
         WHERE type = ? AND object = ?
         """
         async with db.execute(query, (trigger_type, trigger_object)) as cur:
@@ -371,7 +371,7 @@ class SentinelTrigger(Table):
 
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
-        INSERT INTO {self.__tablename__}(type, object)
+        INSERT INTO {SentinelTrigger}(type, object)
         VALUES (:type, :object)
         ON CONFLICT(type, object) DO NOTHING
         RETURNING id
@@ -386,11 +386,11 @@ class SentinelTrigger(Table):
 
     async def delete(self, db: aiosqlite.Connection) -> "Table":
         query = f"""
-        DELETE FROM {self.__tablename__}
+        DELETE FROM {SentinelTrigger}
         WHERE id = ?
         RETURNING *
         """
-        db.row_factory = self.row_factory
+        db.row_factory = SentinelTrigger.row_factory
         async with db.execute(query, self.id) as cur:
             result = await cur.fetchone()
         return result
@@ -409,7 +409,7 @@ class SentinelResponse(Table):
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
         query = f"""
-        CREATE TABLE IF NOT EXISTS {cls.__tablename__}(
+        CREATE TABLE IF NOT EXISTS {SentinelResponse}(
             id INTEGER NOT NULL,
             type INTEGER NOT NULL,
             content TEXT,
@@ -423,7 +423,7 @@ class SentinelResponse(Table):
     @classmethod
     async def selectID(cls, db: aiosqlite.Connection, response_type: ResponseType, content: str, reactions: str) -> int:
         query = f"""
-        SELECT id FROM {cls.__tablename__}
+        SELECT id FROM {SentinelResponse}
         WHERE type = ? AND content = ? AND reactions = ?
         """
         async with db.execute(query, (response_type, content, reactions)) as cur:
@@ -433,7 +433,7 @@ class SentinelResponse(Table):
 
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
-        INSERT INTO {self.__tablename__}(type, content, reactions)
+        INSERT INTO {SentinelResponse}(type, content, reactions)
         VALUES (:type, :content, :reactions)
         ON CONFLICT(type, content, reactions) DO NOTHING
         RETURNING id
@@ -459,7 +459,7 @@ class SentinelSuit(Table):
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
         query = f"""
-        CREATE TABLE IF NOT EXISTS {SentinelSuit.__tablename__}(
+        CREATE TABLE IF NOT EXISTS {SentinelSuit}(
             guild_id INTEGER NOT NULL,
             sentinel_name TEXT NOT NULL,
             name TEXT NOT NULL,
@@ -468,11 +468,11 @@ class SentinelSuit(Table):
             response_id INTEGER DEFAULT NULL,
             enabled INTEGER NOT NULL DEFAULT 1,
             PRIMARY KEY (guild_id, sentinel_name, name),
-            FOREIGN KEY (guild_id, sentinel_name) REFERENCES {Sentinel.__tablename__}(guild_id, name)
+            FOREIGN KEY (guild_id, sentinel_name) REFERENCES {Sentinel}(guild_id, name)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-            FOREIGN KEY (trigger_id) REFERENCES {SentinelTrigger.__tablename__}(id)
+            FOREIGN KEY (trigger_id) REFERENCES {SentinelTrigger}(id)
                 ON UPDATE RESTRICT ON DELETE SET NULL,
-            FOREIGN KEY (response_id) REFERENCES {SentinelResponse.__tablename__}(id)
+            FOREIGN KEY (response_id) REFERENCES {SentinelResponse}(id)
                 ON UPDATE RESTRICT ON DELETE SET NULL
         )
         """
@@ -481,60 +481,69 @@ class SentinelSuit(Table):
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
         query = f"""
-        INSERT INTO {SentinelSuit.__tablename__}(guild_id, sentinel_name, name, weight, trigger_id, response_id)
+        INSERT INTO {SentinelSuit}(guild_id, sentinel_name, name, weight, trigger_id, response_id)
         SELECT guild_id, sentinel_name, name, weight, trigger_id, response_id
-        FROM temp_{SentinelSuit.__tablename__}
+        FROM temp_{SentinelSuit}
         """
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
         triggers = [
+            # Ensures that a new Sentinel is created for each new Suit if it doesn't have one logged yet
             f"""
-            CREATE TRIGGER IF NOT EXISTS {SentinelSuit.__tablename__}_insert_sentinel_before_insert
-            BEFORE INSERT ON {SentinelSuit.__tablename__}
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_insert_sentinel_before_insert
+            BEFORE INSERT ON {SentinelSuit}
             BEGIN
-                INSERT INTO {Sentinel.__tablename__}(guild_id, name)
+                INSERT INTO {Sentinel}(guild_id, name)
                 VALUES (NEW.guild_id, NEW.sentinel_name)
                 ON CONFLICT(guild_id, name) DO NOTHING;
             END
-            """, f"""
-            CREATE TRIGGER IF NOT EXISTS {SentinelSuit.__tablename__}_delete_trigger_after_update
-            AFTER UPDATE OF trigger_id on {SentinelSuit.__tablename__}
-            WHEN (SELECT COUNT(*) FROM {SentinelSuit.__tablename__} WHERE trigger_id = OLD.trigger_id) = 0 
+            """,
+            # Deletes a Trigger from the Trigger table if it doesn't have any references on the Suit table
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_trigger_after_update
+            AFTER UPDATE OF trigger_id on {SentinelSuit}
+            WHEN (SELECT COUNT(*) FROM {SentinelSuit} WHERE trigger_id = OLD.trigger_id) = 0 
             BEGIN
-                DELETE FROM {SentinelTrigger.__tablename__}
+                DELETE FROM {SentinelTrigger}
                 WHERE id = OLD.trigger_id;
             END
-            """, f"""
-            CREATE TRIGGER IF NOT EXISTS {SentinelSuit.__tablename__}_delete_response_after_update
-            AFTER UPDATE OF response_id on {SentinelSuit.__tablename__}
-            WHEN (SELECT COUNT(*) FROM {SentinelSuit.__tablename__} WHERE response_id = OLD.response_id) = 0 
+            """,
+            # Deletes a Response from the Response table if it doesn't have any references on the Suit table
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_response_after_update
+            AFTER UPDATE OF response_id on {SentinelSuit}
+            WHEN (SELECT COUNT(*) FROM {SentinelSuit} WHERE response_id = OLD.response_id) = 0 
             BEGIN
-                DELETE FROM {SentinelResponse.__tablename__}
+                DELETE FROM {SentinelResponse}
                 WHERE id = OLD.response_id;
             END
-            """, f"""
+            """,
+            # Deletes a Suit if it doesn't have a Trigger or Response
+            f"""
             CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_after_update
-            AFTER UPDATE ON {SentinelSuit.__tablename__}
+            AFTER UPDATE ON {SentinelSuit}
             WHEN NEW.trigger_id IS NULL AND NEW.response_id IS NULL
             BEGIN
-                DELETE FROM {SentinelSuit.__tablename__}
+                DELETE FROM {SentinelSuit}
                 WHERE guild_id = OLD.guild_id AND name = OLD.name AND sentinel_name = OLD.sentinel_name;
             END
-            """, f"""
-            CREATE TRIGGER IF NOT EXISTS {SentinelSuit.__tablename__}_delete_trigger_after_delete
-            AFTER DELETE ON {SentinelSuit.__tablename__}
-            WHEN (SELECT COUNT(*) FROM {SentinelSuit.__tablename__} WHERE trigger_id = OLD.trigger_id) = 0
+            """,
+            #
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_trigger_after_delete
+            AFTER DELETE ON {SentinelSuit}
+            WHEN (SELECT COUNT(*) FROM {SentinelSuit} WHERE trigger_id = OLD.trigger_id) = 0
             BEGIN
-                DELETE FROM {SentinelTrigger.__tablename__}
+                DELETE FROM {SentinelTrigger}
                 WHERE id = OLD.trigger_id;
             END
             """, f"""
-            CREATE TRIGGER IF NOT EXISTS {SentinelSuit.__tablename__}_delete_response_after_delete
-            AFTER DELETE ON {SentinelSuit.__tablename__}
-            WHEN (SELECT COUNT(*) FROM {SentinelSuit.__tablename__} WHERE response_id = OLD.response_id) = 0
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_response_after_delete
+            AFTER DELETE ON {SentinelSuit}
+            WHEN (SELECT COUNT(*) FROM {SentinelSuit} WHERE response_id = OLD.response_id) = 0
             BEGIN
-                DELETE FROM {SentinelResponse.__tablename__}
+                DELETE FROM {SentinelResponse}
                 WHERE id = OLD.response_id;
             END
             """

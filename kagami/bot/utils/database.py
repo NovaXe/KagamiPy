@@ -388,6 +388,9 @@ class TableMeta(type):
             warnings.warn(f"The table class: {name} has it's registry set to None")
         return cls
 
+    def __str__(cls):
+        return cls.__tablename__
+
     def field_count(cls):
         """
         Gives the number of dataclass fields, will return 0 if not a dataclass
@@ -395,6 +398,7 @@ class TableMeta(type):
         if hasattr(cls, "__dataclass_fields__"):
             return len(cls.__dataclass_fields__)
         return 0
+
 
     # def __init__(cls, name, bases, class_dict, *args, **kwargs):
     #     super().__init__(name, bases, class_dict)
