@@ -25,7 +25,7 @@ from typing import (
 )
 
 @dataclass
-class SentinelSettings(Table):
+class SentinelSettings(Table, table_group="sentinel"):
     guild_id: int
     local_enabled: bool = True
     global_enabled: bool = False
@@ -117,9 +117,8 @@ class SentinelSettings(Table):
             result = await cur.fetchone()
         return result
 
-
 @dataclass
-class Sentinel(Table):
+class Sentinel(Table, table_group="sentinel"):
     guild_id: int
     name: str
     uses: int
@@ -216,7 +215,7 @@ class Sentinel(Table):
 
 
     @classmethod
-    async def toggleWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str):
+    async def toggleWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Sentinel":
         query = f"""
         UPDATE {Sentinel}
         SET
@@ -231,7 +230,7 @@ class Sentinel(Table):
         return result
 
 @dataclass
-class DisabledSentinelChannels(Table):
+class DisabledSentinelChannels(Table, table_group="sentinel"):
     guild_id: int
     channel_id: int
 
@@ -334,7 +333,7 @@ class DisabledSentinelChannels(Table):
         return result[0]
 
 @dataclass
-class SentinelTrigger(Table):
+class SentinelTrigger(Table, table_group="sentinel"):
     class TriggerType(IntEnum):
         word = 1  # in message split by spaces
         phrase = 2  # in message as string
@@ -397,7 +396,7 @@ class SentinelTrigger(Table):
 
 
 @dataclass
-class SentinelResponse(Table):
+class SentinelResponse(Table, table_group="sentinel"):
     class ResponseType(IntEnum):
         message = 1
         reply = 2
@@ -447,7 +446,7 @@ class SentinelResponse(Table):
         return result[0]
 
 @dataclass
-class SentinelSuit(Table):
+class SentinelSuit(Table, table_group="sentinel"):
     guild_id: int
     sentinel_name: str
     name: str
@@ -485,6 +484,7 @@ class SentinelSuit(Table):
         SELECT guild_id, sentinel_name, name, weight, trigger_id, response_id
         FROM temp_{SentinelSuit}
         """
+        await db.execute(query)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -499,7 +499,7 @@ class SentinelSuit(Table):
                 ON CONFLICT(guild_id, name) DO NOTHING;
             END
             """,
-            # Deletes a Trigger from the Trigger table if it doesn't have any references on the Suit table
+            # If a Suit has its Trigger updated and there are no more references to that Trigger, delete the Trigger
             f"""
             CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_trigger_after_update
             AFTER UPDATE OF trigger_id on {SentinelSuit}
@@ -509,11 +509,31 @@ class SentinelSuit(Table):
                 WHERE id = OLD.trigger_id;
             END
             """,
-            # Deletes a Response from the Response table if it doesn't have any references on the Suit table
+            # If a Suit has its Response updated and there are no more references to that Response, delete the Response
             f"""
             CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_response_after_update
             AFTER UPDATE OF response_id on {SentinelSuit}
             WHEN (SELECT COUNT(*) FROM {SentinelSuit} WHERE response_id = OLD.response_id) = 0 
+            BEGIN
+                DELETE FROM {SentinelResponse}
+                WHERE id = OLD.response_id;
+            END
+            """,
+            # If the deleted Suit is the only reference to a Trigger, delete that Trigger from its table
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_trigger_after_delete
+            AFTER DELETE ON {SentinelSuit}
+            WHEN (SELECT COUNT(*) FROM {SentinelSuit} WHERE trigger_id = OLD.trigger_id) = 0
+            BEGIN
+                DELETE FROM {SentinelTrigger}
+                WHERE id = OLD.trigger_id;
+            END
+            """,
+            # If the delete Suit is the only reference to a Response, delete that Response from its table
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_response_after_delete
+            AFTER DELETE ON {SentinelSuit}
+            WHEN (SELECT COUNT(*) FROM {SentinelSuit} WHERE response_id = OLD.response_id) = 0
             BEGIN
                 DELETE FROM {SentinelResponse}
                 WHERE id = OLD.response_id;
@@ -528,31 +548,299 @@ class SentinelSuit(Table):
                 DELETE FROM {SentinelSuit}
                 WHERE guild_id = OLD.guild_id AND name = OLD.name AND sentinel_name = OLD.sentinel_name;
             END
-            """,
-            #
-            f"""
-            CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_trigger_after_delete
-            AFTER DELETE ON {SentinelSuit}
-            WHEN (SELECT COUNT(*) FROM {SentinelSuit} WHERE trigger_id = OLD.trigger_id) = 0
-            BEGIN
-                DELETE FROM {SentinelTrigger}
-                WHERE id = OLD.trigger_id;
-            END
-            """, f"""
-            CREATE TRIGGER IF NOT EXISTS {SentinelSuit}_delete_response_after_delete
-            AFTER DELETE ON {SentinelSuit}
-            WHEN (SELECT COUNT(*) FROM {SentinelSuit} WHERE response_id = OLD.response_id) = 0
-            BEGIN
-                DELETE FROM {SentinelResponse}
-                WHERE id = OLD.response_id;
-            END
             """
         ]
+        for trigger in triggers:
+            await db.execute(trigger)
 
+    async def insert(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT OR IGNORE 
+        INTO 
+            {SentinelSuit}(guild_id, sentinel_name, name, weight, trigger_id, response_id)
+        VALUES (
+            :guild_id, :sentinel_name, :name, :weight, :trigger_id, :response_id
+        )
+        """
+        await db.execute(query, self.asdict())
 
+    async def upsert(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {SentinelSuit}(guild_id, sentinel_name, name, weight, trigger_id, response_id)
+        VALUES (:guild_id, :sentinel_name, :name, :weight, :trigger_id, :response_id)
+        ON CONFLICT (guild_id, sentinel_name, name)
+        DO UPDATE SET trigger_id = coalesce(trigger_id, :trigger_id), 
+                      response_id = coalesce(response_id, :response_id)
+        """
+        await db.execute(query, self.asdict())
 
+    async def update(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {SentinelSuit}(guild_id, sentinel_name, name, weight, trigger_id, response_id)
+        VALUES (:guild_id, :sentinel_name, :name, :weight, :trigger_id, :response_id)
+        ON CONFLICT (guild_id, sentinel_name, name)
+        DO UPDATE SET trigger_id = :trigger_id,
+                      response_id = :response_id,
+                      weight = :weight
+        """
+        await db.execute(query, self.asdict())
 
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit":
+        query = f"""
+        SELECT * FROM {SentinelSuit}
+        WHERE guild_id = ? AND sentinel_name = ? AND name = ?
+        """
+        params = (guild_id, sentinel_name, name)
+        db.row_factory = SentinelSuit.row_factory
+        async with db.execute(query, params) as cur:
+            result = await cur.fetchone()
+        return result
 
+    @classmethod
+    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit":
+        query = f"""
+        DELETE FROM {SentinelSuit} 
+        WHERE guild_id = ? AND sentinel_name = ? AND name = ? 
+        RETURNING *
+        """
+        params = (guild_id, sentinel_name, name)
+        db.row_factory = SentinelSuit.row_factory
+        async with db.execute(query, params) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def selectLikeNames(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str,
+                              limit: int=1, offset: int=0, null_field: Literal["trigger", "response"]=None) -> list["SentinelSuit"]:
+        extra = ""
+        if null_field == "trigger":
+            extra = "AND trigger_id IS NULL"
+        elif null_field == "response":
+            extra = "AND response_id IS NULL"
+        elif null_field is None:
+            pass
+        else:
+            raise ValueError("null_field can be either 'trigger', 'response' or None")
+
+        query = f"""
+        SELECT name FROM {SentinelSuit}
+        WHERE guild_id = ? AND sentinel_name = ? AND name LIKE ? {extra}
+        LIMIT ? OFFSET ?
+        """
+        params = (guild_id, sentinel_name, f"%{name}%", limit, offset)
+        db.row_factory = SentinelSuit.row_factory
+        async with db.execute(query, params) as cur:
+            result: list[SentinelSuit] = await cur.fetchall()
+        return [n.name for n in result]
+
+    @classmethod
+    async def toggleWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit":
+        query = f"""
+        UPDATE {SentinelSuit}
+        SET
+            enabled = NOT enabled
+        WHERE
+            guild_id = ? AND
+            sentinel_name = ? AND
+            name = ?
+        RETURNING *
+        """
+        params = (guild_id, sentinel_name, name)
+        db.row_factory = SentinelSuit.row_factory
+        async with db.execute(query, params) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def selectFromMessage(cls, db: aiosqlite.Connection, guild_id: int, message_content: str) -> list["SentinelSuit"]:
+        query = rf"""
+        WITH triggered_suits AS (
+            SELECT
+                {SentinelSuit}.guild_id,
+                {SentinelSuit}.sentinel_name,
+                {SentinelSuit}.name,
+                weight,
+                trigger_id,
+                response_id,
+                {SentinelSuit}.enabled,
+                {Sentinel}.enabled AS sentinel_enabled
+            FROM {SentinelSuit}
+            LEFT JOIN {SentinelTrigger} ON 
+                {SentinelTrigger}.id = {SentinelSuit}.trigger_id 
+            LEFT JOIN Sentinel ON 
+                {Sentinel}.name = {SentinelSuit}.sentinel_name
+            WHERE 
+                (
+                    ({SentinelTrigger}.type = 1 AND :message_content REGEXP '(?i)\b'||{SentinelTrigger}.object||'\b') OR  
+                    ({SentinelTrigger}.type = 2 AND :message_content REGEXP '(?i)'||{SentinelTrigger}.object) OR  
+                    ({SentinelTrigger}.type = 3 AND :message_content REGEXP {SentinelTrigger}.object)
+                ) AND
+                {SentinelSuit}.guild_id = :guild_id AND 
+                {SentinelSuit}.enabled = 1 AND
+                sentinel_enabled = 1
+        ),
+        sentinel_suit_info AS (
+            SELECT
+                sentinel_name,
+                (abs(random()) / 9223372036854775807.0) AS r_val,
+                SUM(weight) AS t_weight
+            FROM triggered_suits
+            GROUP BY sentinel_name
+        ),
+        cumulative_probabilities AS (
+            SELECT
+                suits.sentinel_name,
+                name,
+                (weight / (t_weight * 1.0)) AS prob,
+                sum((weight / (t_weight * 1.0))) OVER (PARTITION BY suits.sentinel_name ORDER BY name) AS c_prob
+            FROM triggered_suits AS suits
+            LEFT JOIN sentinel_suit_info AS sentinel_info ON 
+                sentinel_info.sentinel_name = suits.sentinel_name
+            ORDER BY suits.sentinel_name
+        ),
+        selected_suits AS (
+            SELECT 
+                suits.guild_id,
+                suits.sentinel_name,
+                suits.name,
+                weight,
+                trigger_id,
+                response_id,
+                enabled
+            FROM triggered_suits AS suits
+            LEFT JOIN sentinel_suit_info AS sentinel_info ON 
+                sentinel_info.sentinel_name = suits.sentinel_name
+            LEFT JOIN cumulative_probabilities AS c_probs ON 
+                c_probs.sentinel_name = suits.sentinel_name AND
+                c_probs.name = suits.name
+            WHERE c_prob >= r_val
+            GROUP BY suits.sentinel_name
+        )
+        SELECT
+            *
+        FROM selected_suits;
+        """
+        def regexp(pattern, string):
+            if string is None:
+                return False
+            return re.search(pattern, string) is not None
+        await db.create_function("REGEXP", 2, regexp)
+        db.row_factory = SentinelSuit.row_factory
+        params = {"guild_id": guild_id, "message_content": message_content}
+        async with db.execute(query, params) as cur:
+            results = await cur.fetchall()
+        return results
+
+    @classmethod
+    async def selectWeightedRandomResponse(cls, db: aiosqlite.Connection, guild_id, sentinel_name) -> list["SentinelSuit"]:
+        query = f"""
+        with null_trigger_suits AS (
+            SELECT
+                *
+            FROM {SentinelSuit}
+            WHERE
+                trigger_id ISNULL AND
+                sentinel_name = :sentinel_name AND
+                enabled = 1
+        ),
+        c_probs AS (
+            SELECT
+                name,
+                (weight / ((SELECT SUM(weight) FROM null_trigger_suits)  * 1.0)) AS prob,
+                sum( weight / ( (SELECT SUM(weight) FROM null_trigger_suits) * 1.0 ) ) OVER (ORDER BY name) AS c_prob
+            FROM null_trigger_suits
+        )
+        SELECT
+            guild_id,
+            suits.sentinel_name,
+            suits.name,
+            weight,
+            trigger_id,
+            response_id,
+            enabled
+        FROM null_trigger_suits AS suits
+        INNER JOIN c_probs ON
+            c_probs.name = suits.name
+        WHERE c_prob >= (abs(random()) / 9223372036854775807.0)
+        LIMIT 1
+        """
+        db.row_factory = SentinelSuit.row_factory
+        params = {"guild_id": guild_id, "sentinel_name": sentinel_name}
+        async with db.execute(query, params) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def selectFromReaction(cls, db: aiosqlite.Connection, guild_id: int, reaction_str: str) -> list["SentinelSuit"]:
+        query = f"""
+        WITH triggered_suits AS (
+            SELECT
+                {SentinelSuit}.guild_id,
+                {SentinelSuit}.sentinel_name,
+                {SentinelSuit}.name,
+                weight,
+                trigger_id,
+                response_id,
+                {SentinelSuit}.enabled,
+                {Sentinel}.enabled AS sentinel_enabled
+            FROM {SentinelSuit}
+            LEFT JOIN {SentinelTrigger} ON 
+                {SentinelTrigger}.id = {SentinelSuit}.trigger_id 
+            LEFT JOIN Sentinel ON 
+                {Sentinel}.name = {SentinelSuit}.sentinel_name
+            WHERE 
+                {SentinelTrigger}.type = 4 AND {SentinelTrigger}.object = :reaction_str AND
+                {SentinelSuit}.guild_id = :guild_id AND 
+                {SentinelSuit}.enabled = 1 AND
+                sentinel_enabled = 1
+        ),
+        sentinel_suit_info AS (
+            SELECT
+                sentinel_name,
+                (abs(random()) / 9223372036854775807.0) AS r_val,
+                SUM(weight) AS t_weight
+            FROM triggered_suits
+            GROUP BY sentinel_name
+        ),
+        cumulative_probabilities AS (
+            SELECT
+                suits.sentinel_name,
+                name,
+                (weight / (t_weight * 1.0)) AS prob,
+                sum((weight / (t_weight * 1.0))) OVER (PARTITION BY suits.sentinel_name ORDER BY name) AS c_prob
+            FROM triggered_suits AS suits
+            LEFT JOIN sentinel_suit_info AS sentinel_info ON 
+                sentinel_info.sentinel_name = suits.sentinel_name
+            ORDER BY suits.sentinel_name
+        ),
+        selected_suits AS (
+            SELECT 
+                suits.guild_id,
+                suits.sentinel_name,
+                suits.name,
+                weight,
+                trigger_id,
+                response_id,
+                enabled
+            FROM triggered_suits AS suits
+            LEFT JOIN sentinel_suit_info AS sentinel_info ON 
+                sentinel_info.sentinel_name = suits.sentinel_name
+            LEFT JOIN cumulative_probabilities AS c_probs ON 
+                c_probs.sentinel_name = suits.sentinel_name AND
+                c_probs.name = suits.name
+            WHERE c_prob >= r_val
+            GROUP BY suits.sentinel_name
+        )
+        SELECT
+            *
+        FROM selected_suits;
+        """
+        params = {"guild_id": guild_id, "reaction_str": reaction_str}
+        db.row_factory = SentinelSuit.row_factory
+        async with db.execute(query, params) as cur:
+            results = await cur.fetchall()
+        return results
 
 
 class SentinelDB(Database):
