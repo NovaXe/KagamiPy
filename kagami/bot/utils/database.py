@@ -1,8 +1,10 @@
 import abc
+import logging
 import re
 import sqlite3
 import typing
 import warnings
+from asyncio import Queue
 
 import aiosqlite
 from dataclasses import dataclass, asdict, astuple, fields
@@ -341,6 +343,15 @@ class TableRegistry:
     # __table_class__: type["Table"] # forward declaration resolved after class
     TableType = type["Table"]
     tables: dict[str, TableType] = {}
+
+    @classmethod
+    def get_tables(cls, group_name: str=None):
+        """
+        returns a dict of all tables that belong to the given group, if group is None then all tables are returned
+        """
+        return {k: v for k, v in cls.tables.items()
+                if v.__table_group__ == group_name or group_name is None}
+
     @classmethod
     def register_table(cls, table: type["Table"]):
         cls.tables[table.__name__] = table
@@ -350,13 +361,18 @@ class TableRegistry:
         return cls.tables.get(tablename, None)
 
     @classmethod
-    async def create_tables(cls, db: aiosqlite.Connection):
-        for tablename, tableclass in cls.tables.items():
+    async def create_tables(cls, db: aiosqlite.Connection, group_name: str=None):
+        for tablename, tableclass in cls.get_tables(group_name):
             await tableclass.create_table(db)
 
     @classmethod
-    async def drop_tables(cls, db: aiosqlite.Connection):
-        for tablename, tableclass in cls.tables.items():
+    async def create_triggers(cls, db: aiosqlite.Connection, group_name):
+        for tablename, tableclass in cls.get_tables(group_name):
+            await tableclass.create_triggers(db)
+
+    @classmethod
+    async def drop_tables(cls, db: aiosqlite.Connection, group_name: str=None):
+        for tablename, tableclass in cls.get_tables(group_name):
             await tableclass.drop_table(db)
 
     @classmethod
@@ -370,18 +386,26 @@ class TableRegistry:
                 await db.execute(f"DROP TABLE IF EXISTS {name}")
 
 
-    @classmethod
-    async def create_triggers(cls, db: aiosqlite.Connection):
-        for tablename, tableclass in cls.tables.items():
-            await tableclass.create_triggers(db)
 
+
+
+class TableNameError(ValueError):
+    """Raised when a table name is invalid"""
+    pass
+
+class TableSubclassMustImplement(NotImplementedError):
+    """Raised when a subclass of Table calls an unimplemented method that it must implement to use"""
+    def __init__(self, message="Subclasses of Table must implement this method to call it"):
+        super().__init__(message)
 
 class TableMeta(type):
     def __new__(mcs, name, bases, class_dict, *args,
-                table_registry: type["TableRegistry"]=TableRegistry, **kwargs):
+                table_registry: type["TableRegistry"]=TableRegistry, table_group: str=None, **kwargs):
         cls = super().__new__(mcs, name, bases, class_dict)
         cls.__table_registry__ = table_registry
         cls.__tablename__ = name
+        cls.__table_group__ = table_group if table_group else "unassigned"
+        cls.__old_tablename__ = None
         if table_registry is not None:
             table_registry.register_table(cls)
         else:
@@ -399,7 +423,6 @@ class TableMeta(type):
             return len(cls.__dataclass_fields__)
         return 0
 
-
     # def __init__(cls, name, bases, class_dict, *args, **kwargs):
     #     super().__init__(name, bases, class_dict)
     #     if hasattr(cls, "__dataclass_fields__"):
@@ -407,40 +430,68 @@ class TableMeta(type):
     #         # cls._field_count = len(cls.__dataclass_fields__)
     #         pass
 
-class TableNameError(ValueError):
-    """Raised when a table name is invalid"""
-    pass
 
 @dataclass
 class Table(metaclass=TableMeta, table_registry=None):
+    @staticmethod
+    def group(name: str):
+        """
+        Decorator for specifying a group a table belongs to
+        table_group can also be set in the class initializer
+        """
+        def decorator(cls):
+            cls.__table_group__ = name
+            return cls
+        return decorator
+
     # def __init__(self, *args, **kwargs): pass
     @classmethod
     def _row_factory(cls, cur: aiosqlite.Cursor, row: tuple):
         """Instantiates the dataclass from a row in the SQL table"""
-        return cls(**{col[0]: row[idx] for idx, col in enumerate(cur.description)})
-    row_factory = _row_factory
-    # @property
-    # @classmethod
-    # def __tablename__(cls: type["Table"]) -> str:
-    #     return cls._tablename
-    #
-    # @__tablename__.setter
-    # @classmethod
-    # def __tablename__(cls: type["Table"], tablename: str):
-    #     validation_pattern = r"^[a-zA-Z_][a-zA-Z0-9_]*$"
-    #     if re.match(validation_pattern, tablename) is not None:
-    #         cls._tablename = tablename
-    #     else:
-    #         raise TableNameError(
-    #             f"Invalid table name: '{tablename}'\n"
-    #             f"A valid name must start with a letter or underscore, followed by letters, digits or underscores")
+        # field_names = {col[0] for col in cur.description}
+        # got this stuff from chatgpt because the row factory thing always confused me, I know why it works so it's fine
+        valid_fields = {field.name for field in fields(cls)}
+        # gets rid of fields that don't exist in the dataclass
+        filtered_data = {col[0]: row[idx] for idx, col in enumerate(cur.description) if col[0] in valid_fields}
+        default_data = {field: ... for field in valid_fields if field not in filtered_data}
+        return cls(**{**default_data, **filtered_data})
+        # return cls(**{col[0]: row[idx] for idx, col in enumerate(cur.description)})
+    row_factory = _row_factory # just an alias so that when you type it out it doesn't place () at the end in pycharm
+
+    @classmethod
+    async def _validate_query(cls, db: aiosqlite.Connection, query: str):
+        try:
+            await db.execute(f"EXPLAIN {query}")
+            return True
+        except aiosqlite.DatabaseError as e:
+            print(f"Error in query: {e}")
+            return False
+
+    @classmethod
+    async def _exists(cls, db: aiosqlite.Connection, check_old_name: bool=False) -> bool:
+        tablename = cls.__old_tablename__ if check_old_name and cls.__old_tablename__ is not None else cls.__tablename__
+        async with db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tablename,)) as cur:
+            name = await cur.fetchone()
+        return name is not None
+
+    @classmethod
+    async def _execute_query(cls, db: aiosqlite.Connection, query: str, params: tuple | dict=None):
+        is_valid = cls._validate_query(db, query)
+        if is_valid:
+            await db.execute(query, params)
 
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
+        """
+        Called to create a table and add it to the database
+        """
         await db.execute(f"CREATE TABLE IF NOT EXISTS {cls.__tablename__}(rowid INTEGER PRIMARY KEY)")
 
     @classmethod
     async def drop_table(cls, db: aiosqlite.Connection):
+        """
+        Called to drop an existing table from the database
+        """
         await db.execute(f"DROP TABLE IF EXISTS {cls.__tablename__}")
 
     @classmethod
@@ -460,6 +511,16 @@ class Table(metaclass=TableMeta, table_registry=None):
     async def drop_temp(cls, db: aiosqlite.Connection):
         await db.execute(f"DROP TABLE IF EXISTS temp_{cls.__tablename__}")
 
+    @classmethod
+    async def rename_from_old(cls, db: aiosqlite.Connection):
+        old_exists = await cls._exists(db, check_old_name=True)
+        new_exists = await cls._exists(db)
+        if old_exists and not new_exists:
+            await db.execute(f"ALTER TABLE {cls.__old_tablename__} RENAME TO {cls.__tablename__}")
+            logging.debug(f"DBInterface: Renamed table: {cls.__old_tablename__} to {cls.__tablename__}")
+        elif old_exists and new_exists:
+            logging.debug(f"Didn't rename table: {cls.__old_tablename__} because table: {cls.__tablename__} already exists")
+            # raise RuntimeError(f"Could not rename old table: {cls.__old_tablename__} because there is already a table called")
 
     @classmethod
     async def update_schema(cls, db: aiosqlite.Connection):
@@ -489,24 +550,40 @@ class Table(metaclass=TableMeta, table_registry=None):
     def astuple(self): return astuple(self)
 
     async def insert(self, db: aiosqlite.Connection):
+        """
+        Inserts the instance into the table, ignores the row with no error on a conflict
+        """
         field_count = self.__class__.field_count()
         placeholders = ",".join('?' for _ in range(field_count))
-        query = f"INSERT INTO {self.__tablename__} VALUES ({placeholders})"
+        query = f"INSERT OR IGNORE INTO {self.__tablename__} VALUES ({placeholders})"
         await db.execute(query, self.astuple())
+
+    async def upsert(self, db: aiosqlite.Connection):
+        """
+        Attempts to insert the row and on a conflict updates values for proper insertion
+        """
+        raise TableSubclassMustImplement
+
+    async def update(self, db: aiosqlite.Connection):
+        """
+        Updates the row in the table using its primary keys as reference
+        """
+        raise TableSubclassMustImplement
+
 
     @classmethod
     async def selectWhere(cls, db: aiosqlite.Connection, *args, **kwargs) -> "Table":
         """
         Override to select a row from the table, returning an instance of the Table as the row
         """
-        raise NotImplementedError("Subclasses need to implement this method")
+        raise TableSubclassMustImplement
 
     async def select(self, db: aiosqlite.Connection) -> "Table":
         """
         Selects a row from the table using a table instance for key values.
         Override to add functionality
         """
-        raise NotImplementedError("Subclasses need to implement this method")
+        raise TableSubclassMustImplement
         # return None
 
     # noinspection PyMethodParameters
@@ -515,15 +592,14 @@ class Table(metaclass=TableMeta, table_registry=None):
         """
         Override to delete a row from the table, returning an instance of the Table as the deleted row
         """
-        raise NotImplementedError("Subclasses need to implement this method")
-
+        raise TableSubclassMustImplement
 
     async def delete(self, db: aiosqlite.Connection) -> "Table":
         """
         Deletes a row from the table using a table instance for key values.
         Override to add functionality
         """
-        raise NotImplementedError("Subclasses need to implement this method")
+        raise TableSubclassMustImplement
 
 
 class ManagerMeta(type):
@@ -535,43 +611,98 @@ class ManagerMeta(type):
             raise ValueError(f"table_registry for class: {name} cannot be None")
         return cls
 
+class ConnectionPool:
+    def __init__(self, db_path: str, pool_size: int):
+        self.db_path = db_path
+        self._pool: Queue[aiosqlite.Connection] = Queue(maxsize=pool_size)
+        self._init_pool(pool_size)
+
+    def _init_pool(self, pool_size):
+        for _ in range(pool_size):
+            self._pool.put_nowait(None) # placeholder for connection
+
+    async def close(self):
+        while not self._pool.empty():
+            conn = await self._pool.get()
+            await conn.close()
+
+    async def _create_connection(self) -> aiosqlite.Connection:
+        return await aiosqlite.connect(self.db_path)
+
+    async def get(self):
+        conn = await self._pool.get()
+        if conn is None:
+            conn = await self._create_connection()
+        return conn
+
+    async def release(self, conn: aiosqlite.Connection):
+        if self._pool.qsize() < self._pool.maxsize:
+            await self._pool.put(conn)
+        else:
+            await conn.close()
+
+
+class ConnectionContext:
+    def __init__(self, connection_pool: ConnectionPool):
+        self.pool = connection_pool
+        self._conn = None
+
+    async def __aenter__(self):
+        self._conn = await self.pool.get()
+        return self._conn
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self._conn:
+            await self.pool.release(self._conn)
+            self._conn = None
+
 
 class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
     # __registry_class__: type["TableRegistry"] = TableRegistry
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, pool_size: int=5):
         self.file_path = db_path
-        self._db: aiosqlite.Connection = None
+        self.pool = ConnectionPool(db_path, pool_size)
 
-    async def setup(self):
-        async with self as db:
-            await self.__table_registry__.create_tables(db)
+    async def setup(self, table_group: str=None):
+        async with self.conn() as db:
+            await self.__table_registry__.create_tables(db, table_group)
+            await self.__table_registry__.create_triggers(db, table_group)
             await db.commit()
 
-    async def connect(self) -> aiosqlite.Connection:
-        return await aiosqlite.connect(self.file_path)
+    def conn(self):
+        """
+        Give a connection context object for use within a context manager statement
+        Ex.
+        async with db_manager.connection() as conn:
+            pass
+        """
+        return ConnectionContext(self.pool)
 
-    async def __aenter__(self) -> aiosqlite.Connection:
-        self._db = await self.connect()
-        return self._db
+    async def create_tables(self, table_group: str=None):
+        async with self.conn() as db:
+            await DatabaseManager.__table_registry__.create_tables(db, table_group)
+            await db.commit()
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        if self._db:
-            await self._db.close()
-            self._db = None
+    async def drop_tables(self, table_group: str=None):
+        async with self.conn() as db:
+            await DatabaseManager.__table_registry__.drop_tables(db, table_group)
+            await db.commit()
+    # async def execute(self, query, params: tuple | dict=None):
+    #     if self.
 
     async def drop_table(self, tablename: str):
-        async with self as db:
+        async with self.conn() as db:
             table: type[Table] = self.__table_registry__.get_table(tablename)
             await table.drop_table(db)
             await db.commit()
 
     async def drop_unregistered(self):
-        async with self as db:
+        async with self.conn() as db:
             await self.__table_registry__.drop_unregistered(db)
 
     __AsyncFunctionType = typing.Callable[[aiosqlite.Connection], typing.Awaitable]
     async def handle(self, functions: tuple[__AsyncFunctionType]) -> list[typing.Any]:
-        async with self as db:
+        async with self.conn() as db:
             results = []
             for function in functions:
                 result = await function(db)
