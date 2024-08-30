@@ -124,7 +124,7 @@ class TagDB(Database):
             AFTER UPDATE ON Tag
             BEGIN
                 UPDATE Tag
-                SET modified_date = NULL 
+                SET modified_date = CURRENT_DATE
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name);
             END
             """
@@ -140,8 +140,8 @@ class TagDB(Database):
             # ON CONFLICT DO NOTHING
             # """
             UPSERT = """
-            INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date)
-            VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date)
+            INSERT INTO Tag (guild_id, name, content, embed, author_id)
+            VALUES (:guild_id, :name, :content, :embed, :author_id)
             ON CONFLICT (guild_id, name)
             DO UPDATE SET content = :content, embed = :embed
             """
@@ -193,6 +193,12 @@ class TagDB(Database):
             row_count = cursor.rowcount
             await db.commit()
         return row_count > 0
+
+    async def upsertTags(self, tags: list[Tag]):
+        async with aiosqlite.connect(self.file_path) as db:
+            data = [tag.asdict() for tag in tags]
+            await db.executemany(TagDB.Tag.Queries.UPSERT, data)
+            await db.commit()
 
     async def insertTags(self, tags: list[Tag]):
         async with aiosqlite.connect(self.file_path) as db:
@@ -353,8 +359,15 @@ class Tags(GroupCog, group_name="t"):
         async def convertTag(_guild_id: int, _tag_name: str, _tag: OldTag) -> TagDB.Tag:
             user = discord.utils.get(self.bot.get_all_members(), name=_tag.author)
             user_id = user.id if user else 0
+            attachments = "\n".join(_tag.attachments)
+            new_content = _tag.content
+            if len(new_content) != 0:
+                new_content += "\n" + attachments
+            else:
+                new_content += attachments
+
             return TagDB.Tag(guild_id=_guild_id, name=_tag_name,
-                             content=_tag.content, embed=None, author_id=user_id,
+                             content=new_content, embed=None, author_id=user_id,
                              creation_date=_tag.creation_date)
 
         for server_id, server in self.bot.data.servers.items():
@@ -362,11 +375,11 @@ class Tags(GroupCog, group_name="t"):
             try: guild = await self.bot.fetch_guild(server_id)
             except discord.NotFound: continue
             new_tags = [await convertTag(server_id, tag_name, tag) for tag_name, tag in server.tags.items()]
-            await self.database.insertTags(new_tags)
+            await self.database.upsertTags(new_tags)
 
         new_global_tags = [await convertTag(0, tag_name, tag)
                            for tag_name, tag in self.bot.data.globals.tags.items()]
-        await self.database.insertTags(new_global_tags)
+        await self.database.upsertTags(new_global_tags)
 
     async def cog_unload(self) -> None:
         for ctx_menu in self.ctx_menus:
