@@ -40,6 +40,7 @@ class Player(wavelink.Player):
         self.priority_queue = wavelink.Queue
         self.playlist_queue = wavelink.Queue
         self.soundboard_queue = wavelink.Queue
+        self.last_command_channel = None
 
         """
         queue order

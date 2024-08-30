@@ -24,7 +24,6 @@ from bot.utils import bot_data
 from bot.utils.database import Database
 
 OldPlaylist = bot_data.Playlist
-old_server_data = bot_data.server_data
 OldTrack = bot_data.Track
 # context vars
 from bot.kagami_bot import bot_var
@@ -114,7 +113,8 @@ def requireOptionalParams(params=list[str], min_count: int=1):
 
 def setCommandChannel():
     async def predicate(interaction: Interaction):
-        old_server_data.value.last_music_command_channel = interaction.channel
+        if voice_client := interaction.guild.voice_client:
+            voice_client.last_command_channel = interaction.channel
         return True
     return app_commands.check(predicate)
 
@@ -1089,18 +1089,21 @@ class Music(GroupCog,
             await self.database.upsertMusicSettings(music_settings)
         if not music_settings.music_enabled:
             raise MusicDB.MusicSettings
-        old_server_data.value = self.bot.getServerData(interaction.guild_id)
+
         if interaction.guild.voice_client and not isinstance(interaction.guild.voice_client, Player):
             raise errors.WrongVoiceClient("`Incorrect command for Player, Try /<command> instead`")
 
-        old_server_data.value.last_music_command_channel = interaction.channel
+        client: Player = interaction.guild.voice_client
+        if client:
+            client.last_command_channel = interaction.channel
+
         # await self.bot.database.upsertGuild(interaction.guild)
         return True
 
     @Cog.listener()
     async def on_voice_state_update(self, member: Member, before: VoiceState, after: VoiceState):
         voice_client: Player = member.guild.voice_client
-        server_data = self.bot.getServerData(member.guild.id)
+        # server_data = self.bot.getServerData(member.guild.id)
         bc = before.channel
         ac = after.channel
 
@@ -1119,7 +1122,7 @@ class Music(GroupCog,
             else:
                 return  # other voice state changed
 
-            last_channel = server_data.last_music_command_channel
+            last_channel = voice_client.last_command_channel
             if last_channel: await last_channel.send(message, delete_after=8)
         else:
             # member is not the bot
@@ -1486,7 +1489,8 @@ class PlaylistCog(GroupCog,
 
 
     def setContextVars(self, interaction: Interaction):
-        old_server_data.value = self.bot.getServerData(interaction.guild_id)
+        if client := interaction.guild.voice_client:
+            client.last_command_channel = interaction.channel
         player_instance.value = interaction.guild.voice_client
         pass
 
@@ -1499,7 +1503,8 @@ class PlaylistCog(GroupCog,
             raise MusicDB.PlaylistsDisabled
 
         self.setContextVars(interaction)
-        old_server_data.value.last_music_command_channel = interaction.channel
+        if client := interaction.guild.voice_client:
+            client.last_command_channel = interaction.channel
         # await self.bot.database.upsertGuild(interaction.guild)
         return True
     # async def autocomplete_check

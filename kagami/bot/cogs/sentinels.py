@@ -21,7 +21,7 @@ from bot.utils.ui import MessageScroller
 from bot.utils.database import Database, InfoDB, Table, TableRegistry, DatabaseManager
 from bot.utils.pages import createPageList, createPageInfoText, CustomRepr
 from typing import (
-    Literal, Union, List, Any, override, Self
+    Literal, Union, List, Any, Self
 )
 
 @dataclass

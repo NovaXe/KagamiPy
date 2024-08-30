@@ -71,8 +71,6 @@ class Track:
             return track
         return cls(encoded=track.encoded, title=track.title, duration=track.duration)
 
-
-
 @dataclass
 class DictFromToDictMixin:
     @classmethod

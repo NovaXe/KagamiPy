@@ -332,8 +332,6 @@ class Tags(GroupCog, group_name="t"):
         "attachments": CustomRepr(ignored=True),
     }
 
-    # ignored_key_values: list = ['content', 'attachments']
-
     @commands.is_owner()
     @commands.group(name="tags")
     async def tags(self, ctx: commands.Context):
@@ -391,48 +389,6 @@ class Tags(GroupCog, group_name="t"):
     GlobalTag_Transform = Transform[TagDB.Tag, GlobalTagTransformer]
     GuildTag_Transform = Transform[TagDB.Tag, GuildTagTransformer]
     Guild_Transform = Transform[discord.Guild, GuildTransformer]
-
-    # Autocompletes
-    async def server_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        user = interaction.user
-        bot_guilds = list(self.bot.guilds)
-        mutual_guilds = list(user.mutual_guilds)
-        guilds: list[discord.Guild] = None
-
-        if user.id == self.config["owner"]:
-            guilds = mutual_guilds
-        else:
-            guilds = mutual_guilds
-        return [
-            app_commands.Choice(name=guild.name, value=str(guild.id))
-            for guild in guilds if current.lower() in guild.name.lower()
-        ]
-
-    async def tag_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        command_name = interaction.command.name
-
-        tags = {}
-        # print("tag current", current)
-        # print(command_name)
-        if "global" == command_name:
-            # print("global tag")
-            tags = self.bot.global_data['tags']
-        elif "local" == command_name:
-            # print("local tag")
-            tags = self.bot.fetch_server(interaction.guild_id).tags
-        elif "server" == command_name:
-            # print("server tag")
-
-            # print(interaction.namespace["server"])
-            # guild = discord.utils.get(interaction.user.mutual_guilds, name=interaction.namespace["server_id"])
-            server_id = interaction.namespace["server"]
-            if server_id:
-                tags = self.bot.fetch_server(server_id).tags
-
-        return [
-                   app_commands.Choice(name=tag_name, value=tag_name)
-                   for tag_name, tag_data in tags.items() if current.lower() in tag_name.lower()
-               ][:25]
 
     @set_group.command(name="global", description="add a new global tag")
     async def set_global(self, interaction: Interaction, tag: GlobalTag_Transform,

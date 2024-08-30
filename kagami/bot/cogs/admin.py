@@ -81,16 +81,16 @@ class Admin(commands.Cog):
         await ctx.send("Shutting Down")
         await self.bot.close()
 
-    @commands.command(name="newsave", description="saves data")
+    @commands.command(name="save", description="saves data")
     @commands.is_owner()
     async def save_data(self, ctx):
-        self.bot.newSaveData()
+        self.bot.saveData()
         await ctx.send("Saved the data to file")
 
-    @commands.command(name="newload", description="loads data")
+    @commands.command(name="load", description="loads data")
     @commands.is_owner()
     async def load_data(self, ctx):
-        self.bot.newLoadData()
+        self.bot.loadData()
         await ctx.send("Loaded data from file")
 
     @commands.command(name="clear_global", description="clears the global command tree")
