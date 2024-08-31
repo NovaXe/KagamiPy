@@ -1,15 +1,13 @@
 import asyncio
-import json
 import os
 import sys
 import traceback
 
-import discord
 import discord.utils
 from discord.ext import commands
 from discord import app_commands
-from bot.kagami_bot import Kagami
-from bot.utils. interactions import respond
+from bot import Kagami
+from common.interactions import respond
 
 
 class Admin(commands.Cog):

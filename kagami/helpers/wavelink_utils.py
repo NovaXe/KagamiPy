@@ -6,7 +6,7 @@ from math import ceil
 import wavelink
 from wavelink.ext import spotify
 
-from bot.utils.utils import secondsToTime
+from common.utils import secondsToTime
 
 WavelinkTrack = wavelink.GenericTrack
 

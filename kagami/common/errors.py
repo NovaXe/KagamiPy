@@ -1,11 +1,10 @@
 import sys
 import traceback
 
-import discord.app_commands
 from discord import Interaction
 from discord.app_commands import CheckFailure, AppCommandError
 
-from bot.utils.interactions import respond
+from common.interactions import respond
 
 
 class CustomCheck(CheckFailure):

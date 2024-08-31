@@ -1,12 +1,10 @@
 from enum import Enum, auto
-from typing import Union, List
 import wavelink
-from discord import TextChannel
 
-from bot.ext.responses import PersistentMessage
-from bot.utils.context_vars import CVar
-from bot.utils.wavelink_utils import WavelinkTrack
-from bot.utils.bot_data import Track
+from common.responses import PersistentMessage
+from common.depr_context_vars import CVar
+from helpers.wavelink_utils import WavelinkTrack
+from utils.bot_data import Track
 
 
 class Player(wavelink.Player):

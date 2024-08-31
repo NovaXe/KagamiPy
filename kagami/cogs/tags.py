@@ -4,25 +4,19 @@ from dataclasses import dataclass
 import aiosqlite
 
 import discord
-from discord import app_commands, Interaction, Message, Member
+from discord import app_commands, Interaction
 from discord._types import ClientT
 from discord.ext import commands
-from discord.app_commands import Transformer, Group, Transform, Choice, Range, autocomplete
-from discord.ext.commands import GroupCog, Cog
+from discord.app_commands import Transformer, Group, Transform, Choice
+from discord.ext.commands import GroupCog
 
-from bot.ext import errors
-from bot.utils.bot_data import Server, OldTag
-from bot.utils.database import Database
-from bot.utils.interactions import respond
-from bot.utils.ui import MessageScroller
+from common import errors
+from utils.bot_data import OldTag
+from utils.old_db_interface import Database
+from common.interactions import respond
 from typing import Literal, Union, List, Any
-from bot.kagami_bot import Kagami
-from datetime import date
-from bot.utils.utils import (
-    find_closely_matching_dict_keys,
-    link_to_attachment
-)
-from bot.utils.pages import createPageList, createPageInfoText, CustomRepr
+from bot import Kagami
+from utils.pages import CustomRepr
 
 
 class TagDB(Database):

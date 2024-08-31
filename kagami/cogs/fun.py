@@ -13,14 +13,11 @@ from io import BytesIO
 
 import discord
 import discord.utils
-from discord.app_commands import Choice
 from discord.ext import commands
-from discord import app_commands, Interaction
+from discord import app_commands
 
-from bot.ext import errors
-from bot.utils.ui import MessageReply
-from bot.utils.bot_data import Server
-from bot.utils.interactions import respond
+from utils.ui import MessageReply
+from common.interactions import respond
 
 
 class Fun(commands.Cog):

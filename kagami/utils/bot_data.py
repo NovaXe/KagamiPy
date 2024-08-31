@@ -1,14 +1,12 @@
 import os
 from dataclasses import dataclass, field
-from typing import TypeVar, Type, Union, Self
-import wavelink
+from typing import TypeVar, Union
 from discord import TextChannel
 from dotenv import load_dotenv, find_dotenv
-from wavelink.ext import spotify
 
-from bot.utils.music_helpers import OldPlaylist
-from bot.utils.wavelink_utils import WavelinkTrack, buildTrack
-from bot.utils.context_vars import CVar
+from helpers.depr_music_helpers import OldPlaylist
+from helpers.wavelink_utils import WavelinkTrack, buildTrack
+from common.depr_context_vars import CVar
 
 # TODO deprecate this shit once nothing else uses it
 class Server:

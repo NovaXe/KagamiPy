@@ -1,27 +1,23 @@
 import asyncio
 import re
-from abc import ABC
-from copy import deepcopy
 from dataclasses import dataclass
-from enum import IntEnum, auto
+from enum import IntEnum
 
 import aiosqlite
 import discord
 import discord.ui
 from discord.ext import commands
-from discord import app_commands, Interaction, InteractionMessage, InteractionResponse
-from discord.ext.commands import GroupCog, Cog
-from discord. app_commands import AppCommand, Transform, Transformer, Range, Group, Choice, autocomplete
-from discord import Permissions
-from bot.ext import errors
-from bot.kagami_bot import Kagami
-from bot.utils.bot_data import Server, OldSentinel
-from bot.utils.interactions import respond
-from bot.utils.ui import MessageScroller
-from bot.utils.database import Database, InfoDB, Table, TableRegistry, DatabaseManager
-from bot.utils.pages import createPageList, createPageInfoText, CustomRepr
+from discord import app_commands, Interaction
+from discord.ext.commands import GroupCog
+from discord. app_commands import Transform, Transformer, Group, Choice
+from common import errors
+from bot import Kagami
+from utils.bot_data import OldSentinel
+from common.interactions import respond
+from common.database import Table, DatabaseManager
+from utils.old_db_interface import Database, InfoDB
 from typing import (
-    Literal, Union, List, Any, Self
+    Literal, List
 )
 
 @dataclass
@@ -1976,7 +1972,8 @@ class GuildTransformer(Transformer):
 
 
 class SentinelTransformer(Transformer):
-    def __init__(self, guild_field="scope"):
+    def __init__(self, db_manager: DatabaseManager, guild_field="scope"):
+        self.manager = db_manager
         self.guild_field = guild_field
     async def autocomplete(self, interaction: Interaction,
                            current: str, /) -> list[Choice[str]]:
@@ -1986,9 +1983,11 @@ class SentinelTransformer(Transformer):
             guild_id = interaction.guild_id
         bot: Kagami = interaction.client
         db = SentinelDB(bot.config.db_path)
-        names = await db.fetchSimilarSentinelNames(guild_id=guild_id,
-                                                   name=current,
-                                                   limit=25)
+        async with self.manager.conn() as db:
+            names = await Sentinel.selectLikeNamesWhere(db,
+                                                        guild_id=guild_id,
+                                                        name=current,
+                                                        limit=25)
         return [Choice(name=name, value=name) for name in names]
 
     async def transform(self, interaction: Interaction,
@@ -1998,12 +1997,15 @@ class SentinelTransformer(Transformer):
         if guild_id == 1: guild_id = interaction.guild_id
         bot: Kagami = interaction.client
         db = SentinelDB(bot.config.db_path)
-        return await db.fetchSentinel(guild_id=guild_id, name=value)
+        async with self.manager.conn() as db:
+            sentinel = await Sentinel.selectWhere(db, guild_id, value)
+        return sentinel
 
 
 class SentinelSuitTransformer(Transformer):
-    def __init__(self, empty_field: Literal["trigger_id", "response_id"]=None,
+    def __init__(self, db_manager: DatabaseManager, empty_field: Literal["trigger_id", "response_id"]=None,
                  guild_field="scope", sentinel_field="sentinel"):
+        self.manager = db_manager
         self.empty_field = empty_field
         self.guild_field = guild_field
         self.sentinel_field = sentinel_field
@@ -2015,12 +2017,18 @@ class SentinelSuitTransformer(Transformer):
         sentinel_name = interaction.namespace[self.sentinel_field]
         bot: Kagami = interaction.client
         db = SentinelDB(bot.config.db_path)
-        if self.empty_field == "trigger_id":
-            names = await db.fetchSimilarNullTriggerSuitNames(guild_id, sentinel_name, current, limit=25)
-        elif self.empty_field == "response_id":
-            names = await db.fetchSimilarNullResponseSuitNames(guild_id, sentinel_name, current, limit=25)
-        else:
-            names = await db.fetchSimilarSuitNames(guild_id, sentinel_name, current, limit=25)
+        async with self.manager.conn():
+            if self.empty_field == "trigger_id":
+                names = await SentinelSuit.selectLikeNames(db, guild_id, sentinel_name, current,
+                                                           limit=25, null_field="trigger")
+                # names = await db.fetchSimilarNullTriggerSuitNames(guild_id, sentinel_name, current, limit=25)
+            elif self.empty_field == "response_id":
+                names = await SentinelSuit.selectLikeNames(db, guild_id, sentinel_name, current,
+                                                           limit=25, null_field="response")
+                # names = await db.fetchSimilarNullResponseSuitNames(guild_id, sentinel_name, current, limit=25)
+            else:
+                names = await SentinelSuit.selectLikeNames(db, guild_id, sentinel_name, current,
+                                                           limit=25)
         return [Choice(name=name, value=name) for name in names]
 
     async def transform(self, interaction: Interaction, value: str, /) -> SentinelDB.SentinelSuit:
@@ -2030,7 +2038,8 @@ class SentinelSuitTransformer(Transformer):
         bot: Kagami = interaction.client
         db = SentinelDB(bot.config.db_path)
         sentinel_name = interaction.namespace.sentinel
-        result = await db.fetchSentinelSuit(guild_id, sentinel_name, value)
+        async with self.manager.conn() as db:
+            result = await SentinelSuit.selectWhere(db, guild_id, sentinel_name, value)
 
         if result:
             if self.empty_field == "trigger_id" and result.trigger_id is not None:
@@ -2138,6 +2147,9 @@ class Sentinels(GroupCog, name="s"):
     SuitNullTrigger_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="trigger_id")]
     SuitNullResponse_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="response_id")]
     Suit_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer]
+
+    # T_Guild = Transform[]
+
 
     async def getResponsesForMessage(self, guild_id: int, content: str) -> list[SentinelDB.SentinelResponse]:
         async with self.bot.db_man.conn() as db:

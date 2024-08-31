@@ -1,5 +1,5 @@
 import logging
-from bot.kagami_bot import Kagami
+from bot import Kagami
 import os
 # from dotenv import load_dotenv, find_dotenv
 

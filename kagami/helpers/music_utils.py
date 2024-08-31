@@ -2,21 +2,19 @@ from math import(ceil)
 
 from discord import(Interaction, InteractionType)
 
-import wavelink
 from enum import (Enum, auto)
 
-from bot.ext.ui.custom_view import MessageInfo
-from bot.ext.ui.page_scroller import ITL, PageGenCallbacks, PageScroller
-from bot.kagami_bot import Kagami
-from bot.utils.player import Player
-from bot.utils.wavelink_utils import WavelinkTrack
-from bot.utils.utils import (secondsToTime, secondsDivMod)
-from bot.utils.pages import createSinglePage, CustomRepr, PageBehavior, PageIndices, InfoSeparators, InfoTextElem, \
+from ui.custom_view import MessageInfo
+from ui.page_scroller import ITL, PageGenCallbacks, PageScroller
+from bot import Kagami
+from common.player import Player
+from common.utils import (secondsToTime, secondsDivMod)
+from utils.pages import createSinglePage, CustomRepr, PageBehavior, PageIndices, InfoSeparators, InfoTextElem, \
     EdgeIndices, createPages, getQueueEdgeIndices
 # from bot.ext.ui import (PageScroller)
-from bot.utils.interactions import respond
-from bot.utils.wavelink_utils import createNowPlayingMessage, trackListData, getPageTracks
-from bot.utils.bot_data import *
+from common.interactions import respond
+from helpers.wavelink_utils import createNowPlayingMessage, trackListData, getPageTracks
+from utils.bot_data import *
 
 class TrackType(Enum):
     YOUTUBE = auto()

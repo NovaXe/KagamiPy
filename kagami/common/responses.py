@@ -6,7 +6,7 @@ from discord import (PartialMessage, Attachment, File, Embed)
 from discord.ext import (commands, tasks)
 from discord.utils import MISSING
 
-from bot.ext.ui.custom_view import MessageInfo, CustomView
+from ui.custom_view import MessageInfo, CustomView
 
 @dataclass
 class MessageElements:

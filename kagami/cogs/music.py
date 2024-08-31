@@ -1,9 +1,7 @@
 import asyncio
 
-from math import ceil
 from dataclasses import dataclass
-from math import ceil
-from typing import (Literal, Any, Union, List)
+from typing import (Literal)
 
 import aiosqlite
 import discord
@@ -12,36 +10,32 @@ from discord import (app_commands, Interaction, VoiceChannel, Message, Member, V
 from discord.app_commands import Group, Transformer, Transform, Choice, Range
 from discord.ext import (commands)
 from discord.ext.commands import GroupCog, Cog
-from discord.ui import Modal, TextInput
 from discord.utils import MISSING
 from wavelink import TrackEventPayload
 from wavelink.ext import spotify
-from wavelink.exceptions import WavelinkException, InvalidLavalinkResponse
+from wavelink.exceptions import InvalidLavalinkResponse
 
-from bot.ext.ui.custom_view import MessageInfo
-from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks, ITL
-from bot.utils import bot_data
-from bot.utils.database import Database
+from ui.custom_view import MessageInfo
+from ui.page_scroller import PageScroller, PageGenCallbacks
+from utils import bot_data
+from utils.old_db_interface import Database
 
 OldPlaylist = bot_data.Playlist
 OldTrack = bot_data.Track
 # context vars
-from bot.kagami_bot import bot_var
 
-from bot.utils.music_utils import (
+from helpers.music_utils import (
     attemptHaltResume,
     createNowPlayingWithDescriptor, createQueuePage, secondsToTime, respondWithTracks, addedToQueueMessage)
-from bot.utils.wavelink_utils import createNowPlayingMessage, searchForTracks, buildTrack
-from bot.utils.player import Player, player_instance
-from bot.utils.wavelink_utils import WavelinkTrack
-from bot.kagami_bot import Kagami
-from bot.ext.ui.music import PlayerController
-from bot.ext.responses import (PersistentMessage, MessageElements)
-from bot.utils.interactions import respond
-from bot.ext import errors
-from bot.utils.pages import EdgeIndices, getQueueEdgeIndices, InfoTextElem, InfoSeparators, CustomRepr, \
-    PageBehavior, createSinglePage, PageIndices
-from bot.utils.utils import similaritySort
+from helpers.wavelink_utils import createNowPlayingMessage, searchForTracks, buildTrack
+from common.player import Player, player_instance
+from helpers.wavelink_utils import WavelinkTrack
+from bot import Kagami
+from ui.music import PlayerController
+from common.responses import (PersistentMessage, MessageElements)
+from common.interactions import respond
+from common import errors
+from utils.pages import EdgeIndices, getQueueEdgeIndices
 
 
 # General functions for music and playlist use

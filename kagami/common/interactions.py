@@ -1,9 +1,7 @@
-import asyncio
-
 import discord
-from discord import Interaction, InteractionResponse, InteractionResponded, InteractionMessage
+from discord import Interaction, InteractionMessage
 
-from bot.utils.context_vars import CVar
+from common.depr_context_vars import CVar
 from discord import Embed, Attachment, File, Webhook, WebhookMessage
 from discord.ui import View
 from discord.utils import MISSING

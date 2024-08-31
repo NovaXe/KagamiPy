@@ -3,24 +3,22 @@ import json
 import logging
 import os
 import sys
-import aiosqlite
-import wavelink
 from discord.ext.commands import Context
-from bot.utils import database
 
+import utils.old_db_interface
 
 import discord
 import discord.utils
 from discord import Interaction
-from discord.ext import commands, tasks
+from discord.ext import commands
 from typing import (
-    Any, Optional,
-)
+    Any, )
 
-from bot.ext import errors
-from bot.utils.bot_data import BotData, BotConfiguration
-from bot.utils.context_vars import CVar
-from bot.utils.database import DatabaseManager, Table, TableRegistry
+from common import errors
+from utils.bot_data import BotData, BotConfiguration
+from common.depr_context_vars import CVar
+from common.database import DatabaseManager
+
 intents = discord.Intents.all()
 # intents.message = True
 # intents.voice_states = True
@@ -34,7 +32,6 @@ class Kagami(commands.Bot):
                          intents=intents,
                          owner_id=self.config.owner_id)
         self.activity = discord.CustomActivity("Testing new things")
-        bot_var.value = self
         self.raw_data = {}
         self.data: BotData = None
         self.database = None
@@ -44,7 +41,7 @@ class Kagami(commands.Bot):
 
     def init_data(self):
         self.loadData()
-        self.database = database.InfoDB(self.config.db_path)
+        self.database = utils.old_db_interface.InfoDB(self.config.db_path)
         self.db_man = DatabaseManager(self.config.db_path)
 
     def changeCmdError(self):
@@ -165,6 +162,3 @@ class Kagami(commands.Bot):
         login_message = f"Logged in as {self.user} (ID: {self.user.id})"
         print(login_message)
         await self.logToChannel(login_message)
-
-
-bot_var = CVar[Kagami]('kagami')
