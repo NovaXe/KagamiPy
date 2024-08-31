@@ -320,6 +320,7 @@ class BotConfiguration:
     lavalink: dict[str, str] = None
     spotify: dict[str, str] = None
     drop_tables: bool = False
+    drop_triggers: bool = False
     migrate_data: bool = False
     schema_update: bool = False
     # migrate_data: bool = False
@@ -350,6 +351,7 @@ class BotConfiguration:
                 "client_secret": env.get("SPOTIFY_CLIENT_SECRET")
             },
             drop_tables=bool(int(env.get("DROP_TABLES"))),
+            drop_triggers=bool(int(env.get("DROP_TRIGGERS"))),
             migrate_data=bool(int(env.get("MIGRATE_DATA"))),
             schema_update=bool(int(env.get("SCHEMA_UPDATE")))
         )

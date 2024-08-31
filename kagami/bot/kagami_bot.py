@@ -38,7 +38,7 @@ class Kagami(commands.Bot):
         self.raw_data = {}
         self.data: BotData = None
         self.database = None
-        self.db_man = None
+        self.db_man: DatabaseManager = None
         self.changeCmdError()
         self.init_data()
 

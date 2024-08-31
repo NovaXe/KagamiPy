@@ -376,6 +376,16 @@ class TableRegistry:
             await tableclass.drop_table(db)
 
     @classmethod
+    async def drop_triggers(cls, db: aiosqlite.Connection, group_name: str=None):
+        for tablename, tableclass in cls.get_tables(group_name):
+            await tableclass.drop_triggers(db)
+
+    @classmethod
+    async def update_schema(cls, db: aiosqlite.Connection, group_name: str=None):
+        for tablename, tableclass in cls.get_tables(group_name):
+            await tableclass.update_schema(db)
+
+    @classmethod
     async def drop_unregistered(cls, db: aiosqlite.Connection):
         names = cls.tables.keys()
         async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cur:
@@ -545,6 +555,16 @@ class Table(metaclass=TableMeta, table_registry=None):
         """
         pass
 
+    @classmethod
+    async def drop_triggers(cls, db: aiosqlite.Connection):
+        query = f"""
+        SELECT name FROM sqlite_master
+        WHERE type = 'trigger' AND tbl_name = '{cls.__tablename__}'
+        """
+        trigger_names = await db.execute_fetchall(query)
+        for name in trigger_names:
+            await db.execute(f"DROP TRIGGER IF EXISTS {name}")
+
     def asdict(self): return asdict(self)
 
     def astuple(self): return astuple(self)
@@ -663,8 +683,14 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
         self.file_path = db_path
         self.pool = ConnectionPool(db_path, pool_size)
 
-    async def setup(self, table_group: str=None):
+    async def setup(self, table_group: str=None, drop_tables=False, drop_triggers=False, update_schema=False):
         async with self.conn() as db:
+            if drop_triggers:
+                await self.__table_registry__.drop_triggers(db, group_name=table_group)
+            if drop_tables:
+                await self.__table_registry__.drop_tables(db, group_name=table_group)
+            if update_schema:
+                await self.__table_registry__.update_schema(db, group_name=table_group)
             await self.__table_registry__.create_tables(db, table_group)
             await self.__table_registry__.create_triggers(db, table_group)
             await db.commit()

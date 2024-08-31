@@ -95,7 +95,7 @@ class SentinelSettings(Table, table_group="sentinel"):
         return result
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int):
+    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "SentinelSettings":
         query = f"""
         SELECT * FROM {SentinelSettings}
         WHERE guild_id = ?
@@ -316,7 +316,7 @@ class DisabledSentinelChannels(Table, table_group="sentinel"):
 
 
     @classmethod
-    async def selectExists(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int):
+    async def selectExists(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> bool:
         params = {"guild_id": guild_id, "channel_id": channel_id}
         query = f"""
         SELECT CASE WHEN EXISTS (
@@ -330,7 +330,7 @@ class DisabledSentinelChannels(Table, table_group="sentinel"):
         """
         async with db.execute(query, params) as cur:
             result = await cur.fetchone()
-        return result[0]
+        return bool(result[0])
 
 @dataclass
 class SentinelTrigger(Table, table_group="sentinel"):
@@ -394,6 +394,16 @@ class SentinelTrigger(Table, table_group="sentinel"):
             result = await cur.fetchone()
         return result
 
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, id: int) -> "SentinelTrigger":
+        query = f"""
+            SELECT * FROM {SentinelTrigger}
+            WHERE id = ?
+            """
+        async with db.execute(query, (id,)) as cur:
+            result = await cur.fetchone()
+        return result
+
 
 @dataclass
 class SentinelResponse(Table, table_group="sentinel"):
@@ -444,6 +454,16 @@ class SentinelResponse(Table, table_group="sentinel"):
             result = await SentinelResponse.selectID(db, self.type, self.content, self.reactions)
 
         return result[0]
+
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, id: int) -> "SentinelResponse":
+        query = f"""
+        SELECT * FROM {SentinelResponse}
+        WHERE id = ?
+        """
+        async with db.execute(query, (id,)) as cur:
+            result = await cur.fetchone()
+        return result
 
 @dataclass
 class SentinelSuit(Table, table_group="sentinel"):
@@ -733,7 +753,7 @@ class SentinelSuit(Table, table_group="sentinel"):
         return results
 
     @classmethod
-    async def selectWeightedRandomResponse(cls, db: aiosqlite.Connection, guild_id, sentinel_name) -> list["SentinelSuit"]:
+    async def selectWeightedRandomResponse(cls, db: aiosqlite.Connection, guild_id, sentinel_name) -> "SentinelSuit":
         query = f"""
         with null_trigger_suits AS (
             SELECT
@@ -2041,6 +2061,46 @@ async def responseSanitizer(response_type: SentinelDB.SentinelResponse.ResponseT
                             reactions: str) -> tuple[SentinelDB.SentinelResponse.ResponseType, str, str]:
     raise NotImplementedError
 
+
+# class Intermediary:
+#     def __init__(self, db_manager: DatabaseManager):
+#         self.manager = db_manager
+#
+#     async def getMatchingSuitsFromMessage(self, guild_id, content):
+#         async with self.manager.conn() as db:
+#             suits = await SentinelSuit.selectFromMessage(db, guild_id, content)
+#         return suits
+#
+#     async def getWeightedRandomResponseSuit(self, guild_id, sentinel_name):
+#         async with self.manager.conn() as db:
+#             suit = await SentinelSuit.selectWeightedRandomResponse(db, guild_id, sentinel_name)
+#         return suit
+#
+#     async def fetchResponse(self, response_id):
+#         async with self.manager.conn() as db:
+#             response = await SentinelResponse.selectWhere(db, response_id)
+#         return response
+#
+#     async def getMatchingSuitsFromReaction(self, guild_id, reaction_str):
+#         async with self.manager.conn() as db:
+#             suits = await SentinelSuit.selectFromReaction(db, guild_id, reaction_str)
+#         return suits
+#
+#     async def fetchSentinelSettings(self, guild_id):
+#         async with self.manager.conn() as db:
+#             settings = await SentinelSettings.selectWhere(db, guild_id)
+#         return settings
+#
+#     async def upsertSentinelSettings(self, sentinel_settings: SentinelSettings):
+#         async with self.manager.conn() as db:
+#             await sentinel_settings.up
+#
+#     async def getChannelDisabledStatus(self, guild_id, channel_id):
+#         async with self.manager.conn() as db:
+#             exists = await DisabledSentinelChannels.selectExists(db, guild_id, channel_id)
+#         return exists
+
+
 @app_commands.default_permissions(manage_emojis_and_stickers=True)
 class Sentinels(GroupCog, name="s"):
     def __init__(self, bot: Kagami):
@@ -2049,7 +2109,10 @@ class Sentinels(GroupCog, name="s"):
         self.database = SentinelDB(bot.config.db_path)
 
     async def cog_load(self) -> None:
-        await self.database.init(drop=self.config.drop_tables, schema_update=self.config.schema_update)
+        await self.bot.db_man.setup(table_group="sentinel",
+                                    drop_tables=self.config.drop_tables,
+                                    update_schema=self.config.schema_update)
+        # await self.database.init(drop=self.config.drop_tables, schema_update=self.config.schema_update)
         # await self.database.init(drop=True)
         if self.bot.config.migrate_data: await self.migrateData()
         # pass
@@ -2076,49 +2139,33 @@ class Sentinels(GroupCog, name="s"):
     SuitNullResponse_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="response_id")]
     Suit_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer]
 
-    @dataclass
-    class SentinelPayload:
-        content: str
-        user_id: int
-        guild_id: int
-        channel_id: int
-        type: Literal["message", "reaction"]
-
-    @dataclass
-    class SentinelEvent:
-        type: Literal["message", "reaction"]
-        content: str
-        user: discord.User
-        guild: discord.Guild
-        channel: discord.TextChannel
-
     async def getResponsesForMessage(self, guild_id: int, content: str) -> list[SentinelDB.SentinelResponse]:
-        triggered_suits: list[SentinelDB.SentinelSuit]
-        triggered_suits = await self.database.getMatchingSuitsFromMessage(guild_id, content)
-        responses = []
-        for suit in triggered_suits:
-            response_id = suit.response_id
-            if not response_id:
-                suit = await self.database.getWeightedRandomResponseSuit(guild_id, suit.sentinel_name)
-                if not suit: continue
+        async with self.bot.db_man.conn() as db:
+            triggered_suits = await SentinelSuit.selectFromMessage(db, guild_id, content)
+            responses = []
+            for suit in triggered_suits:
                 response_id = suit.response_id
-            response: SentinelDB.SentinelResponse = await self.database.fetchResponse(response_id)
-            responses += [response]
+                if not response_id:
+                    response_suit = await SentinelSuit.selectWeightedRandomResponse(db, guild_id, suit.sentinel_name)
+                    if not response_suit: continue
+                    response_id = response_suit.response_id
+                response = await SentinelResponse.selectWhere(db, response_id)
+                responses += [response]
         return responses
 
     async def getResponsesForReaction(self, guild_id: int, reaction: discord.Reaction):
         reaction_str = str(reaction)
-        triggered_suits: list[SentinelDB.SentinelSuit]
-        triggered_suits = await self.database.getMatchingSuitsFromReaction(guild_id, reaction_str)
-        responses = []
-        for suit in triggered_suits:
-            response_id = suit.response_id
-            if not response_id:
-                suit = await self.database.getWeightedRandomResponseSuit(guild_id, suit.sentinel_name)
-                if not suit: continue
+        async with self.bot.db_man.conn() as db:
+            triggered_suits = await SentinelSuit.selectFromReaction(db, guild_id, reaction_str)
+            responses = []
+            for suit in triggered_suits:
                 response_id = suit.response_id
-            response: SentinelDB.SentinelResponse = await self.database.fetchResponse(response_id)
-            responses += [response]
+                if not response_id:
+                    response_suit = await SentinelSuit.selectWeightedRandomResponse(db, guild_id, suit.sentinel_name)
+                    if not response_suit: continue
+                    response_id = response_suit.response_id
+                response = await SentinelResponse.selectWhere(db, response_id)
+                responses += [response]
         return responses
 
     async def handleResponses(self, original_message: discord.Message, responses):
@@ -2135,19 +2182,22 @@ class Sentinels(GroupCog, name="s"):
                         await original_message.add_reaction(partial_emoji)
                     except discord.NotFound: pass
 
-
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        channel_id = message.channel.id
+        guild_id = message.guild.id
         if message.author.id == self.bot.user.id:
             return
 
-        global_settings = await self.database.fetchSentinelSettings(0)
-        channel_global_disabled = await self.database.getChannelDisabledStatus(0, message.channel.id)
-        guild_settings = await self.database.fetchSentinelSettings(message.guild.id)
-        if guild_settings is None:
-            guild_settings = SentinelDB.SentinelSettings(message.guild.id)
-            await self.database.upsertSentinelSettings(guild_settings)
-        channel_local_disabled = await self.database.getChannelDisabledStatus(message.guild.id, message.channel.id)
+        async with self.bot.db_man.conn() as db:
+            global_settings = await SentinelSettings.selectWhere(db, 0)
+            guild_settings = await SentinelSettings.selectWhere(db, guild_id)
+            if not guild_settings:
+                guild_settings = SentinelSettings(guild_id)
+                await guild_settings.upsert(db)
+                await db.commit()
+            channel_global_disabled = await DisabledSentinelChannels.selectExists(db, 0, channel_id)
+            channel_local_disabled = await DisabledSentinelChannels.selectExists(db, guild_id, channel_id)
 
         if global_settings.global_enabled and guild_settings.global_enabled and not channel_global_disabled:
             global_responses = await self.getResponsesForMessage(0, message.content)
@@ -2156,6 +2206,22 @@ class Sentinels(GroupCog, name="s"):
         if global_settings.local_enabled and guild_settings.local_enabled and not channel_local_disabled:
             responses = await self.getResponsesForMessage(message.guild.id, message.content)
             await self.handleResponses(message, responses)
+
+        # global_settings = await self.database.fetchSentinelSettings(0)
+        # channel_global_disabled = await self.database.getChannelDisabledStatus(0, message.channel.id)
+        # guild_settings = await self.database.fetchSentinelSettings(message.guild.id)
+        # if guild_settings is None:
+        #     guild_settings = SentinelDB.SentinelSettings(message.guild.id)
+        #     await self.database.upsertSentinelSettings(guild_settings)
+        # channel_local_disabled = await self.database.getChannelDisabledStatus(message.guild.id, message.channel.id)
+        #
+        # if global_settings.global_enabled and guild_settings.global_enabled and not channel_global_disabled:
+        #     global_responses = await self.getResponsesForMessage(0, message.content)
+        #     await self.handleResponses(message, global_responses)
+        #
+        # if global_settings.local_enabled and guild_settings.local_enabled and not channel_local_disabled:
+        #     responses = await self.getResponsesForMessage(message.guild.id, message.content)
+        #     await self.handleResponses(message, responses)
 
 
     # @commands.Cog.listener()
@@ -2169,25 +2235,32 @@ class Sentinels(GroupCog, name="s"):
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, event: discord.RawReactionActionEvent):
+        guild_id = event.guild_id
+        channel_id = event.channel_id
+        message_id = event.message_id
         if event.user_id == self.bot.user.id:
             return
-        if await self.database.getChannelDisabledStatus(event.guild_id, event.channel_id):
-            return
+        async with self.bot.db_man.conn() as db:
+            if await DisabledSentinelChannels.selectExists(db, event.guild_id, event.channel_id):
+                return
 
-        global_settings = await self.database.fetchSentinelSettings(0)
-        guild_settings = await self.database.fetchSentinelSettings(event.guild_id)
-        if guild_settings is None:
-            guild_settings = SentinelDB.SentinelSettings(event.guild_id)
-            await self.database.upsertSentinelSettings(guild_settings)
-        channel = await self.bot.fetch_channel(event.channel_id)
-        message = await channel.fetch_message(event.message_id)
+            global_settings = await SentinelSettings.selectWhere(db, 0)
+            guild_settings = await SentinelSettings.selectWhere(db, guild_id)
+            if not guild_settings:
+                guild_settings = SentinelSettings(guild_id)
+                await guild_settings.upsert(db)
+                await db.commit()
+            channel_global_disabled = await DisabledSentinelChannels.selectExists(db, 0, channel_id)
+            channel_local_disabled = await DisabledSentinelChannels.selectExists(db, guild_id, channel_id)
+        channel = await self.bot.fetch_channel(channel_id)
+        message = await channel.fetch_message(message_id)
 
-        if global_settings.global_enabled and guild_settings.global_enabled:
+        if global_settings.global_enabled and guild_settings.global_enabled and not channel_global_disabled:
             global_responses = await self.getResponsesForReaction(guild_id=0, reaction=event.emoji)
             await self.handleResponses(message, global_responses)
 
-        if global_settings.local_enabled and guild_settings.local_enabled:
-            responses = await self.getResponsesForReaction(guild_id=event.guild_id, reaction=event.emoji)
+        if global_settings.local_enabled and guild_settings.local_enabled and not channel_local_disabled:
+            responses = await self.getResponsesForReaction(guild_id=guild_id, reaction=event.emoji)
             await self.handleResponses(message, responses)
 
     @commands.is_owner()
