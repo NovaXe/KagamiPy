@@ -1,1 +1,1 @@
-from kagami_bot import Kagami
+from .kagami_bot import Kagami

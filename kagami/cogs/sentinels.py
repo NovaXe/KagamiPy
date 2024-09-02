@@ -1955,6 +1955,34 @@ class SentinelScope(IntEnum):
     LOCAL = 1
 
 
+class SuitHasTrigger(errors.CustomCheck):
+    MESSAGE = "The specific suit already has a trigger"
+
+class SuitHasResponse(errors.CustomCheck):
+    MESSAGE = "The specific suit already has a response"
+
+class SuitDoesNotExist(errors.CustomCheck):
+    MESSAGE = "The specific suit does not exist"
+
+class SentinelDoesNotExist(errors.CustomCheck):
+    MESSAGE = "The specific sentinel does not exist"
+
+class InvalidRegex(errors.CustomCheck):
+    MESSAGE = "The entered regex is not valid"
+
+class SuitHasNoTrigger(errors.CustomCheck):
+    MESSAGE = "The specified suit doesn't have a trigger"
+
+class SuitHasNoResponse(errors.CustomCheck):
+    MESSAGE = "The specified suit doesn't have a response"
+
+class SuitAlreadyExists(errors.CustomCheck):
+    MESSAGE = "There is already a suit with that name"
+
+class SentinelAlreadyExists(errors.CustomCheck):
+    MESSAGE = "There is already a sentinel with that name"
+
+
 class GuildTransformer(Transformer):
     async def autocomplete(self, interaction: Interaction,
                            current: str) -> list[Choice[str]]:
@@ -1972,8 +2000,7 @@ class GuildTransformer(Transformer):
 
 
 class SentinelTransformer(Transformer):
-    def __init__(self, db_manager: DatabaseManager, guild_field="scope"):
-        self.manager = db_manager
+    def __init__(self, guild_field="scope"):
         self.guild_field = guild_field
     async def autocomplete(self, interaction: Interaction,
                            current: str, /) -> list[Choice[str]]:
@@ -1982,8 +2009,7 @@ class SentinelTransformer(Transformer):
         if guild_id == SentinelScope.LOCAL:
             guild_id = interaction.guild_id
         bot: Kagami = interaction.client
-        db = SentinelDB(bot.config.db_path)
-        async with self.manager.conn() as db:
+        async with bot.db_man.conn() as db:
             names = await Sentinel.selectLikeNamesWhere(db,
                                                         guild_id=guild_id,
                                                         name=current,
@@ -1996,16 +2022,14 @@ class SentinelTransformer(Transformer):
         guild_id = interaction.namespace.scope
         if guild_id == 1: guild_id = interaction.guild_id
         bot: Kagami = interaction.client
-        db = SentinelDB(bot.config.db_path)
-        async with self.manager.conn() as db:
+        async with bot.db_man.conn() as db:
             sentinel = await Sentinel.selectWhere(db, guild_id, value)
         return sentinel
 
 
 class SentinelSuitTransformer(Transformer):
-    def __init__(self, db_manager: DatabaseManager, empty_field: Literal["trigger_id", "response_id"]=None,
+    def __init__(self, empty_field: Literal["trigger_id", "response_id"]=None,
                  guild_field="scope", sentinel_field="sentinel"):
-        self.manager = db_manager
         self.empty_field = empty_field
         self.guild_field = guild_field
         self.sentinel_field = sentinel_field
@@ -2016,8 +2040,7 @@ class SentinelSuitTransformer(Transformer):
         if guild_id == SentinelScope.LOCAL: guild_id = interaction.guild_id
         sentinel_name = interaction.namespace[self.sentinel_field]
         bot: Kagami = interaction.client
-        db = SentinelDB(bot.config.db_path)
-        async with self.manager.conn():
+        async with bot.db_man.conn() as db:
             if self.empty_field == "trigger_id":
                 names = await SentinelSuit.selectLikeNames(db, guild_id, sentinel_name, current,
                                                            limit=25, null_field="trigger")
@@ -2036,16 +2059,15 @@ class SentinelSuitTransformer(Transformer):
         guild_id = interaction.namespace.scope
         if guild_id == 1: guild_id = interaction.guild_id
         bot: Kagami = interaction.client
-        db = SentinelDB(bot.config.db_path)
         sentinel_name = interaction.namespace.sentinel
-        async with self.manager.conn() as db:
+        async with bot.db_man.conn() as db:
             result = await SentinelSuit.selectWhere(db, guild_id, sentinel_name, value)
 
         if result:
             if self.empty_field == "trigger_id" and result.trigger_id is not None:
-                raise SentinelDB.SuitHasTrigger
+                raise SuitHasTrigger
             elif self.empty_field == "response_id" and result.response_id is not None:
-                raise SentinelDB.SuitHasResponse
+                raise SuitHasResponse
 
         return result
 
@@ -2117,6 +2139,8 @@ class Sentinels(GroupCog, name="s"):
         self.config = bot.config
         self.database = SentinelDB(bot.config.db_path)
 
+
+
     async def cog_load(self) -> None:
         await self.bot.db_man.setup(table_group="sentinel",
                                     drop_tables=self.config.drop_tables,
@@ -2143,10 +2167,10 @@ class Sentinels(GroupCog, name="s"):
     move_group = Group(name="move", description="commands for moving sentinel components")
 
     Guild_Transform = Transform[InfoDB.Guild, GuildTransformer]
-    Sentinel_Transform = Transform[SentinelDB.Sentinel, SentinelTransformer]
-    SuitNullTrigger_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="trigger_id")]
-    SuitNullResponse_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(empty_field="response_id")]
-    Suit_Transform = Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer]
+    Sentinel_Transform = Transform[Sentinel, SentinelTransformer]
+    Suit_Transform = Transform[SentinelSuit, SentinelSuitTransformer]
+    SuitNullTrigger_Transform = Transform[SentinelSuit, SentinelSuitTransformer(empty_field="trigger_id")]
+    SuitNullResponse_Transform = Transform[SentinelSuit, SentinelSuitTransformer(empty_field="response_id")]
 
     # T_Guild = Transform[]
 
@@ -2678,4 +2702,5 @@ class Sentinels(GroupCog, name="s"):
 
 async def setup(bot):
     await bot.add_cog(Sentinels(bot))
+
 

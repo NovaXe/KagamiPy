@@ -337,7 +337,7 @@ class BotConfiguration:
             token=env.get("BOT_TOKEN"),
             prefix=env.get("COMMAND_PREFIX"),
             owner_id=int(env.get("OWNER_ID")),
-            local_data_path="bot/data",
+            local_data_path=env.get("DATA_PATH"),
             real_data_path=env.get("DATA_PATH"),
             db_path=env.get("DB_PATH"),
             lavalink={

@@ -54,10 +54,12 @@ class Kagami(commands.Bot):
         # guilds = [self.database.Guild.fromDiscord(guild) for guild in list(self.guilds)]
         # await self.database.upsertGuilds(guilds)
 
-        for file in os.listdir("bot/cogs"):
+        for file in os.listdir("cogs"):
             if file.endswith(".py"):
                 name = file[:-3]
-                path = f"bot.cogs.{name}"
+                # if name == "sentinels":
+                #     continue
+                path = f"cogs.{name}"
                 await self.load_extension(path)
 
     async def start(self, token, reconnect=True):
