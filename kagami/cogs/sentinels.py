@@ -14,10 +14,10 @@ from common import errors
 from bot import Kagami
 from utils.bot_data import OldSentinel
 from common.interactions import respond
-from common.database import Table, DatabaseManager
+from common.database import Table, DatabaseManager, ConnectionContext
 from utils.old_db_interface import Database, InfoDB
 from typing import (
-    Literal, List
+    Literal, List, Callable, Any
 )
 
 @dataclass
@@ -225,6 +225,20 @@ class Sentinel(Table, table_group="sentinel"):
             result = await cur.fetchone()
         return result
 
+    async def toggle(self, db: aiosqlite.Connection) -> "Sentinel":
+        query = f"""
+        UPDATE {SentinelSuit}
+        SET
+            enabled = NOT enabled
+        WHERE
+            guild_id = :guild_id AND
+            name = :name
+        RETURNING *
+        """
+        async with db.execute(query, self.asdict()) as cur:
+            result = await cur.fetchone()
+        return result
+
 @dataclass
 class DisabledSentinelChannels(Table, table_group="sentinel"):
     guild_id: int
@@ -399,7 +413,6 @@ class SentinelTrigger(Table, table_group="sentinel"):
         async with db.execute(query, (id,)) as cur:
             result = await cur.fetchone()
         return result
-
 
 @dataclass
 class SentinelResponse(Table, table_group="sentinel"):
@@ -665,6 +678,22 @@ class SentinelSuit(Table, table_group="sentinel"):
         params = (guild_id, sentinel_name, name)
         db.row_factory = SentinelSuit.row_factory
         async with db.execute(query, params) as cur:
+            result = await cur.fetchone()
+        return result
+
+    async def toggle(self, db: aiosqlite.Connection):
+        query = f"""
+        UPDATE {SentinelSuit}
+        SET
+            enabled = NOT enabled
+        WHERE
+            guild_id = :guild_id AND
+            sentinel_name = :sentinel_name AND
+            name = :name
+        RETURNING *
+        """
+        db.row_factory = SentinelSuit.row_factory
+        async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
 
@@ -2156,6 +2185,9 @@ class Sentinels(GroupCog, name="s"):
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         return True
 
+    async def conn(self) -> ConnectionContext:
+        return self.bot.db_man.conn()
+
     add_group = Group(name="add", description="commands for adding sentinel components")
     remove_group = Group(name="remove", description="commands for removing sentinel components")
     edit_group = Group(name="edit", description="commands for editing sentinel components")
@@ -2176,7 +2208,7 @@ class Sentinels(GroupCog, name="s"):
 
 
     async def getResponsesForMessage(self, guild_id: int, content: str) -> list[SentinelDB.SentinelResponse]:
-        async with self.bot.db_man.conn() as db:
+        async with self.conn() as db:
             triggered_suits = await SentinelSuit.selectFromMessage(db, guild_id, content)
             responses = []
             for suit in triggered_suits:
@@ -2191,7 +2223,7 @@ class Sentinels(GroupCog, name="s"):
 
     async def getResponsesForReaction(self, guild_id: int, reaction: discord.Reaction):
         reaction_str = str(reaction)
-        async with self.bot.db_man.conn() as db:
+        async with self.conn() as db:
             triggered_suits = await SentinelSuit.selectFromReaction(db, guild_id, reaction_str)
             responses = []
             for suit in triggered_suits:
@@ -2225,7 +2257,7 @@ class Sentinels(GroupCog, name="s"):
         if message.author.id == self.bot.user.id:
             return
 
-        async with self.bot.db_man.conn() as db:
+        async with self.conn() as db:
             global_settings = await SentinelSettings.selectWhere(db, 0)
             guild_settings = await SentinelSettings.selectWhere(db, guild_id)
             if not guild_settings:
@@ -2276,7 +2308,7 @@ class Sentinels(GroupCog, name="s"):
         message_id = event.message_id
         if event.user_id == self.bot.user.id:
             return
-        async with self.bot.db_man.conn() as db:
+        async with self.conn() as db:
             if await DisabledSentinelChannels.selectExists(db, event.guild_id, event.channel_id):
                 return
 
@@ -2334,55 +2366,53 @@ class Sentinels(GroupCog, name="s"):
         upsert into the usage table for each as well
         """
         async def convertSentinel(_guild_id: int, _sentinel_name: str,  _sentinel: OldSentinel
-                                  ) -> tuple[SentinelDB.SentinelTrigger, SentinelDB.SentinelResponse]:
+                                  ) -> tuple[SentinelTrigger, SentinelResponse]:
 
-            _trigger = SentinelDB.SentinelTrigger(type=SentinelDB.SentinelTrigger.TriggerType.phrase,
-                                                  object=_sentinel_name)
+            _trigger = SentinelTrigger(type=SentinelDB.SentinelTrigger.TriggerType.phrase,
+                                       object=_sentinel_name)
             reactions = ";".join(_sentinel.reactions)
-            if reactions == "None": reactions = ""
-            _response = SentinelDB.SentinelResponse(type=SentinelDB.SentinelResponse.ResponseType.reply,
-                                                    content=_sentinel.response, reactions=reactions)
+            if reactions == "None":
+                reactions = ""
+            _response = SentinelResponse(type=SentinelDB.SentinelResponse.ResponseType.reply,
+                                         content=_sentinel.response, reactions=reactions)
             # _uses = SentinelDB.SentinelTriggerUses(guild_id=_guild_id, trigger_object=)
-
             return _trigger, _response
 
-        for server_id, server in self.bot.data.servers.items():
-            server_id = int(server_id)
-            try: guild = await self.bot.fetch_guild(server_id)
-            except discord.NotFound: continue
-            converted_sentinels = [await convertSentinel(server_id, name, sentinel)
-                                   for name, sentinel in server.sentinels.items()]
-            if len(converted_sentinels):
-                triggers, responses = zip(*converted_sentinels)
-                for trigger, response in converted_sentinels:
-                    trigger_id = await self.database.insertTrigger(trigger)
-                    response_id = await self.database.insertResponse(response)
-                    suit = SentinelDB.SentinelSuit(guild_id=server_id, sentinel_name=trigger.object, name=trigger.object,
-                                                   trigger_id=trigger_id, response_id=response_id)
-                    await self.database.insertSuit(suit)
-                # await self.database.insertTriggers(triggers)
-                # await self.database.insertResponses(responses)
+        async with self.conn() as db:
+            for server_id, server in self.bot.data.servers.items():
+                server_id = int(server_id)
+                try: guild = await self.bot.fetch_guild(server_id)
+                except discord.NotFound: continue
+                converted_sentinels = [await convertSentinel(server_id, name, sentinel)
+                                       for name, sentinel in server.sentinels.items()]
+                if len(converted_sentinels):
+                    triggers, responses = zip(*converted_sentinels)
+                    for trigger, response in converted_sentinels:
+                        trigger_id = await trigger.insert(db)
+                        response_id = await response.insert(db)
+                        suit = SentinelSuit(guild_id=server_id, sentinel_name=trigger.object, name=trigger.object,
+                                            trigger_id=trigger_id, response_id=response_id)
+                        await suit.insert(db)
 
-        converted_sentinels = [await convertSentinel(0, name, sentinel)
-                               for name, sentinel in self.bot.data.globals.sentinels.items()]
-        if len(converted_sentinels):
-            for trigger, response in converted_sentinels:
-                trigger_id = await self.database.insertTrigger(trigger)
-                response_id = await self.database.insertResponse(response)
-                suit = SentinelDB.SentinelSuit(guild_id=0, sentinel_name=trigger.object, name=trigger.object,
-                                               trigger_id=trigger_id, response_id=response_id)
-                await self.database.insertSuit(suit)
-                #
-                # await self.database.insertSuitPair(guild_id=0, sentinel_name=trigger.object, name=trigger.object,
-                #                                    trigger=trigger, response=response, weight=10)
-            # await self.database.insertTriggers(triggers)
-            # await self.database.insertResponses(responses)
+            converted_sentinels = [await convertSentinel(0, name, sentinel)
+                                   for name, sentinel in self.bot.data.globals.sentinels.items()]
+            if len(converted_sentinels):
+                for trigger, response in converted_sentinels:
+                    trigger_id = await trigger.insert(db)
+                    response_id = await response.insert(db)
+                    suit = SentinelSuit(guild_id=0, sentinel_name=trigger.object, name=trigger.object,
+                                        trigger_id=trigger_id, response_id=response_id)
+                    await suit.insert(db)
+            await db.commit()
 
     @remove_group.command(name="sentinel", description="deletes a sentinel and all its suits")
     async def remove_sentinel(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform):
         await respond(interaction)
-        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
-        await self.database.deleteSentinel(sentinel)
+        if sentinel is None: raise SentinelDoesNotExist
+        async with self.conn() as db:
+            await sentinel.delete(db)
+            await db.commit()
+        # await self.database.deleteSentinel(sentinel)
         await respond(interaction, f"Removed the Sentinel `{sentinel.name}` and all its Suits")
 
     @toggle_group.command(name="functionality", description="toggles whether global sentinels will be triggered on this server")
@@ -2391,17 +2421,17 @@ class Sentinels(GroupCog, name="s"):
                                    extent: Literal["global", "local", "both"],
                                    state: Literal["on", "off"]):
         await respond(interaction)
-        settings = await self.database.fetchSentinelSettings(interaction.guild_id)
-        if settings is None:
-            settings = SentinelDB.SentinelSettings(interaction.guild_id)
-        settings.local_enabled = state == "on" if extent in ["local", "both"] else settings.local_enabled
-        settings.global_enabled = state == "on" if extent in ["global", "both"] else settings.global_enabled
-        await self.database.upsertSentinelSettings(settings)
-        state_str = lambda s: "enabled" if s else "disabled"
+        async with self.conn() as db:
+            settings = await SentinelSettings.selectWhere(db, interaction.guild_id)
+            if settings is None:
+                settings = SentinelSettings(interaction.guild_id)
+            settings.local_enabled = state == "on" if extent in ["local", "both"] else settings.local_enabled
+            settings.global_enabled = state == "on" if extent in ["global", "both"] else settings.global_enabled
+            await settings.upsert(db)
+            await db.commit()
+        state_str: Callable[[str], str] = lambda s: "enabled" if s else "disabled"
         await respond(interaction, f"Sentinel Functionality Status: global sentinels `{state_str(settings.global_enabled)}` "
                                    f"- local sentinels `{state_str(settings.local_enabled)}`", delete_after=5)
-
-
 
     @copy_group.command(name="suit", description="copy a suit's trigger and/or response")
     async def copy_suit(self, interaction: Interaction, scope: SentinelScope,
@@ -2409,24 +2439,25 @@ class Sentinels(GroupCog, name="s"):
                         fields: Literal["trigger", "response", "both"]="both",
                         new_sentinel: Sentinel_Transform=None):
         await respond(interaction)
-        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
-        if suit is None: raise SentinelDB.SuitDoesNotExist
+        if sentinel is None: raise SentinelDoesNotExist
+        if suit is None: raise SuitDoesNotExist
 
         if interaction.namespace.new_sentinel:
             suit.sentinel_name = interaction.namespace.new_sentinel
 
         if fields == "trigger":
-            if not suit.trigger_id: raise SentinelDB.SuitHasNoTrigger
+            if not suit.trigger_id: raise SuitHasNoTrigger
             suit.name += " (trigger copy)"
             suit.response_id = None
         elif fields == "response":
-            if not suit.response_id: raise SentinelDB.SuitHasNoResponse
+            if not suit.response_id: raise SuitHasNoResponse
             suit.name += " (response copy)"
             suit.trigger_id = None
         else:
             suit.name += " (copy)"
-
-        await self.database.insertSuit(suit)
+        async with self.conn() as db:
+            await suit.insert(db)
+            await db.commit()
         await respond(interaction, f"Copied the Suit `{interaction.namespace.suit}` "
                                    f"as `{suit.name}` on Sentinel `{suit.sentinel_name}`", delete_after=5)
 
@@ -2436,14 +2467,15 @@ class Sentinels(GroupCog, name="s"):
                         new_sentinel: Sentinel_Transform,
                         new_name: Transform[SentinelDB.SentinelSuit, SentinelSuitTransformer(sentinel_field="new_sentinel")]=None):
         await respond(interaction)
-        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
-        if suit is None: raise SentinelDB.SuitDoesNotExist
-        if new_name: raise SentinelDB.SuitAlreadyExists
-        await self.database.deleteSuit(suit)
-        suit.sentinel_name = interaction.namespace.new_sentinel
-        suit.name = interaction.namespace.new_name or suit.name
-        # suit.guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
-        await self.database.insertSuit(suit)
+        if sentinel is None: raise SentinelDoesNotExist
+        if suit is None: raise SuitDoesNotExist
+        if new_name: raise SuitAlreadyExists
+        async with self.conn() as db:
+            await suit.delete(db)
+            suit.sentinel_name = interaction.namespace.new_sentinel
+            suit.name = interaction.namespace.new_name or suit.name
+            await suit.insert(db)
+            await db.commit()
         await respond(interaction, f"Moved the Suit `{interaction.namespace.suit}` "
                                    f"as `{suit.name}` to Sentinel `{suit.sentinel_name}`", delete_after=5)
 
@@ -2454,8 +2486,8 @@ class Sentinels(GroupCog, name="s"):
                             new_name: Transform[SentinelDB.Sentinel, SentinelTransformer(guild_field="new_scope")]):
         raise errors.NotImplementedYet
         await respond(interaction)
-        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
-        if new_name: raise SentinelDB.SentinelAlreadyExists()
+        if sentinel is None: raise SentinelDoesNotExist
+        if new_name: raise SentinelAlreadyExists
         # "There is already a sentinel with that name, either change the name or merge the suits"
         # add more advanced moving in the future
 
@@ -2466,7 +2498,7 @@ class Sentinels(GroupCog, name="s"):
     @add_group.command(name="trigger", description="add a sentinel trigger")
     async def add_trigger(self, interaction: Interaction, scope: SentinelScope,
                           sentinel: Sentinel_Transform, suit: SuitNullTrigger_Transform,
-                          trigger_type: SentinelDB.SentinelTrigger.TriggerType, trigger_object: str,
+                          trigger_type: SentinelTrigger.TriggerType, trigger_object: str,
                           weight: int=100):
         await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
@@ -2474,19 +2506,19 @@ class Sentinels(GroupCog, name="s"):
             try:
                 re.compile(trigger_object)
             except re.error:
-                raise SentinelDB.InvalidRegex
+                raise InvalidRegex
         # guild_id = scope * interaction.guild_id
-        trigger = SentinelDB.SentinelTrigger(type=trigger_type, object=trigger_object)
-        trigger_id = await self.database.insertTrigger(trigger)
-        if suit:
-            # if suit.trigger_id: raise SentinelDB.SuitHasTrigger
-            # else:
-            suit.trigger_id = trigger_id
-        else:
-            suit = SentinelDB.SentinelSuit(guild_id, sentinel_name=interaction.namespace.sentinel,
-                                           name=interaction.namespace.suit, trigger_id=trigger_id,
-                                           weight=weight)
-        await self.database.upsertSuit(suit)
+        trigger = SentinelTrigger(type=trigger_type, object=trigger_object)
+        async with self.conn() as db:
+            trigger_id = await trigger.insert(db)
+            if suit:
+                suit.trigger_id = trigger_id
+            else:
+                suit = SentinelSuit(guild_id, sentinel_name=interaction.namespace.sentinel,
+                                    name=interaction.namespace.suit, trigger_id=trigger_id,
+                                    weight=weight)
+            await suit.upsert(db)
+            await db.commit()
         await respond(interaction, f"Added a trigger to the suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
         # await self.database.insertTrigger(trigger)
         # await respond(interaction, f"Added a trigger to the sentinel `{interaction.namespace.sentinel}`")
@@ -2496,99 +2528,110 @@ class Sentinels(GroupCog, name="s"):
     @add_group.command(name="response", description="add a sentinel response")
     async def add_response(self, interaction: Interaction, scope: SentinelScope,
                            sentinel: Sentinel_Transform, suit: SuitNullResponse_Transform,
-                           response_type: SentinelDB.SentinelResponse.ResponseType,
+                           response_type: SentinelResponse.ResponseType,
                            content: str="", reactions: str="",
                            weight: int=100):
         await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         # guild_id = scope * interaction.guild_id
-        response = SentinelDB.SentinelResponse(type=response_type, content=content, reactions=reactions)
-        response_id = await self.database.insertResponse(response)
-        if suit:
-            # if suit.response_id: raise SentinelDB.SuitHasResponse
-            # else:
-            suit.response_id = response_id
-        else:
-            suit = SentinelDB.SentinelSuit(guild_id, sentinel_name=interaction.namespace.sentinel,
-                                           name=interaction.namespace.suit, response_id=response_id,
-                                           weight=weight)
-        await self.database.upsertSuit(suit)
+        response = SentinelResponse(type=response_type, content=content, reactions=reactions)
+        async with self.conn() as db:
+            response_id = await response.insert(db)
+            # response_id = await self.database.insertResponse(response)
+            if suit:
+                # if suit.response_id: raise SentinelDB.SuitHasResponse
+                # else:
+                suit.response_id = response_id
+            else:
+                suit = SentinelSuit(guild_id, sentinel_name=interaction.namespace.sentinel,
+                                    name=interaction.namespace.suit, response_id=response_id,
+                                    weight=weight)
+            await suit.upsert(db)
+            await db.commit()
         await respond(interaction, f"Added a response to the suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
 
     @remove_group.command(name="trigger", description="remove a trigger from a suit")
     async def remove_trigger(self, interaction: Interaction,
                              scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
         await respond(interaction)
-        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
-        if suit is None: raise SentinelDB.SuitDoesNotExist
+        if sentinel is None: raise SentinelDoesNotExist
+        if suit is None: raise SuitDoesNotExist
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         # set the trigger for the sentinel and suit to None
         suit.trigger_id = None
-        trigger = await self.database.updateSuit(suit=suit)
+        async with self.conn() as db:
+            await suit.update(db)
+            await db.commit()
         await respond(interaction, f"Removed trigger from suit `{suit.name}` for sentinel `{sentinel.name}`")
 
     @remove_group.command(name="response", description="remove a response from a suit")
     async def remove_response(self, interaction: Interaction,
                               scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
         await respond(interaction)
-        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
-        if suit is None: raise SentinelDB.SuitDoesNotExist
+        if sentinel is None: raise SentinelDoesNotExist
+        if suit is None: raise SuitDoesNotExist
         # set the response for the sentinel and suit to None
         suit.response_id = None
-        response = await self.database.updateSuit(suit=suit)
+        async with self.conn() as db:
+            await suit.update(db)
         await respond(interaction, f"Removed response from suit `{suit.name}` for sentinel `{sentinel.name}`")
 
     @remove_group.command(name="suit", description="remove a trigger-response pairing from a sentinel")
     async def remove_suit(self, interaction: Interaction,
                           scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
         await respond(interaction)
-        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
-        if suit is None: raise SentinelDB.SuitDoesNotExist
-        await self.database.deleteSuit(suit)
+        if sentinel is None: raise SentinelDoesNotExist
+        if suit is None: raise SuitDoesNotExist
+        async with self.conn() as db:
+            await suit.delete(db)
+            await db.commit()
         await respond(interaction, f"Remove the suit `{suit.name}` from sentinel `{sentinel.name}`")
 
     @edit_group.command(name="trigger", description="edit a suit's trigger")
     async def edit_trigger(self, interaction: Interaction, scope: SentinelScope,
                            sentinel: Sentinel_Transform, suit: Suit_Transform,
-                           trigger_type: SentinelDB.SentinelTrigger.TriggerType=None, trigger_object: str=None,
+                           trigger_type: SentinelTrigger.TriggerType=None, trigger_object: str=None,
                            weight: int=None):
         await respond(interaction)
-        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
-        if suit is None: raise SentinelDB.SuitDoesNotExist
+        if sentinel is None: raise SentinelDoesNotExist
+        if suit is None: raise SuitDoesNotExist
         if trigger_type == 3:
             try:
                 re.compile(trigger_object)
             except re.error:
-                raise SentinelDB.InvalidRegex
+                raise InvalidRegex
 
-        if trigger_type and trigger_object:
-            trigger = SentinelDB.SentinelTrigger(type=trigger_type, object=trigger_object)
-            trigger_id = await self.database.insertTrigger(trigger)
-            suit.trigger_id = trigger_id
-        if weight is not None:
-            suit.weight = weight
-        await self.database.updateSuit(suit)
+        async with self.conn() as db:
+            if trigger_type and trigger_object:
+                trigger = SentinelTrigger(type=trigger_type, object=trigger_object)
+                trigger_id = await trigger.insert(db)
+                suit.trigger_id = trigger_id
+            if weight is not None:
+                suit.weight = weight
+            await suit.update(db)
+            await db.commit()
         await respond(interaction, f"Added edited a trigger on suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
 
     @edit_group.command(name="response", description="edit a suit's response")
     async def edit_response(self, interaction: Interaction, scope: SentinelScope,
                             sentinel: Sentinel_Transform, suit: Suit_Transform,
-                            response_type: SentinelDB.SentinelResponse.ResponseType=None,
+                            response_type: SentinelResponse.ResponseType=None,
                             content: str=None, reactions: str=None,
                             weight: int=None):
         await respond(interaction)
-        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
-        if suit is None: raise SentinelDB.SuitDoesNotExist
+        if sentinel is None: raise SentinelDoesNotExist
+        if suit is None: raise SuitDoesNotExist
 
-        if response_type and (content or reactions):
-            reactions = reactions or ""
-            content = content or ""
-            response = SentinelDB.SentinelResponse(type=response_type, content=content, reactions=reactions)
-            response_id = await self.database.insertResponse(response)
-            suit.response_id = response_id
-        if weight is not None:
-            suit.weight = weight
-        await self.database.updateSuit(suit)
+        async with self.conn() as db:
+            if response_type and (content or reactions):
+                reactions = reactions or ""
+                content = content or ""
+                response = SentinelResponse(type=response_type, content=content, reactions=reactions)
+                response_id = await response.insert(db)
+                suit.response_id = response_id
+            if weight is not None:
+                suit.weight = weight
+            await suit.update(db)
         await respond(interaction, f"Edited a response on suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
 
 
@@ -2597,9 +2640,11 @@ class Sentinels(GroupCog, name="s"):
     async def toggle_suit(self, interaction: Interaction, scope: SentinelScope,
                           sentinel: Sentinel_Transform, suit: Suit_Transform):
         await respond(interaction)
-        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
-        if suit is None: raise SentinelDB.SuitDoesNotExist
-        await self.database.toggleSuit(suit)
+        if sentinel is None: raise SentinelDoesNotExist
+        if suit is None: raise SuitDoesNotExist
+        async with self.conn() as db:
+            await suit.toggle(db)
+            await db.commit()
         state = "enabled" if not suit.enabled else "disabled"
         await respond(interaction, f"The suit `{suit.name}` on sentinel `{sentinel.name}` is now `{state}`")
 
@@ -2608,8 +2653,10 @@ class Sentinels(GroupCog, name="s"):
     async def toggle_sentinel(self, interaction: Interaction, scope: SentinelScope,
                               sentinel: Sentinel_Transform):
         await respond(interaction)
-        if sentinel is None: raise SentinelDB.SentinelDoesNotExist
-        await self.database.toggleSentinel(sentinel)
+        if sentinel is None: raise SentinelDoesNotExist
+        async with self.conn() as db:
+            await sentinel.toggle(db)
+            await db.commit()
         state = "enabled" if not sentinel.enabled else "disabled"
         await respond(interaction, f"The sentinel `{sentinel.name}` is now `{state}`")
 
@@ -2631,60 +2678,61 @@ class Sentinels(GroupCog, name="s"):
         state = state == "Enabled"
         state_str = "enabled" if state else "disabled"
 
-        async def toggle(new_state: bool, guild_id):
-            if new_state:
-                await self.database.enableChannel(guild_id=guild_id, channel_id=channel.id)
+        async with self.conn() as db:
+            async def toggle(new_state: bool, guild_id):
+                if new_state:
+                    await DisabledSentinelChannels.deleteWhere(db, guild_id=guild_id, channel_id=channel.id)
+                else:
+                    await DisabledSentinelChannels(guild_id, channel.id).insert(db)
+
+            if extent == "local":
+                await toggle(new_state=state, guild_id=interaction.guild_id)
+                await respond(interaction, content=f"Local sentinels are now `{state_str}` in `{channel.name}`")
+            elif extent == "global":
+                await toggle(new_state=state, guild_id=0)
+                await respond(interaction, content=f"Global sentinels are now `{state_str}` in `{channel.name}`")
             else:
-                await self.database.disableChannel(guild_id=guild_id, channel_id=channel.id)
+                await toggle(new_state=state, guild_id=interaction.guild_id)
+                await toggle(new_state=state, guild_id=0)
+                await respond(interaction, content=f"Local and Global sentinels are now `{state_str}` in `{channel.name}`")
 
-        if extent == "local":
-            await toggle(new_state=state, guild_id=interaction.guild_id)
-            await respond(interaction, content=f"Local sentinels are now `{state_str}` in `{channel.name}`")
-        elif extent == "global":
-            await toggle(new_state=state, guild_id=0)
-            await respond(interaction, content=f"Global sentinels are now `{state_str}` in `{channel.name}`")
-        else:
-            await toggle(new_state=state, guild_id=interaction.guild_id)
-            await toggle(new_state=state, guild_id=0)
-            await respond(interaction, content=f"Local and Global sentinels are now `{state_str}` in `{channel.name}`")
-
-    @enable_group.command(name="channel", description="enable all sentinels for a channel")
-    # @commands.has_permissions(manage_channels=True)
-    async def enable_channel(self, interaction: Interaction, channel: discord.TextChannel | discord.VoiceChannel=None, extent: Literal["all", "local", "global"]="all"):
-        await respond(interaction)
-        if channel is None:
-            channel = interaction.channel
-
-        if extent == "local":
-            await self.database.enableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
-            await respond(interaction, content=f"Local sentinels are now `enabled` in `{channel.name}`")
-        elif extent == "global":
-            await self.database.enableChannel(guild_id=0, channel_id=channel.id)
-            await respond(interaction, content=f"Global sentinels are now `enabled` in `{channel.name}`")
-        else:
-            await self.database.enableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
-            await self.database.enableChannel(guild_id=0, channel_id=channel.id)
-            await respond(interaction, content=f"Local and Global sentinels are now `enabled` in `{channel.name}`")
-
-    @disable_group.command(name="channel", description="enable all sentinels for a channel")
-    # @commands.has_permissions(manage_channels=True)
-    async def disable_channel(self, interaction: Interaction,
-                              channel: discord.TextChannel | discord.VoiceChannel = None,
-                              extent: Literal["all", "local", "global"] = "all"):
-        await respond(interaction)
-        if channel is None:
-            channel = interaction.channel
-
-        if extent == "local":
-            await self.database.disableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
-            await respond(interaction, content=f"Local sentinels are now `disabled` in `{channel.name}`")
-        elif extent == "global":
-            await self.database.disableChannel(guild_id=0, channel_id=channel.id)
-            await respond(interaction, content=f"Global sentinels are now `disabled` in `{channel.name}`")
-        else:
-            await self.database.disableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
-            await self.database.disableChannel(guild_id=0, channel_id=channel.id)
-            await respond(interaction, content=f"Local and Global sentinels are now `disabled` in `{channel.name}`")
+    # @enable_group.command(name="channel", description="enable all sentinels for a channel")
+    # # @commands.has_permissions(manage_channels=True)
+    # async def enable_channel(self, interaction: Interaction, channel: discord.TextChannel | discord.VoiceChannel=None, extent: Literal["all", "local", "global"]="all"):
+    #     await respond(interaction)
+    #     if channel is None:
+    #         channel = interaction.channel
+    #
+    #     if extent == "local":
+    #         await self.database.enableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
+    #         await respond(interaction, content=f"Local sentinels are now `enabled` in `{channel.name}`")
+    #     elif extent == "global":
+    #         await self.database.enableChannel(guild_id=0, channel_id=channel.id)
+    #         await respond(interaction, content=f"Global sentinels are now `enabled` in `{channel.name}`")
+    #     else:
+    #         await self.database.enableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
+    #         await self.database.enableChannel(guild_id=0, channel_id=channel.id)
+    #         await respond(interaction, content=f"Local and Global sentinels are now `enabled` in `{channel.name}`")
+    #
+    # @disable_group.command(name="channel", description="enable all sentinels for a channel")
+    # # @commands.has_permissions(manage_channels=True)
+    # async def disable_channel(self, interaction: Interaction,
+    #                           channel: discord.TextChannel | discord.VoiceChannel = None,
+    #                           extent: Literal["all", "local", "global"] = "all"):
+    #     await respond(interaction)
+    #     if channel is None:
+    #         channel = interaction.channel
+    #
+    #     if extent == "local":
+    #         await self.database.disableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
+    #         await respond(interaction, content=f"Local sentinels are now `disabled` in `{channel.name}`")
+    #     elif extent == "global":
+    #         await self.database.disableChannel(guild_id=0, channel_id=channel.id)
+    #         await respond(interaction, content=f"Global sentinels are now `disabled` in `{channel.name}`")
+    #     else:
+    #         await self.database.disableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
+    #         await self.database.disableChannel(guild_id=0, channel_id=channel.id)
+    #         await respond(interaction, content=f"Local and Global sentinels are now `disabled` in `{channel.name}`")
 
 
     @view_group.command(name="all", description="view all sentinels on a guild")

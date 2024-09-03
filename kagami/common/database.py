@@ -331,17 +331,21 @@ class ConnectionPool:
 
 
 class ConnectionContext:
-    def __init__(self, connection_pool: ConnectionPool):
+    def __init__(self, connection_pool: ConnectionPool, autocommit: bool=False):
         self.pool = connection_pool
-        self._conn = None
+        self._conn: aiosqlite.Connection = None
+        self.autocommit = autocommit
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> aiosqlite.Connection:
         self._conn = await self.pool.get()
         return self._conn
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._conn:
+            self._conn.row_factory = None
             await self.pool.release(self._conn)
+            if self.autocommit:
+                await self._conn.commit()
             self._conn = None
 
 
@@ -363,14 +367,14 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
             await self.__table_registry__.create_triggers(db, table_group)
             await db.commit()
 
-    def conn(self):
+    def conn(self, autocommit=False):
         """
         Give a connection context object for use within a context manager statement
         Ex.
         async with db_manager.connection() as conn:
             pass
         """
-        return ConnectionContext(self.pool)
+        return ConnectionContext(self.pool, autocommit)
 
     async def create_tables(self, table_group: str=None):
         async with self.conn() as db:
