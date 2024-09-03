@@ -9,13 +9,14 @@ import discord.ui
 from discord.ext import commands
 from discord import app_commands, Interaction
 from discord.ext.commands import GroupCog
-from discord. app_commands import Transform, Transformer, Group, Choice
+from discord.app_commands import Transform, Transformer, Group, Choice
 from common import errors
 from bot import Kagami
+from common.tables import Guild
 from utils.bot_data import OldSentinel
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
-from utils.old_db_interface import Database, InfoDB
+from utils.old_db_interface import Database
 from typing import (
     Literal, List, Callable, Any
 )
@@ -2168,8 +2169,6 @@ class Sentinels(GroupCog, name="s"):
         self.config = bot.config
         self.database = SentinelDB(bot.config.db_path)
 
-
-
     async def cog_load(self) -> None:
         await self.bot.db_man.setup(table_group="sentinel",
                                     drop_tables=self.config.drop_tables,
@@ -2177,7 +2176,6 @@ class Sentinels(GroupCog, name="s"):
         # await self.database.init(drop=self.config.drop_tables, schema_update=self.config.schema_update)
         # await self.database.init(drop=True)
         if self.bot.config.migrate_data: await self.migrateData()
-        # pass
 
     async def cog_unload(self) -> None:
         pass
@@ -2198,13 +2196,11 @@ class Sentinels(GroupCog, name="s"):
     copy_group = Group(name="copy", description="commands for copying sentinel components")
     move_group = Group(name="move", description="commands for moving sentinel components")
 
-    Guild_Transform = Transform[InfoDB.Guild, GuildTransformer]
+    Guild_Transform = Transform[Guild, GuildTransformer]
     Sentinel_Transform = Transform[Sentinel, SentinelTransformer]
     Suit_Transform = Transform[SentinelSuit, SentinelSuitTransformer]
     SuitNullTrigger_Transform = Transform[SentinelSuit, SentinelSuitTransformer(empty_field="trigger_id")]
     SuitNullResponse_Transform = Transform[SentinelSuit, SentinelSuitTransformer(empty_field="response_id")]
-
-    # T_Guild = Transform[]
 
 
     async def getResponsesForMessage(self, guild_id: int, content: str) -> list[SentinelDB.SentinelResponse]:
