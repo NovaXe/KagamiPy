@@ -221,6 +221,7 @@ class InfoDB(Database):
 
         @classmethod
         def fromDiscord(cls, guild=discord.Guild):
+
             return cls(id=guild.id, name=guild.name)
 
     @dataclass
@@ -289,7 +290,7 @@ class InfoDB(Database):
     async def upsertGuild(self, guild: Guild) -> Guild:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = guild.rowFactory
-            new_guild: Database.Guild = await db.execute_fetchall(guild.Queries.UPSERT, guild.asdict())
+            new_guild: InfoDB.Guild = await db.execute_fetchall(guild.Queries.UPSERT, guild.asdict())
             await db.commit()
         return new_guild
 
