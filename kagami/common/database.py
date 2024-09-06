@@ -16,7 +16,13 @@ class TableRegistry:
     tables: dict[str, TableType] = {}
 
     @classmethod
-    def get_tables(cls, group_name: str=None):
+    def tableiter(cls, group_name: str=None) -> tuple[str, TableType]:
+        for table_name, table_class in cls.tables.items():
+            if table_class.__table_group__ == group_name or group_name is None:
+                yield table_name, table_class
+
+    @classmethod
+    def get_tables(cls, group_name: str=None) -> dict[str, TableType]:
         """
         returns a dict of all tables that belong to the given group, if group is None then all tables are returned
         """
@@ -33,27 +39,27 @@ class TableRegistry:
 
     @classmethod
     async def create_tables(cls, db: aiosqlite.Connection, group_name: str=None):
-        for tablename, tableclass in cls.get_tables(group_name):
+        for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.create_table(db)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection, group_name):
-        for tablename, tableclass in cls.get_tables(group_name):
+        for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.create_triggers(db)
 
     @classmethod
     async def drop_tables(cls, db: aiosqlite.Connection, group_name: str=None):
-        for tablename, tableclass in cls.get_tables(group_name):
+        for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.drop_table(db)
 
     @classmethod
     async def drop_triggers(cls, db: aiosqlite.Connection, group_name: str=None):
-        for tablename, tableclass in cls.get_tables(group_name):
+        for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.drop_triggers(db)
 
     @classmethod
     async def update_schema(cls, db: aiosqlite.Connection, group_name: str=None):
-        for tablename, tableclass in cls.get_tables(group_name):
+        for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.update_schema(db)
 
     @classmethod

@@ -1,6 +1,6 @@
 import discord
 
-from database import Table, ManagerMeta
+from common.database import Table, ManagerMeta
 from dataclasses import dataclass
 import aiosqlite
 
@@ -20,7 +20,7 @@ class GuildSettings(Table, group_name="common"):
         """
         await db.execute(query)
 
-    async def upsert(self, db: aiosqlite.Connection):
+    async def upsert(self, db: aiosqlite.Connection) -> "GuildSettings":
         query = f"""
         INSERT INTO {GuildSettings} (guild_id)
         VALUES (:guild_id)
@@ -28,6 +28,7 @@ class GuildSettings(Table, group_name="common"):
         DO NOTHING
         RETURNING *
         """
+        db.row_factory = GuildSettings.row_factory
         async with db.execute(query, self.asdict()) as cur:
             result = cur.fetchone()
         return result

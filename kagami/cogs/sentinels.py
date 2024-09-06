@@ -98,7 +98,7 @@ class SentinelSettings(Table, table_group="sentinel"):
         WHERE guild_id = ?
         """
         db.row_factory = SentinelSettings.row_factory
-        async with db.execute(query, guild_id) as cur:
+        async with db.execute(query, (guild_id,)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -110,7 +110,7 @@ class SentinelSettings(Table, table_group="sentinel"):
         RETURNING *
         """
         db.row_factory = SentinelSettings.row_factory
-        async with db.execute(query, guild_id) as cur:
+        async with db.execute(query, (guild_id,)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -194,6 +194,7 @@ class Sentinel(Table, table_group="sentinel"):
         SELECT * FROM {Sentinel}
         WHERE guild_id = ? AND name = ?
         """
+        db.row_factory = Sentinel.row_factory
         async with db.execute(query, (guild_id, name)) as cur:
             result = await cur.fetchone()
         return result
@@ -206,9 +207,9 @@ class Sentinel(Table, table_group="sentinel"):
         LIMIT ? OFFSET ?
         """
         db.row_factory = Sentinel.row_factory
-        async with db.execute(query, (guild_id, name, limit, offset)) as cur:
+        async with db.execute(query, (guild_id, f"%{name}%", limit, offset)) as cur:
             results = await cur.fetchall()
-        return results
+        return [n.name for n in results]
 
 
     @classmethod
@@ -222,6 +223,7 @@ class Sentinel(Table, table_group="sentinel"):
             name = ?
         RETURNING *
         """
+        db.row_factory = Sentinel
         async with db.execute(query, (guild_id, name)) as cur:
             result = await cur.fetchone()
         return result
@@ -236,6 +238,7 @@ class Sentinel(Table, table_group="sentinel"):
             name = :name
         RETURNING *
         """
+        db.row_factory = Sentinel
         async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
@@ -287,23 +290,25 @@ class DisabledSentinelChannels(Table, table_group="sentinel"):
         await db.execute(query, self.asdict())
 
     @classmethod
-    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> "Table":
+    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> "DisabledSentinelChannels":
         params = {"guild_id": guild_id, "channel_id": channel_id}
         query = f"""
         DELETE FROM {DisabledSentinelChannels}
         WHERE guild_id = :guild_id AND channel_id = :channel_id
         RETURNING *
         """
+        db.row_factory = DisabledSentinelChannels.row_factory
         async with db.execute(query, params) as cur:
             result = await cur.fetchone()
         return result
 
-    async def delete(self, db: aiosqlite.Connection) -> "Table":
+    async def delete(self, db: aiosqlite.Connection) -> "DisabledSentinelChannels":
         query = f"""
                 DELETE FROM {DisabledSentinelChannels}
                 WHERE guild_id = :guild_id AND channel_id = :channel_id
                 RETURNING *
                 """
+        db.row_factory = DisabledSentinelChannels.row_factory
         async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
@@ -339,6 +344,7 @@ class DisabledSentinelChannels(Table, table_group="sentinel"):
         ELSE 0
         END;
         """
+        db.row_factory = None
         async with db.execute(query, params) as cur:
             result = await cur.fetchone()
         return bool(result[0])
@@ -374,6 +380,7 @@ class SentinelTrigger(Table, table_group="sentinel"):
         SELECT id FROM {SentinelTrigger}
         WHERE type = ? AND object = ?
         """
+        db.row_factory = None
         async with db.execute(query, (trigger_type, trigger_object)) as cur:
             result = await cur.fetchone()
         if result: result = result[0]
@@ -386,6 +393,7 @@ class SentinelTrigger(Table, table_group="sentinel"):
         ON CONFLICT(type, object) DO NOTHING
         RETURNING id
         """
+        db.row_factory = None
         async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
 
@@ -401,7 +409,7 @@ class SentinelTrigger(Table, table_group="sentinel"):
         RETURNING *
         """
         db.row_factory = SentinelTrigger.row_factory
-        async with db.execute(query, self.id) as cur:
+        async with db.execute(query, (self.id,)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -411,6 +419,7 @@ class SentinelTrigger(Table, table_group="sentinel"):
             SELECT * FROM {SentinelTrigger}
             WHERE id = ?
             """
+        db.row_factory = SentinelTrigger.row_factory
         async with db.execute(query, (id,)) as cur:
             result = await cur.fetchone()
         return result
@@ -445,6 +454,7 @@ class SentinelResponse(Table, table_group="sentinel"):
         SELECT id FROM {SentinelResponse}
         WHERE type = ? AND content = ? AND reactions = ?
         """
+        db.row_factory = None
         async with db.execute(query, (response_type, content, reactions)) as cur:
             result = await cur.fetchone()
         if result: result = result[0]
@@ -457,6 +467,7 @@ class SentinelResponse(Table, table_group="sentinel"):
         ON CONFLICT(type, content, reactions) DO NOTHING
         RETURNING id
         """
+        db.row_factory = None
         async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
 
@@ -471,6 +482,7 @@ class SentinelResponse(Table, table_group="sentinel"):
         SELECT * FROM {SentinelResponse}
         WHERE id = ?
         """
+        db.row_factory = SentinelResponse.row_factory
         async with db.execute(query, (id,)) as cur:
             result = await cur.fetchone()
         return result
@@ -641,8 +653,8 @@ class SentinelSuit(Table, table_group="sentinel"):
         return result
 
     @classmethod
-    async def selectLikeNames(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str,
-                              limit: int=1, offset: int=0, null_field: Literal["trigger", "response"]=None) -> list["SentinelSuit"]:
+    async def selectLikeNamesWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str,
+                                   limit: int=1, offset: int=0, null_field: Literal["trigger", "response"]=None) -> list["SentinelSuit"]:
         extra = ""
         if null_field == "trigger":
             extra = "AND trigger_id IS NULL"
@@ -2034,6 +2046,7 @@ class SentinelTransformer(Transformer):
         self.guild_field = guild_field
     async def autocomplete(self, interaction: Interaction,
                            current: str, /) -> list[Choice[str]]:
+        # await interaction.response.defer()
         # guild_id = interaction.namespace.scope
         guild_id = interaction.namespace[self.guild_field]
         if guild_id == SentinelScope.LOCAL:
@@ -2072,16 +2085,16 @@ class SentinelSuitTransformer(Transformer):
         bot: Kagami = interaction.client
         async with bot.db_man.conn() as db:
             if self.empty_field == "trigger_id":
-                names = await SentinelSuit.selectLikeNames(db, guild_id, sentinel_name, current,
-                                                           limit=25, null_field="trigger")
+                names = await SentinelSuit.selectLikeNamesWhere(db, guild_id, sentinel_name, current,
+                                                                limit=25, null_field="trigger")
                 # names = await db.fetchSimilarNullTriggerSuitNames(guild_id, sentinel_name, current, limit=25)
             elif self.empty_field == "response_id":
-                names = await SentinelSuit.selectLikeNames(db, guild_id, sentinel_name, current,
-                                                           limit=25, null_field="response")
+                names = await SentinelSuit.selectLikeNamesWhere(db, guild_id, sentinel_name, current,
+                                                                limit=25, null_field="response")
                 # names = await db.fetchSimilarNullResponseSuitNames(guild_id, sentinel_name, current, limit=25)
             else:
-                names = await SentinelSuit.selectLikeNames(db, guild_id, sentinel_name, current,
-                                                           limit=25)
+                names = await SentinelSuit.selectLikeNamesWhere(db, guild_id, sentinel_name, current,
+                                                                limit=25)
         return [Choice(name=name, value=name) for name in names]
 
     async def transform(self, interaction: Interaction, value: str, /) -> SentinelDB.SentinelSuit:
@@ -2183,7 +2196,7 @@ class Sentinels(GroupCog, name="s"):
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         return True
 
-    async def conn(self) -> ConnectionContext:
+    def conn(self) -> ConnectionContext:
         return self.bot.db_man.conn()
 
     add_group = Group(name="add", description="commands for adding sentinel components")
