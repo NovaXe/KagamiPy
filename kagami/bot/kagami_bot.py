@@ -94,7 +94,7 @@ class Kagami(commands.Bot):
         except FileNotFoundError:
             print(f"Missing data.json file at {data_path}")
             print("path=", os.path.dirname(sys.argv[0]))
-            raise FileNotFoundError
+            # raise FileNotFoundError
         self.data = BotData.fromDict(self.raw_data)
 
     def saveData(self):
