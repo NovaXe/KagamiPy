@@ -7,7 +7,7 @@ from discord.ui import View
 from discord.utils import MISSING
 
 async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
-                  embeds: Embed=MISSING, attachments: list[Attachment] | list[File]=MISSING, view: View=MISSING,
+                  embeds: list[Embed]=MISSING, attachments: list[Attachment] | list[File]=MISSING, view: View=MISSING,
                   ephemeral: bool=False, force_defer: bool=False, thinking: bool=False, send_followup: bool=False, delete_after: float=None,
                   **kwargs) -> InteractionMessage | WebhookMessage:
     """
@@ -79,7 +79,7 @@ async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
 
 
 async def followupRespond(followup: Webhook | WebhookMessage, content: str=None, *,
-                          embeds: Embed=MISSING, attachments: list[Attachment] | list[File]=MISSING, view: View=MISSING,
+                          embeds: list[Embed]=MISSING, attachments: list[Attachment] | list[File]=MISSING, view: View=MISSING,
                           ephemeral: bool=False, thinking: bool=False, delete_after: float=None,
                           **kwargs) -> WebhookMessage:
     # do the same checks for this as with the interaction
@@ -118,7 +118,7 @@ async def followupRespond(followup: Webhook | WebhookMessage, content: str=None,
 
 
 async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
-                             embeds: Embed=MISSING, attachments: list[Attachment] | list[File]=MISSING, view=MISSING,
+                             embeds: list[Embed]=MISSING, attachments: list[Attachment] | list[File]=MISSING, view=MISSING,
                              ephemeral=False, thinking=False, delete_after=None,
                              **kwargs) -> InteractionMessage:
     # required_send_edit_params = ["content", "embeds", "attachments", "view"]MISSING

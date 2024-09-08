@@ -311,7 +311,7 @@ class Tag(Table, group_name="tags"):
     guild_id: int
     name: str
     content: str
-    embed: str
+    embeds: str  # json objects separated by commas
     author_id: int
     creation_date: str = None
     modified_date: str = None
@@ -323,7 +323,7 @@ class Tag(Table, group_name="tags"):
             guild_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             content TEXT,
-            embed TEXT,
+            embeds TEXT,
             author_id INTEGER NOT NULL,
             creation_date TEXT NOT NULL ON CONFLICT REPLACE DEFAULT CURRENT_DATE,
             modified_date TEXT NOT NULL ON CONFLICT REPLACE DEFAULT CURRENT_DATE,
@@ -372,18 +372,18 @@ class Tag(Table, group_name="tags"):
 
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
-        INSERT INTO {Tag} (guild_id, name, content, embed, author_id, creation_date, modified,date)
-        VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date, :creation_date)
+        INSERT INTO {Tag} (guild_id, name, content, embeds, author_id, creation_date, modified,date)
+        VALUES (:guild_id, :name, :content, :embeds, :author_id, :creation_date, :creation_date)
             ON CONFLICT DO NOTHING
         """
         await db.execute(query, self.asdict())
 
     async def upsert(self, db: aiosqlite.Connection) -> "Tag":
         query = f"""
-        INSERT INTO {Tag}(guild_id, name, content, embed, author_id, creation_date)
-        VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date)
+        INSERT INTO {Tag}(guild_id, name, content, embeds, author_id, creation_date)
+        VALUES (:guild_id, :name, :content, :embeds, :author_id, :creation_date)
             ON CONFLICT (guild_id, name)
-            DO UPDATE SET content = :content, embed = :embed
+            DO UPDATE SET content = :content, embeds = :embeds
         RETURNING *
         """
         db.row_factory = Tag.row_factory
@@ -393,7 +393,7 @@ class Tag(Table, group_name="tags"):
 
     async def update(self, db: aiosqlite.Connection) -> "Tag":
         query = f"""
-        UPDATE {Tag} SET content = :content, embed = :embed
+        UPDATE {Tag} SET content = :content, embeds = :embeds
         WHERE guild_id = :guild_id AND name = :name
         RETURNING *
         """
@@ -405,7 +405,7 @@ class Tag(Table, group_name="tags"):
     async def edit(self, db: aiosqlite.Connection, new_tag: "Tag"):
         query = f"""
         UPDATE OR REPLACE {Tag} 
-        SET name=:name, content = :content, embed = :embed
+        SET name=:name, content = :content, embeds = :embeds
         WHERE guild_id = :guild_id AND name = :old_name
         RETURNING *
         """
@@ -467,10 +467,19 @@ class Tag(Table, group_name="tags"):
         return [n.name for n in res]
 
 
+class TagsDisabled(errors.CustomCheck):
+    MESSAGE = "The tag feature is disabled"
+
+class TagAlreadyExists(errors.CustomCheck):
+    MESSAGE = "There is already a tag with that name"
+
+class TagNotFound(errors.CustomCheck):
+    MESSAGE = "There is no tag with that name"
+
+
 class LocalTagTransformer(Transformer):
-    async def autocomplete(self,
-                           interaction: Interaction, value: Union[int, float, str], /
-                           ) -> List[Choice[str]]:
+    async def autocomplete(self, interaction: Interaction,
+                           value: Union[int, float, str], /) -> List[Choice[str]]:
         bot: Kagami = interaction.client
         async with bot.dbman.conn() as db:
             names = await Tag.selectLikeNames(db,
@@ -490,8 +499,7 @@ class LocalTagTransformer(Transformer):
 
 class GlobalTagTransformer(Transformer):
     async def autocomplete(self, interaction: Interaction,
-                           value: Union[int, float, str], /
-                           ) -> List[Choice[str]]:
+                           value: Union[int, float, str], /) -> List[Choice[str]]:
         bot: Kagami = interaction.client
         async with bot.dbman.conn() as db:
             names = await Tag.selectLikeNames(db, guild_id=0, name=value, limit=25)
@@ -507,8 +515,7 @@ class GlobalTagTransformer(Transformer):
 
 class GuildTagTransformer(Transformer):
     async def autocomplete(self, interaction: Interaction,
-                           value: Union[int, float, str], /
-                           ) -> List[Choice[Union[int, float, str]]]:
+                           value: Union[int, float, str], /) -> List[Choice[Union[int, float, str]]]:
         guild_id = int(interaction.namespace.guild)
         bot: Kagami = interaction.client
         async with bot.dbman.conn() as db:
@@ -549,24 +556,13 @@ class Tags(GroupCog, group_name="t"):
         self.database = TagDB(bot.config.db_path)
         self.ctx_menus = [
             app_commands.ContextMenu(
-                name="Make Local Tag",
-                callback=self.ctx_menu_create_local_handler
-            ),
-            app_commands.ContextMenu(
-                name="Make Global Tag",
-                callback=self.ctx_menu_create_global_handler
+                name="Create Tag",
+                callback=self.ctx_menu_create_tag_handler
             )
         ]
 
         for ctx_menu in self.ctx_menus:
             self.bot.tree.add_command(ctx_menu)
-
-    custom_key_reprs: dict = {
-        "author": CustomRepr("Created by"),
-        "creation_date": CustomRepr("Created on"),
-        "content": CustomRepr(ignored=True),
-        "attachments": CustomRepr(ignored=True),
-    }
 
     def conn(self):
         return self.bot.dbman.conn()
@@ -591,7 +587,7 @@ class Tags(GroupCog, group_name="t"):
             user = discord.utils.get(self.bot.get_all_members(), name=_tag.author)
             user_id = user.id if user else 0
             return Tag(guild_id=_guild_id, name=_tag_name,
-                       content=_tag.content, embed="", author_id=user_id,
+                       content=_tag.content, embeds="", author_id=user_id,
                        creation_date=_tag.creation_date)
 
         async with self.conn() as db:
@@ -629,37 +625,41 @@ class Tags(GroupCog, group_name="t"):
     # list_group = app_commands.Group(name="list", description="lists the tags")
     # search_group = app_commands.Group(name="search", description="searches for tags")
 
-    LocalTag_Transform = Transform[TagDB.Tag, LocalTagTransformer]
-    GlobalTag_Transform = Transform[TagDB.Tag, GlobalTagTransformer]
-    GuildTag_Transform = Transform[TagDB.Tag, GuildTagTransformer]
+    LocalTag_Transform = Transform[Tag, LocalTagTransformer]
+    GlobalTag_Transform = Transform[Tag, GlobalTagTransformer]
+    GuildTag_Transform = Transform[Tag, GuildTagTransformer]
     Guild_Transform = Transform[discord.Guild, GuildTransformer]
 
     @set_group.command(name="global", description="add a new global tag")
     async def set_global(self, interaction: Interaction, tag: GlobalTag_Transform,
                          content: str=None, embed: str=None):
         await respond(interaction)
-        if tag: raise TagDB.TagAlreadyExists
+        if tag: raise TagAlreadyExists
 
-        tag = TagDB.Tag(guild_id=0,
-                        name=interaction.namespace.tag,
-                        content=content,
-                        embed=embed,
-                        author_id=interaction.user.id)
-        await self.database.insertTag(tag)
+        tag = Tag(guild_id=0,
+                  name=interaction.namespace.tag,
+                  content=content,
+                  embeds=embed,
+                  author_id=interaction.user.id)
+        async with self.conn() as db:
+            await tag.insert(db)
+            await db.commit()
         await respond(interaction, f"Created the global tag `{tag.name}`")
 
     @set_group.command(name="here", description="add a new local tag")
     async def set_here(self, interaction: Interaction, tag: LocalTag_Transform,
                        content: str=None, embed: str=None):
         await respond(interaction)
-        if tag: raise TagDB.TagAlreadyExists
+        if tag: raise TagAlreadyExists
 
-        tag = TagDB.Tag(guild_id=interaction.guild_id,
-                        name=interaction.namespace.tag,
-                        content=content,
-                        embed=embed,
-                        author_id=interaction.user.id)
-        await self.database.insertTag(tag)
+        tag = Tag(guild_id=interaction.guild_id,
+                  name=interaction.namespace.tag,
+                  content=content,
+                  embeds=embed,
+                  author_id=interaction.user.id)
+        async with self.conn() as db:
+            await tag.insert(db)
+            await db.commit()
         await respond(interaction, f"Created the local tag `{tag.name}`")
 
     # @set_group.command(name="elsewhere", description="add a new tag to another server")
@@ -667,14 +667,16 @@ class Tags(GroupCog, group_name="t"):
                             guild: Guild_Transform, tag: GuildTag_Transform,
                             content: str=None, embed: str=None):
         await respond(interaction)
-        if tag: raise TagDB.TagAlreadyExists
+        if tag: raise TagAlreadyExists
         guild_name = guild.name
-        tag = TagDB.Tag(guild_id=guild.id,
-                        name=interaction.namespace.tag,
-                        content=content,
-                        embed=embed,
-                        author_id=interaction.user.id)
-        await self.database.insertTag(tag)
+        tag = Tag(guild_id=guild.id,
+                  name=interaction.namespace.tag,
+                  content=content,
+                  embeds=embed,
+                  author_id=interaction.user.id)
+        async with self.conn() as db:
+            await tag.insert(db)
+            await db.commit()
         await respond(interaction, f"Created tag `{tag.name}` for guild `{guild_name}`")
 
 
@@ -682,10 +684,10 @@ class Tags(GroupCog, group_name="t"):
     async def get_global(self, interaction: Interaction,
                          tag: GlobalTag_Transform):
         await respond(interaction)
-        if not tag: raise TagDB.TagNotFound
-        if tag.embed:
-            embed_dict = json.loads(tag.embed)
-            embeds = [discord.Embed.from_dict(embed_dict)]
+        if not tag: raise TagNotFound
+        if tag.embeds:
+            embeds = [discord.Embed.from_dict(json.loads(embed_str))
+                      for embed_str in tag.embeds.split(",")]
         else:
             embeds = []
         content = tag.content if tag.content and tag.content != '' else "`The tag has no content`"
@@ -695,10 +697,10 @@ class Tags(GroupCog, group_name="t"):
     async def get_here(self, interaction: Interaction,
                        tag: LocalTag_Transform):
         await respond(interaction)
-        if not tag: raise TagDB.TagNotFound
-        if tag.embed:
-            embed_dict = json.loads(tag.embed)
-            embeds = [discord.Embed.from_dict(embed_dict)]
+        if not tag: raise TagNotFound
+        if tag.embeds:
+            embeds = [discord.Embed.from_dict(json.loads(embed_str))
+                      for embed_str in tag.embeds.split(",")]
         else:
             embeds = []
         content = tag.content if tag.content and tag.content != '' else "`The tag has no content`"
@@ -708,10 +710,10 @@ class Tags(GroupCog, group_name="t"):
     async def get_elsewhere(self, interaction: Interaction,
                             guild: Guild_Transform, tag: GuildTag_Transform):
         await respond(interaction)
-        if not tag: raise TagDB.TagNotFound
-        if tag.embed:
-            embed_dict = json.loads(tag.embed)
-            embeds = [discord.Embed.from_dict(embed_dict)]
+        if not tag: raise TagNotFound
+        if tag.embeds:
+            embeds: list[discord.Embed] = [discord.Embed.from_dict(json.loads(embed_str))
+                                           for embed_str in tag.embeds.split(",")]
         else:
             embeds = []
         content = tag.content if tag.content and tag.content != '' else "`The tag has no content`"
@@ -721,16 +723,20 @@ class Tags(GroupCog, group_name="t"):
     async def delete_global(self, interaction: Interaction,
                             tag: GlobalTag_Transform):
         await respond(interaction)
-        if not tag: raise TagDB.TagNotFound
-        await self.database.deleteTag(guild_id=0, name=tag.name)
+        if not tag: raise TagNotFound
+        async with self.conn() as db:
+            await tag.delete(db)
+            await db.commit()
         await respond(interaction, f"Deleted the global tag `{tag.name}`")
 
     @delete_group.command(name="here", description="delete a local tag")
     async def delete_here(self, interaction: Interaction,
                           tag: LocalTag_Transform):
         await respond(interaction)
-        if not tag: raise TagDB.TagNotFound
-        await self.database.deleteTag(guild_id=interaction.guild_id, name=tag.name)
+        if not tag: raise TagNotFound
+        async with self.conn() as db:
+            await tag.delete(db)
+            await db.commit()
         await respond(interaction, f"Deleted the local tag `{tag.name}`")
 
     @app_commands.rename(new="name")
@@ -738,14 +744,16 @@ class Tags(GroupCog, group_name="t"):
     async def edit_global(self, interaction: Interaction, tag: GlobalTag_Transform, new: GlobalTag_Transform=None,
                           content: str=None, embed: str=None):
         await respond(interaction)
-        if not tag: raise TagDB.TagNotFound
-        if new: raise TagDB.TagAlreadyExists
-        new = TagDB.Tag(guild_id=0,
-                        name=interaction.namespace.name or tag.name,
-                        author_id=interaction.user.id,
-                        content=content if content != "" else None,
-                        embed=embed if embed != "" else None)
-        await self.database.editTag(old_name=tag.name, tag=new)
+        if not tag: raise TagNotFound
+        if new: raise TagAlreadyExists
+        new = Tag(guild_id=0,
+                  name=interaction.namespace.name or tag.name,
+                  author_id=interaction.user.id,
+                  content=content if content != "" else None,
+                  embeds=embed if embed != "" else None)
+        async with self.conn() as db:
+            await tag.edit(db, new_tag=new)
+            await db.commit()
         response = f"Edited the global tag `{tag.name}`"
         if interaction.namespace.name: response += f", New Name: {new.name}"
         await respond(interaction, response)
@@ -755,78 +763,76 @@ class Tags(GroupCog, group_name="t"):
     async def edit_local(self, interaction: Interaction, tag: LocalTag_Transform, new: LocalTag_Transform = None,
                          content: str = None, embed: str = None):
         await respond(interaction)
-        if not tag: raise TagDB.TagNotFound
-        if new: raise TagDB.TagAlreadyExists
-        new = TagDB.Tag(guild_id=interaction.guild_id,
-                        name=interaction.namespace.name or tag.name,
-                        author_id=interaction.user.id,
-                        content=content if content != "" else None,
-                        embed=embed if embed != "" else None)
-        await self.database.editTag(old_name=tag.name, tag=new)
+        if not tag: raise TagNotFound
+        if new: raise TagAlreadyExists
+        new = Tag(guild_id=interaction.guild_id,
+                  name=interaction.namespace.name or tag.name,
+                  author_id=interaction.user.id,
+                  content=content if content != "" else None,
+                  embeds=embed if embed != "" else None)
+        async with self.conn() as db:
+            await tag.edit(db, new_tag=new)
+            await db.commit()
         response = f"Edited the local tag `{tag.name}`"
         if interaction.namespace.name: response += f", New Name: {new.name}"
         await respond(interaction, response)
 
-    async def ctx_menu_create_local_handler(self, interaction: discord.Interaction, message: discord.Message):
-        await self.send_create_modal(interaction, message, tag_type='local')
-
-    async def ctx_menu_create_global_handler(self, interaction: discord.Interaction, message: discord.Message):
-        await self.send_create_modal(interaction, message, tag_type='global')
-
-    async def send_create_modal(self, interaction: discord.Interaction, message: discord.Message,
-                                tag_type: Literal["local", "global"]):
-        await interaction.response.send_modal(TagCreationModal(cog=self, tag_type=tag_type, message=message))
+    async def ctx_menu_create_tag_handler(self, interaction: discord.Interaction, message: discord.Message):
+        await interaction.send_modal(TagModal(message=message))
 
 
-class TagCreationModal(discord.ui.Modal, title="Create Tag"):
-    def __init__(self, cog: Tags, tag_type: Literal["global", "local"], message: discord.Message):
+class TagModal(discord.ui.Modal, title="Set Tag"):
+    def __init__(self, message: discord.Message):
         super().__init__()
         self.message = message
-        self.cog = cog
-        self.tag_type = tag_type
-        self.tag_content.default = message.content
-        self.tag_attachments.default = '\n'.join([attachment.url for attachment in message.attachments])
+        self.embeds.default = ",\n".join([json.dumps(embed.to_dict(), indent=2) for embed in message.embeds])
+        self.content.default = message.content
+        self.location.default = "local"
 
-    tag_name = discord.ui.TextInput(label="Tag Name", placeholder='Enter the tag name')
-    tag_content = discord.ui.TextInput(label="Tag Content", placeholder='Enter the tag content',
-                                       style=discord.TextStyle.paragraph, max_length=2000, required=False)
-    tag_attachments = discord.ui.TextInput(label="Attachments", placeholder="Put each link on a separate line",
-                                           style=discord.TextStyle.paragraph, required=False)
+    location = discord.ui.TextInput(label="Tag Location", placeholder="global/local")
+    name = discord.ui.TextInput(label="Tag Name", placeholder="Enter the name of the tag")
+    content = discord.ui.TextInput(label="Tag Content", placeholder="Enter the content for the tag",
+                                   style=discord.TextStyle.paragraph)
+    embeds = discord.ui.TextInput(label="Tag Embeds", placeholder="Embeds as json separated by commas",
+                                  style=discord.TextStyle.paragraph)
 
-    async def on_submit(self, interaction: discord.Interaction):
-        # await respond(interaction, thinking=False)
-        # attachments = self.tag_attachments.value.split('\n') if self.tag_attachments.value else []
-        # await interaction.response.defer(thinking=False)
-        # await respond(interaction, force_defer=True, thinking=False)
+
+    async def on_submit(self, interaction: Interaction[Kagami], /) -> None:
         bot: Kagami = interaction.client
-        db = TagDB(bot.config.db_path)
-        if self.tag_type == "global":
-            tag = await db.fetchTag(guild_id=0,
-                                    tag_name=self.tag_name.value)
-            if tag: raise TagDB.TagAlreadyExists
-            tag = TagDB.Tag(guild_id=0,
-                            name=self.tag_name.value,
-                            content=self.tag_content.value + "\n" + self.tag_attachments.value,
-                            embed=None,
-                            author_id=interaction.user.id)
-            await db.insertTag(tag)
-            await respond(interaction, f"Created the global tag `{tag.name}`")
-        elif self.tag_type == "local":
-            tag = await db.fetchTag(guild_id=interaction.guild_id,
-                                    tag_name=self.tag_name.value)
-            if tag: raise TagDB.TagAlreadyExists
 
-            tag = TagDB.Tag(guild_id=interaction.guild_id,
-                            name=self.tag_name.value,
-                            content=self.tag_content.value + "\n" + self.tag_attachments.value,
-                            embed=None,
-                            author_id=interaction.user.id)
-            await db.insertTag(tag)
-            await respond(interaction, f"Created the local tag `{tag.name}`")
-        #
-        # await self.cog.set_handler(interaction=interaction, tag_name=self.tag_name.value,
-        #                            content=self.tag_content.value, mode=self.tag_type, attachment_links=attachments)
+        for embed_str in self.embeds.value.split(","):
+            try:
+                json.loads(embed_str)
+            except json.JSONDecodeError as e:
+                response = "**Embed Error:**\n"
+                response += e.msg
+                await respond(interaction, ephemeral=True, content=response)
+                return
 
+        if self.location.value == "local":
+            guild_id = interaction.guild_id
+        elif self.location.value == "global":
+            guild_id = 0
+        elif self.location.value.isnumeric():
+            value = int(self.location.value)
+            if value < 0 and bot.owner_id == interaction.user.id:
+                guild_id = int(self.location.value)
+            else:
+                guild_id = interaction.guild_id
+        else:
+            await respond(interaction, f"`{self.location.value}` is not a valid location")
+            return
+
+        tag = Tag(guild_id=guild_id, name=self.name.value, author_id=interaction.user.id,
+                  content=self.content.value, embeds=self.embeds.value)
+
+        async with bot.dbman.conn() as db:
+            existing = await Tag.selectWhere(db, guild_id=tag.guild_id, name=tag.name)
+            if existing is not None:
+                raise TagAlreadyExists
+            await tag.insert(db)
+            await db.commit()
+        await respond(interaction, f"Created `{self.location.value}` tag: {tag.name} ")
 
 async def setup(bot):
     await bot.add_cog(Tags(bot))
