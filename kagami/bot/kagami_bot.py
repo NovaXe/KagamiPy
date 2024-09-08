@@ -14,7 +14,7 @@ from discord.ext import commands
 from typing import (
     Any, )
 
-from bot import Configuration, config
+from .config import Configuration, config
 
 from common import errors
 from utils.depr_bot_data import BotData, BotConfiguration
@@ -44,7 +44,7 @@ class Kagami(commands.Bot):
 
     def init_data(self):
         self.loadData()
-        self.dbman = DatabaseManager(self.config.db_path)
+        self.dbman = DatabaseManager(self.config.data_path + self.config.db_name)
 
     def changeCmdError(self):
         tree = self.tree
@@ -52,7 +52,11 @@ class Kagami(commands.Bot):
         tree.on_error = errors.on_app_command_error
 
     async def setup_hook(self):
-        await self.database.init(drop=self.config.drop_tables)
+        await self.dbman.setup(table_group="common",
+                               drop_tables=self.config.drop_tables,
+                               drop_triggers=self.config.drop_triggers,
+                               update_tables=self.config.update_tables)
+        # await self.database.init(drop=self.config.drop_tables)
         # guilds = [self.database.Guild.fromDiscord(guild) for guild in list(self.guilds)]
         # await self.database.upsertGuilds(guilds)
 
@@ -89,7 +93,7 @@ class Kagami(commands.Bot):
             await self.database.upsertGuild(self.database.Guild.fromDiscord(after))
 
     def loadData(self): # this is the old shit that uses json, needs to go at some point
-        data_path = self.config.local_data_path
+        data_path = self.config.data_path
         try:
             with open(f"{data_path}/data.json") as f:
                 self.raw_data = json.load(f)

@@ -10,6 +10,7 @@ class Configuration:
     prefix: str
     owner_id: int
     data_path: str
+    db_name: str
     lavalink: dict[str, str] = None
     spotify: dict[str, str] = None
     update_tables: bool = False
@@ -45,6 +46,7 @@ class Configuration:
             prefix=get("COMMAND_PREFIX", default="->"),
             owner_id=get("OWNER_ID", int),
             data_path=get("DATA_PATH"),
+            db_name=get("DB_NAME"),
             lavalink={
                 "uri": get("LAVALINK_URI"),
                 "password": get("LAVALINK_PASSWORD")

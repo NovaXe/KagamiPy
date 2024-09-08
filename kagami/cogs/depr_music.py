@@ -20,8 +20,8 @@ from ui.page_scroller import PageScroller, PageGenCallbacks
 from utils import depr_bot_data
 from utils.depr_db_interface import Database
 
-OldPlaylist = bot_data.Playlist
-OldTrack = bot_data.Track
+OldPlaylist = depr_bot_data.Playlist
+OldTrack = depr_bot_data.Track
 # context vars
 
 from helpers.music_utils import (
@@ -30,7 +30,7 @@ from helpers.music_utils import (
 from helpers.wavelink_utils import createNowPlayingMessage, searchForTracks, buildTrack
 from common.player import Player, player_instance
 from helpers.wavelink_utils import WavelinkTrack
-from bot import Kagami
+from bot import Kagami, Configuration
 from ui.music import PlayerController
 from common.responses import (PersistentMessage, MessageElements)
 from common.interactions import respond
@@ -636,10 +636,10 @@ class MusicDB(Database):
 class Music(GroupCog,
             group_name="m",
             description="commands relating to music playback"):
-    def __init__(self, bot):
+    def __init__(self, bot: Kagami):
         self.bot: Kagami = bot
-        self.config = bot.config
-        self.database = MusicDB(bot.config.db_path)
+        self.config: Configuration = bot.config
+        self.database = MusicDB(bot.config.data_path + bot.config.db_name)
 
     # music_group = app_commands.Group(name="m", description="commands relating to music playback")
     music_group = app_commands
@@ -657,7 +657,7 @@ class Music(GroupCog,
     async def cog_load(self) -> None:
         await self.connectWavelinkNodes()
         await self.database.init(drop=self.bot.config.drop_tables)
-        if self.bot.config.migrate_data: await self.migrateMusicData()
+        # if self.bot.config.migrate_data: await self.migrateMusicData()
 
     @commands.is_owner()
     @commands.group(name="music")
@@ -706,7 +706,7 @@ class Music(GroupCog,
 
     async def cog_unload(self) -> None:
         pass
-        # await self.migrateMusicData()
+            # await self.migrateMusicData()
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, node: wavelink.Node):
@@ -1164,10 +1164,10 @@ class PlaylistTransformer(Transformer):
 class PlaylistCog(GroupCog,
                   group_name="p",
                   description="commands relating to music playlists"):
-    def __init__(self, bot):
+    def __init__(self, bot: Kagami):
         self.bot: Kagami = bot
         self.config = bot.config
-        self.database = MusicDB(bot.config.db_path)
+        self.database = MusicDB(bot.config.data_path + bot.config.db_name)
         # self.playlist_transform = Transform[Playlist, PlaylistTransformer(bot=bot)]
 
     create = Group(name="create", description="creating playlists")

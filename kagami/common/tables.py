@@ -58,7 +58,7 @@ class GuildSettings(Table, group_name="common"):
         return result
 
 @dataclass
-class Guild(Table, group_name="common"):
+class Guild(Table, table_group="common"):
     id: int
     name: str
 
@@ -122,7 +122,7 @@ class Guild(Table, group_name="common"):
             result = await cur.fetchone()
         return result
 
-class User(Table, group_name="common"):
+class User(Table, table_group="common"):
     id: int
     nickname: str
 

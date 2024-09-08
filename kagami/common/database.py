@@ -60,12 +60,14 @@ class TableRegistry:
     @classmethod
     async def update_schema(cls, db: aiosqlite.Connection, group_name: str=None):
         for tablename, tableclass in cls.tableiter(group_name):
-            await tableclass.update_schema(db)
+            if tableclass.__schema_changed__:
+                await tableclass.update_schema(db)
 
     @classmethod
     async def alter_tables(cls, db: aiosqlite.Connection, group_name: str=None):
         for tablename, tableclass in cls.tableiter(group_name):
-            await tableclass.alter_table(db)
+            if tableclass.__schema_altered__:
+                await tableclass.alter_table(db)
 
     @classmethod
     async def drop_unregistered(cls, db: aiosqlite.Connection):
@@ -256,6 +258,7 @@ class Table(metaclass=TableMeta, table_registry=None):
         """
         trigger_names = await db.execute_fetchall(query)
         for name in trigger_names:
+            name = name[0]
             await db.execute(f"DROP TRIGGER IF EXISTS {name}")
 
     def asdict(self): return asdict(self)
@@ -381,7 +384,8 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
         self.file_path = db_path
         self.pool = ConnectionPool(db_path, pool_size)
 
-    async def setup(self, table_group: str=None, update_tables: bool=False, drop_tables=False, drop_triggers=False):
+    async def setup(self, table_group: str=None,
+                    update_tables: bool=False, drop_tables=False, drop_triggers=False):
         async with self.conn() as db:
             """
             Performs automated tables setup with the passed kwargs
@@ -389,8 +393,11 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
             if drop_tables:
                 await self.__table_registry__.drop_tables(db, group_name=table_group)
             elif update_tables:
-                await self.__table_registry__.alter_tables(db, group_name=table_group)
-                await self.__table_registry__.update_schema(db, group_name=table_group)
+                try:
+                    await self.__table_registry__.alter_tables(db, group_name=table_group)
+                    await self.__table_registry__.update_schema(db, group_name=table_group)
+                except aiosqlite.OperationalError as e:
+                    logging.warning(f"Table Update error on group {table_group}:\n {e}")
 
             if drop_triggers:
                 await self.__table_registry__.drop_triggers(db, group_name=table_group)
