@@ -568,6 +568,9 @@ class Tags(GroupCog, group_name="t"):
         "attachments": CustomRepr(ignored=True),
     }
 
+    def conn(self):
+        return self.bot.dbman.conn()
+
     @commands.is_owner()
     @commands.group(name="tags")
     async def tags(self, ctx: commands.Context):
@@ -580,35 +583,40 @@ class Tags(GroupCog, group_name="t"):
     @commands.is_owner()
     @tags.command(name="migrate")
     async def migrateCommand(self, ctx):
-        await self.migrateTagData()
+        await self.migrateData()
         await ctx.send("migrated tags probably")
 
-    async def migrateTagData(self):
-        async def convertTag(_guild_id: int, _tag_name: str, _tag: OldTag) -> TagDB.Tag:
+    async def migrateData(self):
+        async def convertTag(_guild_id: int, _tag_name: str, _tag: OldTag) -> Tag:
             user = discord.utils.get(self.bot.get_all_members(), name=_tag.author)
             user_id = user.id if user else 0
-            return TagDB.Tag(guild_id=_guild_id, name=_tag_name,
-                             content=_tag.content, embed=None, author_id=user_id,
-                             creation_date=_tag.creation_date)
+            return Tag(guild_id=_guild_id, name=_tag_name,
+                       content=_tag.content, embed="", author_id=user_id,
+                       creation_date=_tag.creation_date)
 
-        for server_id, server in self.bot.data.servers.items():
-            server_id = int(server_id)
-            try: guild = await self.bot.fetch_guild(server_id)
-            except discord.NotFound: continue
-            new_tags = [await convertTag(server_id, tag_name, tag) for tag_name, tag in server.tags.items()]
-            await self.database.insertTags(new_tags)
+        async with self.conn() as db:
+            for server_id, server in self.bot.data.servers.items():
+                server_id = int(server_id)
+                try: guild = await self.bot.fetch_guild(server_id)
+                except discord.NotFound: continue
+                # convert the old tags to the new format, will be depr at some point
+                new_tags = [await convertTag(server_id, tag_name, tag) for tag_name, tag in server.tags.items()]
+                for tag in new_tags:
+                    await tag.insert(db)
 
-        new_global_tags = [await convertTag(0, tag_name, tag)
-                           for tag_name, tag in self.bot.data.globals.tags.items()]
-        await self.database.insertTags(new_global_tags)
+            new_global_tags = [await convertTag(0, tag_name, tag)
+                               for tag_name, tag in self.bot.data.globals.tags.items()]
+            for tag in new_global_tags:
+                await tag.insert(db)
 
     async def cog_unload(self) -> None:
         for ctx_menu in self.ctx_menus:
             self.bot.tree.remove_command(ctx_menu.name, type=ctx_menu.type)
 
     async def cog_load(self) -> None:
-        await self.database.init(drop=self.bot.config.drop_tables)
-        if self.bot.config.migrate_data: await self.migrateTagData()
+        await self.bot.dbman.setup(drop_tables=self.bot.config.drop_tables, table_group="tags")
+        # await self.database.init(drop=self.bot.config.drop_tables)
+        if self.bot.config.migrate_data: await self.migrateData()
 
     async def interaction_check(self, interaction: discord.Interaction[ClientT], /) -> bool:
         # await self.bot.database.upsertGuild(interaction.guild)
