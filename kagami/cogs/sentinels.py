@@ -1076,7 +1076,7 @@ class Sentinels(GroupCog, name="s"):
         self.config = bot.config
 
     async def cog_load(self) -> None:
-        await self.bot.dbman.setup(table_group="sentinel",
+        await self.bot.dbman.setup      (table_group="sentinel",
                                    drop_tables=self.bot.config.drop_tables,
                                    drop_triggers=self.bot.config.drop_triggers,
                                    update_tables=self.bot.config.update_tables)
@@ -1310,7 +1310,7 @@ class Sentinels(GroupCog, name="s"):
 
     @remove_group.command(name="sentinel", description="deletes a sentinel and all its suits")
     async def remove_sentinel(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         async with self.conn() as db:
             await sentinel.delete(db)
@@ -1323,7 +1323,7 @@ class Sentinels(GroupCog, name="s"):
     async def toggle_functionality(self, interaction: Interaction,
                                    extent: Literal["global", "local", "both"],
                                    state: Literal["on", "off"]):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         async with self.conn() as db:
             settings = await SentinelSettings.selectWhere(db, interaction.guild_id)
             if settings is None:
@@ -1341,7 +1341,7 @@ class Sentinels(GroupCog, name="s"):
                         sentinel: Sentinel_Transform, suit: Suit_Transform,
                         fields: Literal["trigger", "response", "both"]="both",
                         new_sentinel: Sentinel_Transform=None):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         if suit is None: raise SuitDoesNotExist
 
@@ -1369,7 +1369,7 @@ class Sentinels(GroupCog, name="s"):
                         sentinel: Sentinel_Transform, suit: Suit_Transform,
                         new_sentinel: Sentinel_Transform,
                         new_name: Transform[SentinelSuit, SentinelSuitTransformer(sentinel_field="new_sentinel")]=None):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         if suit is None: raise SuitDoesNotExist
         if new_name: raise SuitAlreadyExists
@@ -1388,7 +1388,7 @@ class Sentinels(GroupCog, name="s"):
                             new_scope: SentinelScope,
                             new_name: Transform[Sentinel, SentinelTransformer(guild_field="new_scope")]):
         raise errors.NotImplementedYet
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         if new_name: raise SentinelAlreadyExists
         # "There is already a sentinel with that name, either change the name or merge the suits"
@@ -1403,7 +1403,7 @@ class Sentinels(GroupCog, name="s"):
                           sentinel: Sentinel_Transform, suit: SuitNullTrigger_Transform,
                           trigger_type: SentinelTrigger.TriggerType, trigger_object: str,
                           weight: int=100):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         if trigger_type == 3:
             try:
@@ -1434,7 +1434,7 @@ class Sentinels(GroupCog, name="s"):
                            response_type: SentinelResponse.ResponseType,
                            content: str="", reactions: str="",
                            weight: int=100):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         # guild_id = scope * interaction.guild_id
         response = SentinelResponse(type=response_type, content=content, reactions=reactions)
@@ -1456,7 +1456,7 @@ class Sentinels(GroupCog, name="s"):
     @remove_group.command(name="trigger", description="remove a trigger from a suit")
     async def remove_trigger(self, interaction: Interaction,
                              scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         if suit is None: raise SuitDoesNotExist
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
@@ -1470,7 +1470,7 @@ class Sentinels(GroupCog, name="s"):
     @remove_group.command(name="response", description="remove a response from a suit")
     async def remove_response(self, interaction: Interaction,
                               scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         if suit is None: raise SuitDoesNotExist
         # set the response for the sentinel and suit to None
@@ -1482,7 +1482,7 @@ class Sentinels(GroupCog, name="s"):
     @remove_group.command(name="suit", description="remove a trigger-response pairing from a sentinel")
     async def remove_suit(self, interaction: Interaction,
                           scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         if suit is None: raise SuitDoesNotExist
         async with self.conn() as db:
@@ -1495,7 +1495,7 @@ class Sentinels(GroupCog, name="s"):
                            sentinel: Sentinel_Transform, suit: Suit_Transform,
                            trigger_type: SentinelTrigger.TriggerType=None, trigger_object: str=None,
                            weight: int=None):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         if suit is None: raise SuitDoesNotExist
         if trigger_type == 3:
@@ -1521,7 +1521,7 @@ class Sentinels(GroupCog, name="s"):
                             response_type: SentinelResponse.ResponseType=None,
                             content: str=None, reactions: str=None,
                             weight: int=None):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         if suit is None: raise SuitDoesNotExist
 
@@ -1542,7 +1542,7 @@ class Sentinels(GroupCog, name="s"):
     # @commands.has_permissions(manage_guild=True)
     async def toggle_suit(self, interaction: Interaction, scope: SentinelScope,
                           sentinel: Sentinel_Transform, suit: Suit_Transform):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         if suit is None: raise SuitDoesNotExist
         async with self.conn() as db:
@@ -1555,7 +1555,7 @@ class Sentinels(GroupCog, name="s"):
     # @commands.has_permissions(manage_guild=True)
     async def toggle_sentinel(self, interaction: Interaction, scope: SentinelScope,
                               sentinel: Sentinel_Transform):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         async with self.conn() as db:
             await sentinel.toggle(db)
@@ -1575,7 +1575,7 @@ class Sentinels(GroupCog, name="s"):
     @toggle_group.command(name="channel", description="toggle all sentinels for a channel")
     # @commands.has_permissions(manage_channels=True)
     async def toggle_channel(self, interaction: Interaction, channel: discord.TextChannel | discord.VoiceChannel=None, state: Literal["Enabled", "Disabled"]="Disabled", extent: Literal["all", "local", "global"]="all"):
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         if channel is None:
             channel = interaction.channel
         state = state == "Enabled"
@@ -1640,14 +1640,17 @@ class Sentinels(GroupCog, name="s"):
 
     @view_group.command(name="all", description="view all sentinels on a guild")
     async def view_all(self, interaction: Interaction):
+        await respond(interaction, ephemeral=True)
         raise errors.NotImplementedYet
 
     @view_group.command(name="sentinel", description="view all suits in a sentinel")
     async def view_sentinel(self, interaction: Interaction):
+        await respond(interaction, ephemeral=True)
         raise errors.NotImplementedYet
 
     @view_group.command(name="suit", description="view the trigger and response associated with a suit")
     async def view_suit(self, interaction: Interaction):
+        await respond(interaction, ephemeral=True)
         raise errors.NotImplementedYet
 
 

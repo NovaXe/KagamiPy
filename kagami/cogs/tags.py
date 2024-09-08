@@ -651,7 +651,6 @@ class TagModal(discord.ui.Modal, title="Set Tag"):
     embeds = discord.ui.TextInput(label="Tag Embeds", placeholder="Embeds as json separated by commas",
                                   style=discord.TextStyle.paragraph, required=False)
 
-
     async def on_submit(self, interaction: Interaction[Kagami], /) -> None:
         bot: Kagami = interaction.client
         if len(self.embeds.value.strip()) > 0:
