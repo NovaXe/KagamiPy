@@ -129,6 +129,14 @@ class Tag(Table, group_name="tags", schema_altered=True):
         await db.execute(query)
 
     @classmethod
+    async def alter_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        ALTER TABLE {Tag}
+        RENAME COLUMN embed to embeds
+        """
+        await db.execute(query)
+
+    @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
         triggers = [
             f"""
