@@ -84,11 +84,13 @@ class TableSubclassMustImplement(NotImplementedError):
 
 class TableMeta(type):
     def __new__(mcs, name, bases, class_dict, *args,
-                table_registry: type["TableRegistry"]=TableRegistry, table_group: str=None, **kwargs):
+                table_registry: type["TableRegistry"]=TableRegistry,
+                table_group: str=None, schema_changed: bool=False, **kwargs):
         cls = super().__new__(mcs, name, bases, class_dict)
         cls.__table_registry__ = table_registry
         cls.__tablename__ = name
         cls.__table_group__ = table_group if table_group else "unassigned"
+        cls.__schema_changed__ = schema_changed
         cls.__old_tablename__ = None
         if table_registry is not None:
             table_registry.register_table(cls)
@@ -210,11 +212,15 @@ class Table(metaclass=TableMeta, table_registry=None):
         """
         Override if a custom set of steps is needed
         """
-        await cls.create_temp_copy(db)
-        await cls.drop_table(db)
-        await cls.create_table(db)
-        await cls.insert_from_temp(db)
-        await cls.drop_temp(db)
+        if not cls.__schema_changed__:
+            return
+        else:
+            await cls.create_temp_copy(db)
+            await cls.drop_table(db)
+            await cls.create_table(db)
+            await cls.insert_from_temp(db)
+            await cls.drop_temp(db)
+            logging.info(f"The schema for table: {cls} was updated and data migrated")
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -251,13 +257,13 @@ class Table(metaclass=TableMeta, table_registry=None):
         query = f"INSERT OR IGNORE INTO {self.__tablename__} VALUES ({placeholders})"
         await db.execute(query, self.astuple())
 
-    async def upsert(self, db: aiosqlite.Connection):
+    async def upsert(self, db: aiosqlite.Connection) -> "Table":
         """
         Attempts to insert the row and on a conflict updates values for proper insertion
         """
         raise TableSubclassMustImplement
 
-    async def update(self, db: aiosqlite.Connection):
+    async def update(self, db: aiosqlite.Connection) -> "Table":
         """
         Updates the row in the table using its primary keys as reference
         """

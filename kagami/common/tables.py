@@ -122,3 +122,52 @@ class Guild(Table, group_name="common"):
             result = await cur.fetchone()
         return result
 
+class User(Table, group_name="common"):
+    id: int
+    nickname: str
+
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {User}(
+            id INTEGER NOT NULL,
+            nickname TEXT DEFAULT NULL,
+            PRIMARY KEY (id)
+        )
+        """
+        await db.execute(query)
+
+    async def upsert(self, db: aiosqlite.Connection) -> "User":
+        query = f"""
+        INSERT INTO {User}(id)
+        VALUES (:id)
+        ON CONFLICT (id)
+        DO UPDATE SET nickname = :nickname
+        """
+        db.row_factory = User.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, id: int) -> "User":
+        query = f"""
+        SELECT * FROM {User}
+        WHERE id ?
+        """
+        db.row_factory = User.row_factory
+        async with db.execute(query, (id,)) as cur:
+            res = await cur.fetchone()
+        return res
+
+    @classmethod
+    async def deleteWhere(cls, db: aiosqlite.Connection, id: int) -> "User":
+        query = f"""
+        DELETE FROM {User}
+        WHERE id = ?
+        RETURNING *
+        """
+        db.row_factory = User.row_factory
+        async with db.execute(query, (id,)) as cur:
+            res = await cur.fetchone()
+        return res

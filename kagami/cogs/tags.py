@@ -17,6 +17,8 @@ from common.interactions import respond
 from typing import Literal, Union, List, Any
 from bot import Kagami
 from utils.pages import CustomRepr
+from common.database import Table, DatabaseManager
+from common.tables import Guild, GuildSettings, User
 
 
 class TagDB(Database):
@@ -64,7 +66,7 @@ class TagDB(Database):
         guild_id: int
         name: str
         content: str
-        embed: str # raw json representing a discord embed
+        embed: str  # raw json representing a discord embed
         author_id: int
         creation_date: str = None
         modified_date: str = None
@@ -227,22 +229,262 @@ class TagDB(Database):
         return names
 
 
+@dataclass
+class TagSettings(Table, group_name="tags", schema_changed=True):
+    guild_id: int
+    enforce_ownership = True
+
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {TagSettings}(
+            guild_id INTEGER NOT NULL,
+            enforce_ownership INTEGER DEFAULT 1,
+            PRIMARY KEY (guild_id),
+            FOREIGN KEY (guild_id) REFERENCES {Guild}(id)
+            ON UPDATE CASCADE ON DELETE CASCADE
+        )
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def insert_from_temp(cls, db: aiosqlite.Connection):
+        query = f"""
+            INSERT INTO {TagSettings}(guild_id, enforce_ownership)
+            SELECT guild_id 
+            FROM temp_{TagSettings} 
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def create_triggers(cls, db: aiosqlite.Connection):
+        trigger = f"""
+        CREATE TRIGGER IF NOT EXISTS {TagSettings}_insert_guild_before_insert
+        BEFORE INSERT ON {TagSettings}
+        BEGIN
+            INSERT OR IGNORE INTO {Guild}(id)
+            VALUES (NEW.guild_id)
+        END
+        """
+        await db.execute(trigger)
+
+    async def upsert(self, db: aiosqlite.Connection) -> "TagSettings":
+        query = f"""
+        INSERT INTO {TagSettings} (guild_id, enforce_ownership)
+        VALUES (:guild_id, :enforce_ownership)
+        ON CONFLICT (guild_id)
+        DO UPDATE SET enforce_ownership = :enforce_ownership
+        RETURNING *
+        """
+        db.row_factory = TagSettings.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "TagSettings":
+        query = f"""
+        SELECT * FROM {TagSettings}
+        WHERE guild_id = ?
+        """
+        db.row_factory = TagSettings.row_factory
+        async with db.execute(query, (guild_id,)) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "TagSettings":
+        query = f"""
+        DELETE FROM {TagSettings}
+        WHERE guild_id = ?
+        """
+        db.row_factory = TagSettings.row_factory
+        async with db.execute(query, (guild_id,)) as cur:
+            result = await cur.fetchone()
+        return result
+
+    async def delete(self, db: aiosqlite.Connection) -> "TagSettings":
+        return await TagSettings.deleteWhere(db, guild_id=self.guild_id)
+
+@dataclass
+class Tag(Table, group_name="tags"):
+    guild_id: int
+    name: str
+    content: str
+    embed: str
+    author_id: int
+    creation_date: str = None
+    modified_date: str = None
+
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {Tag}(
+            guild_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            content TEXT,
+            embed TEXT,
+            author_id INTEGER NOT NULL,
+            creation_date TEXT NOT NULL ON CONFLICT REPLACE DEFAULT CURRENT_DATE,
+            modified_date TEXT NOT NULL ON CONFLICT REPLACE DEFAULT CURRENT_DATE,
+            PRIMARY KEY(guild_id, name),
+            FOREIGN KEY(guild_id) REFERENCES {Guild}(id)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+            FOREIGN KEY(author_id) REFERENCES {User}(id) 
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        )
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def create_triggers(cls, db: aiosqlite.Connection):
+        triggers = [
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {Tag}_insert_settings_before_insert
+            BEFORE INSERT ON {Tag}
+            BEGIN
+                INSERT INTO {TagSettings}(guild_id)
+                VALUES(NEW.guild_id)
+                ON CONFLICT DO NOTHING;
+            END
+            """,
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {Tag}_insert_user_before_insert
+            BEFORE INSERT ON {Tag}
+            BEGIN
+                INSERT INTO {User}(id)
+                VALUES(NEW.author_id)
+                ON CONFLICT DO NOTHING;
+            END
+            """,
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {Tag}_set_modified_date_after_update
+            AFTER UPDATE ON {Tag}
+            BEGIN
+                UPDATE {Tag}
+                SET modified_date = NULL
+                WHERE (guild_id = NEW.guild_id) AND (name = NEW.name);
+            END
+            """
+        ]
+        for t in triggers:
+            await db.execute(t)
+
+    async def insert(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {Tag} (guild_id, name, content, embed, author_id, creation_date, modified,date)
+        VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date, :creation_date)
+            ON CONFLICT DO NOTHING
+        """
+        await db.execute(query, self.asdict())
+
+    async def upsert(self, db: aiosqlite.Connection) -> "Tag":
+        query = f"""
+        INSERT INTO {Tag}(guild_id, name, content, embed, author_id, creation_date)
+        VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date)
+            ON CONFLICT (guild_id, name)
+            DO UPDATE SET content = :content, embed = :embed
+        RETURNING *
+        """
+        db.row_factory = Tag.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res
+
+    async def update(self, db: aiosqlite.Connection) -> "Tag":
+        query = f"""
+        UPDATE {Tag} SET content = :content, embed = :embed
+        WHERE guild_id = :guild_id AND name = :name
+        RETURNING *
+        """
+        db.row_factory = Tag.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchon()
+        return res
+
+    async def edit(self, db: aiosqlite.Connection, new_tag: "Tag"):
+        query = f"""
+        UPDATE OR REPLACE {Tag} 
+        SET name=:name, content = :content, embed = :embed
+        WHERE guild_id = :guild_id AND name = :old_name
+        RETURNING *
+        """
+        params = new_tag.asdict()
+        params["old_name"] = self.name
+        db.row_factory = Tag.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res
+
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Tag":
+        query = f"""
+        DELETE FROM {Tag}
+        WHERE guild_id = ? AND name = ?
+        """
+        db.row_factory = Tag.row_factory
+        async with db.execute(query, (guild_id, name)) as cur:
+            res = await cur.fetchone()
+        return res
+
+    @classmethod
+    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Tag":
+        query = f"""
+        DELETE FROM {Tag}
+        WHERE guild_id = ? AND name = ?
+        RETURNING *
+        """
+        db.row_factory = Tag.row_factory
+        async with db.execute(query, (guild_id, name)) as cur:
+            res = await cur.fetchone()
+        return res
+
+    async def delete(self, db: aiosqlite.Connection) -> "Tag":
+        await Tag.deleteWhere(db, self.guild_id, self.name)
+
+    @classmethod
+    async def deleteFromUser(cls, db: aiosqlite.Connection, guild_id: int, user_id: int) -> list["Tag"]:
+        query = f"""
+        DELETE FROM {Tag}
+        WHERE guild_id = ? AND author_id = ? 
+        RETURNING *
+        """
+        db.row_factory = Tag.row_factory
+        async with db.execute(query, (guild_id, user_id,)) as cur:
+            res = await cur.fetchall()
+        return res
+
+    @classmethod
+    async def selectLikeNames(cls, db: aiosqlite.Connection, guild_id: int, name: str, limit: int=1, offset: int=0) -> list[str]:
+        query = f"""
+        SELECT name FROM Tag
+            WHERE (guild_id = ?) AND (name LIKE ?)
+            LIMIT ? OFFSET ?
+        """
+        db.row_factory = Tag.row_factory
+        async with db.execute(query, (guild_id, f"%{name}%", limit, offset)) as cur:
+            res = await cur.fetchall()
+        return [n.name for n in res]
+
+
 class LocalTagTransformer(Transformer):
     async def autocomplete(self,
                            interaction: Interaction, value: Union[int, float, str], /
                            ) -> List[Choice[str]]:
         bot: Kagami = interaction.client
-        db = TagDB(bot.config.db_path)
-        names = await db.fetchSimilarTagNames(guild_id=interaction.guild_id,
-                                              tag_name=value,
+        async with bot.dbman.conn() as db:
+            names = await Tag.selectLikeNames(db,
+                                              guild_id=interaction.guild_id,
+                                              name=value,
                                               limit=25)
         return [Choice(name=name, value=name) for name in names]
 
     async def transform(self, interaction: Interaction, value: Any, /) -> TagDB.Tag:
         bot: Kagami = interaction.client
-        db = TagDB(bot.config.db_path)
-        tag = await db.fetchTag(guild_id=interaction.guild_id,
-                                tag_name=value)
+        async with bot.dbman.conn() as db:
+            tag = await Tag.selectWhere(db,
+                                        guild_id=interaction.guild_id,
+                                        name=value)
         return tag
 
 
@@ -251,15 +493,15 @@ class GlobalTagTransformer(Transformer):
                            value: Union[int, float, str], /
                            ) -> List[Choice[str]]:
         bot: Kagami = interaction.client
-        db = TagDB(bot.config.db_path)
-        names = await db.fetchSimilarTagNames(guild_id=0, tag_name=value, limit=25)
+        async with bot.dbman.conn() as db:
+            names = await Tag.selectLikeNames(db, guild_id=0, name=value, limit=25)
         return [Choice(name=name, value=name) for name in names]
 
     async def transform(self, interaction: Interaction,
                         value: Any, /) -> TagDB.Tag:
         bot: Kagami = interaction.client
-        db = TagDB(bot.config.db_path)
-        tag = await db.fetchTag(guild_id=0, tag_name=value)
+        async with bot.dbman.conn() as db:
+            tag = await Tag.selectWhere(db, guild_id=0, name=value)
         return tag
 
 
@@ -269,22 +511,22 @@ class GuildTagTransformer(Transformer):
                            ) -> List[Choice[Union[int, float, str]]]:
         guild_id = int(interaction.namespace.guild)
         bot: Kagami = interaction.client
-        db = TagDB(bot.config.db_path)
-        names = await db.fetchSimilarTagNames(guild_id=guild_id,
-                                              tag_name=value,
-                                              limit=25)
+        async with bot.dbman.conn() as db:
+            names = await Tag.selectLikeNames(db, guild_id=guild_id, name=value, limit=25)
         return [Choice(name=name, value=name) for name in names]
 
     async def transform(self, interaction: Interaction,
                         value: str, /) -> TagDB.Tag:
         guild_id = int(interaction.namespace.guild)
         bot: Kagami = interaction.client
-        db = TagDB(bot.config.db_path)
-        tag = await db.fetchTag(guild_id=guild_id, tag_name=value)
+        async with bot.dbman.conn() as db:
+            tag = await Tag.selectWhere(db, guild_id=guild_id, name=value)
         return tag
 
 
 class GuildTransformer(Transformer):
+    # this exact transformer is also defined in sentinels
+    # consider moving to a separate file with other shared non cog specific transformers
     async def autocomplete(self, interaction: Interaction,
                            current: str) -> list[Choice[str]]:
         user = interaction.user
