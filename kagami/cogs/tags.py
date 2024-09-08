@@ -11,222 +11,14 @@ from discord.app_commands import Transformer, Group, Transform, Choice
 from discord.ext.commands import GroupCog
 
 from common import errors
-from utils.bot_data import OldTag
-from utils.old_db_interface import Database
+from utils.depr_bot_data import OldTag
+from utils.depr_db_interface import Database
 from common.interactions import respond
 from typing import Literal, Union, List, Any
 from bot import Kagami
 from utils.pages import CustomRepr
 from common.database import Table, DatabaseManager
 from common.tables import Guild, GuildSettings, User
-
-
-class TagDB(Database):
-    @dataclass
-    class TagSettings(Database.Row):
-        guild_id: int
-        tags_enabled: bool = True
-        class Queries:
-            CREATE_TABLE = """
-            CREATE TABLE IF NOT EXISTS TagSettings(
-            guild_id INTEGER NOT NULL,
-            tags_enabled INTEGER DEFAULT 1,
-            PRIMARY KEY (guild_id),
-            FOREIGN KEY (guild_id) REFERENCES Guild(id)
-            ON UPDATE CASCADE ON DELETE CASCADE)
-            """
-            DROP_TABLE = """
-            DROP TABLE IF EXISTS TagSettings
-            """
-            TRIGGER_BEFORE_INSERT_GUILD = """
-            CREATE TRIGGER IF NOT EXISTS TagSettings_insert_guild_before_insert
-            BEFORE INSERT ON TagSettings
-            BEGIN
-                INSERT OR IGNORE INTO Guild(id)
-                values(NEW.guild_id);
-            END
-            """
-            UPSERT = """
-            INSERT INTO TagSettings (guild_id, tags_enabled)
-            VALUES(:guild_id, :tags_enabled)
-            ON CONFLICT (guild_id)
-            DO UPDATE SET tags_enabled = :tags_enabled
-            """
-            SELECT = """
-            SELECT * FROM TagSettings
-            WHERE guild_id = ?
-            """
-            DELETE = """
-            DELETE FROM TagSettings
-            WHERE guild_id = ?
-            """
-
-    @dataclass
-    class Tag(Database.Row):
-        guild_id: int
-        name: str
-        content: str
-        embed: str  # raw json representing a discord embed
-        author_id: int
-        creation_date: str = None
-        modified_date: str = None
-        class Queries:
-            CREATE_TABLE = """
-            CREATE TABLE IF NOT EXISTS Tag(
-            guild_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            content TEXT,
-            embed TEXT,
-            author_id INTEGER NOT NULL,
-            creation_date TEXT NOT NULL ON CONFLICT REPLACE DEFAULT CURRENT_DATE,
-            modified_date TEXT NOT NULL ON CONFLICT REPLACE DEFAULT CURRENT_DATE,
-            PRIMARY KEY(guild_id, name),
-            FOREIGN KEY(guild_id) REFERENCES Guild(id)
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
-            FOREIGN KEY(author_id) REFERENCES User(id) 
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
-            )
-            """ # CHECK (CONTENT NOT NULL OR EMBED NOT NULL)
-            DROP_TABLE = """
-            DROP TABLE IF EXISTS Tag
-            """
-            QUERY_AFTER_INSERT_TRIGGER = """
-            CREATE TRIGGER IF NOT EXISTS set_creation_date_after_insert
-            AFTER INSERT ON Tag
-            """
-            # QUERY_BEFORE_INSERT_INSERT_GUILD_TRIGGER = """
-            # CREATE TRIGGER IF NOT EXISTS insert_guild_before_insert
-            # """
-            TRIGGER_BEFORE_INSERT_SETTINGS = """
-            CREATE TRIGGER IF NOT EXISTS Tag_insert_settings_before_insert
-            BEFORE INSERT ON Tag
-            BEGIN
-                INSERT INTO TagSettings(guild_id)
-                VALUES(NEW.guild_id)
-                ON CONFLICT DO NOTHING;
-            END
-            """
-            TRIGGER_BEFORE_INSERT_USER = """
-            CREATE TRIGGER IF NOT EXISTS Tag_insert_user_before_insert
-            BEFORE INSERT ON Tag
-            BEGIN
-                INSERT INTO User(id)
-                VALUES(NEW.author_id)
-                ON CONFLICT DO NOTHING;
-            END
-            """
-            TRIGGER_DATE_AFTER_UPDATE = """
-            CREATE TRIGGER IF NOT EXISTS Tag_set_modified_data_after_update
-            AFTER UPDATE ON Tag
-            BEGIN
-                UPDATE Tag
-                SET modified_date = NULL 
-                WHERE (guild_id = NEW.guild_id) AND (name = NEW.name);
-            END
-            """
-            INSERT = """
-            INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date, modified_date)
-            VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date, :creation_date)
-            ON CONFLICT DO NOTHING
-            """
-            # QUERY_INSERT = """
-            # INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date)
-            # VALUES (:guild_id, :name, :content, :embed, :author_id,
-            #         coalesce(:creation_date, date()), coalesce(:creation_date, date()))
-            # ON CONFLICT DO NOTHING
-            # """
-            UPSERT = """
-            INSERT INTO Tag (guild_id, name, content, embed, author_id, creation_date)
-            VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date)
-            ON CONFLICT (guild_id, name)
-            DO UPDATE SET content = :content, embed = :embed
-            """
-            UPDATE = """
-            UPDATE Tag SET content = :content, embed = :embed
-            WHERE guild_id = :guild_id AND name = :name
-            """
-            EDIT = """
-            UPDATE OR REPLACE Tag SET name=:name, content = :content, embed = :embed
-            WHERE guild_id = :guild_id AND name = :old_name
-            """
-            SELECT = """
-            SELECT * FROM Tag 
-            WHERE guild_id = ? AND name = ?;
-            """
-            DELETE = """
-            DELETE FROM Tag
-            WHERE guild_id = ? AND name = ?
-            RETURNING *
-            """
-            DELETE_FROM_USER = """
-            DELETE FROM Tag
-            WHERE author_id = ?
-            RETURNING *
-            """
-            SELECT_LIKE = """
-            SELECT * FROM Tag
-            WHERE guild_id = ? AND name LIKE ?
-            LIMIT ? OFFSET ?
-            """
-            SELECT_LIKE_NAMES = """
-            SELECT name FROM Tag
-            WHERE (guild_id = ?) AND (name LIKE ?)
-            LIMIT ? OFFSET ?
-            """
-
-    class TagsDisabled(errors.CustomCheck):
-        MESSAGE = "The tag feature is disabled"
-
-    class TagAlreadyExists(errors.CustomCheck):
-        MESSAGE = "There is already a tag with that name"
-
-    class TagNotFound(errors.CustomCheck):
-        MESSAGE = "There is no tag with that name"
-
-    async def insertTag(self, tag: Tag) -> bool:
-        async with aiosqlite.connect(self.file_path) as db:
-            cursor = await db.execute(TagDB.Tag.Queries.INSERT, tag.asdict())
-            row_count = cursor.rowcount
-            await db.commit()
-        return row_count > 0
-
-    async def insertTags(self, tags: list[Tag]):
-        async with aiosqlite.connect(self.file_path) as db:
-            data = [tag.asdict() for tag in tags]
-            await db.executemany(TagDB.Tag.Queries.INSERT, data)
-            await db.commit()
-
-    async def updateTag(self, tag: Tag):
-        async with aiosqlite.connect(self.file_path) as db:
-            await db.execute(TagDB.Tag.Queries.UPDATE, tag.asdict())
-            await db.commit()
-
-    async def editTag(self, old_name: str, tag: Tag):
-        async with aiosqlite.connect(self.file_path) as db:
-            data = tag.asdict()
-            data["old_name"] = old_name
-            await db.execute(TagDB.Tag.Queries.EDIT, data)
-            await db.commit()
-
-    async def deleteTag(self, guild_id: int, name: str) -> Tag:
-        async with aiosqlite.connect(self.file_path) as db:
-            db.row_factory = TagDB.Tag.rowFactory
-            result = await db.execute_fetchall(TagDB.Tag.Queries.DELETE, (guild_id, name))
-            await db.commit()
-        return result[0] if result else None
-
-    async def fetchTag(self, guild_id: int, tag_name: str) -> Tag:
-        async with aiosqlite.connect(self.file_path) as db:
-            db.row_factory = TagDB.Tag.rowFactory
-            result: list[TagDB.Tag] = await db.execute_fetchall(TagDB.Tag.Queries.SELECT, (guild_id, tag_name))
-        return result[0] if result else None
-
-    async def fetchSimilarTagNames(self, guild_id: int, tag_name: str, limit: int=1, offset=0) -> list[str]:
-        async with aiosqlite.connect(self.file_path) as db:
-            names: list[str] = await db.execute_fetchall(TagDB.Tag.Queries.SELECT_LIKE_NAMES,
-                                                         (guild_id, f"%{tag_name}%", limit, offset))
-            names = [n[0] for n in names]
-        return names
 
 
 @dataclass
@@ -488,7 +280,7 @@ class LocalTagTransformer(Transformer):
                                               limit=25)
         return [Choice(name=name, value=name) for name in names]
 
-    async def transform(self, interaction: Interaction, value: Any, /) -> TagDB.Tag:
+    async def transform(self, interaction: Interaction, value: Any, /) -> Tag:
         bot: Kagami = interaction.client
         async with bot.dbman.conn() as db:
             tag = await Tag.selectWhere(db,
@@ -506,7 +298,7 @@ class GlobalTagTransformer(Transformer):
         return [Choice(name=name, value=name) for name in names]
 
     async def transform(self, interaction: Interaction,
-                        value: Any, /) -> TagDB.Tag:
+                        value: Any, /) -> Tag:
         bot: Kagami = interaction.client
         async with bot.dbman.conn() as db:
             tag = await Tag.selectWhere(db, guild_id=0, name=value)
@@ -523,7 +315,7 @@ class GuildTagTransformer(Transformer):
         return [Choice(name=name, value=name) for name in names]
 
     async def transform(self, interaction: Interaction,
-                        value: str, /) -> TagDB.Tag:
+                        value: str, /) -> Tag:
         guild_id = int(interaction.namespace.guild)
         bot: Kagami = interaction.client
         async with bot.dbman.conn() as db:
@@ -553,7 +345,6 @@ class Tags(GroupCog, group_name="t"):
     def __init__(self, bot):
         self.bot: Kagami = bot
         self.config = bot.config
-        self.database = TagDB(bot.config.db_path)
         self.ctx_menus = [
             app_commands.ContextMenu(
                 name="Create Tag",

@@ -17,8 +17,8 @@ from wavelink.exceptions import InvalidLavalinkResponse
 
 from ui.custom_view import MessageInfo
 from ui.page_scroller import PageScroller, PageGenCallbacks
-from utils import bot_data
-from utils.old_db_interface import Database
+from utils import depr_bot_data
+from utils.depr_db_interface import Database
 
 OldPlaylist = bot_data.Playlist
 OldTrack = bot_data.Track

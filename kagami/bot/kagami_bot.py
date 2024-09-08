@@ -5,7 +5,6 @@ import os
 import sys
 from discord.ext.commands import Context
 
-import utils.old_db_interface
 
 
 import discord
@@ -18,7 +17,7 @@ from typing import (
 from bot import Configuration, config
 
 from common import errors
-from utils.bot_data import BotData, BotConfiguration
+from utils.depr_bot_data import BotData, BotConfiguration
 from common.depr_context_vars import CVar
 from common.database import DatabaseManager
 
@@ -45,7 +44,6 @@ class Kagami(commands.Bot):
 
     def init_data(self):
         self.loadData()
-        self.database = utils.old_db_interface.InfoDB(self.config.db_path)
         self.dbman = DatabaseManager(self.config.db_path)
 
     def changeCmdError(self):

@@ -14,7 +14,7 @@ from utils.pages import createSinglePage, CustomRepr, PageBehavior, PageIndices,
 # from bot.ext.ui import (PageScroller)
 from common.interactions import respond
 from helpers.wavelink_utils import createNowPlayingMessage, trackListData, getPageTracks
-from utils.bot_data import *
+from utils.depr_bot_data import *
 
 class TrackType(Enum):
     YOUTUBE = auto()
