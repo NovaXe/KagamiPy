@@ -35,14 +35,14 @@ class Kagami(commands.Bot):
         self.raw_data = {}
         self.data: BotData = None
         self.database = None
-        self.db_man: DatabaseManager = None
+        self.dbman: DatabaseManager = None
         self.changeCmdError()
         self.init_data()
 
     def init_data(self):
         self.loadData()
         self.database = utils.old_db_interface.InfoDB(self.config.db_path)
-        self.db_man = DatabaseManager(self.config.db_path)
+        self.dbman = DatabaseManager(self.config.db_path)
 
     def changeCmdError(self):
         tree = self.tree
@@ -92,8 +92,9 @@ class Kagami(commands.Bot):
             with open(f"{data_path}/data.json") as f:
                 self.raw_data = json.load(f)
         except FileNotFoundError:
-            print(f"Missing data.json file at {data_path}")
-            print("path=", os.path.dirname(sys.argv[0]))
+            # print(f"Missing data.json file at {data_path}")
+            # print("path=", os.path.dirname(sys.argv[0]))
+            logging.warning(f"Missing data.json file at {data_path}")
             # raise FileNotFoundError
         self.data = BotData.fromDict(self.raw_data)
 

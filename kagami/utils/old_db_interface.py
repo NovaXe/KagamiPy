@@ -1,7 +1,6 @@
 import sqlite3
 import typing
 from dataclasses import dataclass, asdict, astuple
-
 import aiosqlite
 import discord
 

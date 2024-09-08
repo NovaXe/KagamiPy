@@ -12,10 +12,10 @@ from discord.ext.commands import GroupCog
 from discord.app_commands import Transform, Transformer, Group, Choice
 from common import errors
 from bot import Kagami
-from common.tables import Guild
 from utils.bot_data import OldSentinel
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
+from common.tables import Guild, GuildSettings
 from utils.old_db_interface import Database
 from typing import (
     Literal, List, Callable, Any
@@ -26,16 +26,15 @@ class SentinelSettings(Table, table_group="sentinel"):
     guild_id: int
     local_enabled: bool = True
     global_enabled: bool = False
-
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
-        query = """
-        CREATE TABLE IF NOT EXISTS SentinelSettings(
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {SentinelSettings}(
             guild_id INTEGER NOT NULL,
             local_enabled INTEGER DEFAULT 1,
             global_enabled INTEGER DEFAULT 0,
             PRIMARY KEY(guild_id),
-            FOREIGN KEY(guild_id) REFERENCES GUILD(id)
+            FOREIGN KEY(guild_id) REFERENCES {Guild}(id)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
@@ -43,8 +42,8 @@ class SentinelSettings(Table, table_group="sentinel"):
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
-        query = """
-            INSERT INTO SentinelSettings(guild_id)
+        query = f"""
+            INSERT INTO {SentinelSettings}(guild_id)
             SELECT guild_id
             FROM temp_sentinel_settings
         """
@@ -2052,7 +2051,7 @@ class SentinelTransformer(Transformer):
         if guild_id == SentinelScope.LOCAL:
             guild_id = interaction.guild_id
         bot: Kagami = interaction.client
-        async with bot.db_man.conn() as db:
+        async with bot.dbman.conn() as db:
             names = await Sentinel.selectLikeNamesWhere(db,
                                                         guild_id=guild_id,
                                                         name=current,
@@ -2065,7 +2064,7 @@ class SentinelTransformer(Transformer):
         guild_id = interaction.namespace.scope
         if guild_id == 1: guild_id = interaction.guild_id
         bot: Kagami = interaction.client
-        async with bot.db_man.conn() as db:
+        async with bot.dbman.conn() as db:
             sentinel = await Sentinel.selectWhere(db, guild_id, value)
         return sentinel
 
@@ -2083,7 +2082,7 @@ class SentinelSuitTransformer(Transformer):
         if guild_id == SentinelScope.LOCAL: guild_id = interaction.guild_id
         sentinel_name = interaction.namespace[self.sentinel_field]
         bot: Kagami = interaction.client
-        async with bot.db_man.conn() as db:
+        async with bot.dbman.conn() as db:
             if self.empty_field == "trigger_id":
                 names = await SentinelSuit.selectLikeNamesWhere(db, guild_id, sentinel_name, current,
                                                                 limit=25, null_field="trigger")
@@ -2103,7 +2102,7 @@ class SentinelSuitTransformer(Transformer):
         if guild_id == 1: guild_id = interaction.guild_id
         bot: Kagami = interaction.client
         sentinel_name = interaction.namespace.sentinel
-        async with bot.db_man.conn() as db:
+        async with bot.dbman.conn() as db:
             result = await SentinelSuit.selectWhere(db, guild_id, sentinel_name, value)
 
         if result:
@@ -2183,9 +2182,9 @@ class Sentinels(GroupCog, name="s"):
         self.database = SentinelDB(bot.config.db_path)
 
     async def cog_load(self) -> None:
-        await self.bot.db_man.setup(table_group="sentinel",
-                                    drop_tables=self.config.drop_tables,
-                                    update_schema=self.config.schema_update)
+        await self.bot.dbman.setup(table_group="sentinel",
+                                   drop_tables=self.config.drop_tables,
+                                   update_schema=self.config.schema_update)
         # await self.database.init(drop=self.config.drop_tables, schema_update=self.config.schema_update)
         # await self.database.init(drop=True)
         if self.bot.config.migrate_data: await self.migrateData()
@@ -2197,7 +2196,7 @@ class Sentinels(GroupCog, name="s"):
         return True
 
     def conn(self) -> ConnectionContext:
-        return self.bot.db_man.conn()
+        return self.bot.dbman.conn()
 
     add_group = Group(name="add", description="commands for adding sentinel components")
     remove_group = Group(name="remove", description="commands for removing sentinel components")
