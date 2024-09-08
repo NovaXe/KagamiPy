@@ -63,6 +63,11 @@ class TableRegistry:
             await tableclass.update_schema(db)
 
     @classmethod
+    async def alter_tables(cls, db: aiosqlite.Connection, group_name: str=None):
+        for tablename, tableclass in cls.tableiter(group_name):
+            await tableclass.alter_table(db)
+
+    @classmethod
     async def drop_unregistered(cls, db: aiosqlite.Connection):
         names = cls.tables.keys()
         async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cur:
@@ -85,12 +90,14 @@ class TableSubclassMustImplement(NotImplementedError):
 class TableMeta(type):
     def __new__(mcs, name, bases, class_dict, *args,
                 table_registry: type["TableRegistry"]=TableRegistry,
-                table_group: str=None, schema_changed: bool=False, **kwargs):
+                table_group: str=None, schema_changed: bool=False,
+                schema_altered: bool=False, **kwargs):
         cls = super().__new__(mcs, name, bases, class_dict)
         cls.__table_registry__ = table_registry
         cls.__tablename__ = name
         cls.__table_group__ = table_group if table_group else "unassigned"
         cls.__schema_changed__ = schema_changed
+        cls.__schema_altered__ = schema_altered
         cls.__old_tablename__ = None
         if table_registry is not None:
             table_registry.register_table(cls)
@@ -171,6 +178,13 @@ class Table(metaclass=TableMeta, table_registry=None):
         Called to create a table and add it to the database
         """
         await db.execute(f"CREATE TABLE IF NOT EXISTS {cls.__tablename__}(rowid INTEGER PRIMARY KEY)")
+
+    @classmethod
+    async def alter_table(cls, db: aiosqlite.Connection):
+        """
+        Called during the setup phase if the table is marked as altered in the metadata
+        """
+        raise TableSubclassMustImplement
 
     @classmethod
     async def drop_table(cls, db: aiosqlite.Connection):
@@ -367,14 +381,20 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
         self.file_path = db_path
         self.pool = ConnectionPool(db_path, pool_size)
 
-    async def setup(self, table_group: str=None, drop_tables=False, drop_triggers=False, update_schema=False):
+    async def setup(self, table_group: str=None, update_tables: bool=False, drop_tables=False, drop_triggers=False):
         async with self.conn() as db:
-            if drop_triggers:
-                await self.__table_registry__.drop_triggers(db, group_name=table_group)
+            """
+            Performs automated tables setup with the passed kwargs
+            """
             if drop_tables:
                 await self.__table_registry__.drop_tables(db, group_name=table_group)
-            if update_schema:
+            elif update_tables:
+                await self.__table_registry__.alter_tables(db, group_name=table_group)
                 await self.__table_registry__.update_schema(db, group_name=table_group)
+
+            if drop_triggers:
+                await self.__table_registry__.drop_triggers(db, group_name=table_group)
+
             await self.__table_registry__.create_tables(db, table_group)
             await self.__table_registry__.create_triggers(db, table_group)
             await db.commit()
@@ -391,6 +411,11 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
     async def create_tables(self, table_group: str=None):
         async with self.conn() as db:
             await DatabaseManager.__table_registry__.create_tables(db, table_group)
+            await db.commit()
+
+    async def alter_tables(self, table_group: str=None):
+        async with self.conn() as db:
+            await DatabaseManager.__table_registry__.alter_tables(db, table_group)
             await db.commit()
 
     async def drop_tables(self, table_group: str=None):

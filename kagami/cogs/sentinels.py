@@ -2183,11 +2183,12 @@ class Sentinels(GroupCog, name="s"):
 
     async def cog_load(self) -> None:
         await self.bot.dbman.setup(table_group="sentinel",
-                                   drop_tables=self.config.drop_tables,
-                                   update_schema=self.config.schema_update)
+                                   drop_tables=self.bot.config.drop_tables,
+                                   drop_triggers=self.bot.config.drop_triggers,
+                                   update_tables=self.bot.config.update_tables)
         # await self.database.init(drop=self.config.drop_tables, schema_update=self.config.schema_update)
         # await self.database.init(drop=True)
-        if self.bot.config.migrate_data: await self.migrateData()
+        # if self.bot.config.migrate_data: await self.migrateData()
 
     async def cog_unload(self) -> None:
         pass

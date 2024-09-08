@@ -307,7 +307,7 @@ class TagSettings(Table, group_name="tags", schema_changed=True):
         return await TagSettings.deleteWhere(db, guild_id=self.guild_id)
 
 @dataclass
-class Tag(Table, group_name="tags"):
+class Tag(Table, group_name="tags", schema_altered=True):
     guild_id: int
     name: str
     content: str
@@ -610,9 +610,12 @@ class Tags(GroupCog, group_name="t"):
             self.bot.tree.remove_command(ctx_menu.name, type=ctx_menu.type)
 
     async def cog_load(self) -> None:
-        await self.bot.dbman.setup(drop_tables=self.bot.config.drop_tables, table_group="tags")
+        await self.bot.dbman.setup(table_group="tags",
+                                   drop_tables=self.bot.config.drop_tables,
+                                   drop_triggers=self.bot.config.drop_triggers,
+                                   update_tables=self.bot.config.update_tables)
         # await self.database.init(drop=self.bot.config.drop_tables)
-        if self.bot.config.migrate_data: await self.migrateData()
+        # if self.bot.config.migrate_data: await self.migrateData()
 
     async def interaction_check(self, interaction: discord.Interaction[ClientT], /) -> bool:
         # await self.bot.database.upsertGuild(interaction.guild)

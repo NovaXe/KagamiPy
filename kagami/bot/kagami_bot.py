@@ -7,12 +7,15 @@ from discord.ext.commands import Context
 
 import utils.old_db_interface
 
+
 import discord
 import discord.utils
 from discord import Interaction
 from discord.ext import commands
 from typing import (
     Any, )
+
+from bot import Configuration, config
 
 from common import errors
 from utils.bot_data import BotData, BotConfiguration
@@ -26,7 +29,7 @@ intents = discord.Intents.all()
 
 class Kagami(commands.Bot):
     def __init__(self):
-        self.config = BotConfiguration.initFromEnv()
+        self.config: Configuration = config
         # print(self.config)
         super().__init__(command_prefix=self.config.prefix,
                          intents=intents,
@@ -38,6 +41,7 @@ class Kagami(commands.Bot):
         self.dbman: DatabaseManager = None
         self.changeCmdError()
         self.init_data()
+
 
     def init_data(self):
         self.loadData()
