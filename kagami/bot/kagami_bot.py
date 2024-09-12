@@ -3,9 +3,10 @@ import json
 import logging
 import os
 import sys
+import traceback
+
+from discord.app_commands import AppCommandError
 from discord.ext.commands import Context
-
-
 
 import discord
 import discord.utils
@@ -14,10 +15,12 @@ from discord.ext import commands
 from typing import (
     Any, )
 
+from common.errors import CustomCheck
+from common.interactions import respond
+
 from .config import Configuration, config
 
 from common import errors
-from utils.depr_bot_data import BotData, BotConfiguration
 from common.depr_context_vars import CVar
 from common.database import DatabaseManager
 
@@ -35,7 +38,6 @@ class Kagami(commands.Bot):
                          owner_id=self.config.owner_id)
         self.activity = discord.CustomActivity("Testing new things")
         self.raw_data = {}
-        self.data: BotData = None
         self.database = None
         self.dbman: DatabaseManager = None
         self.changeCmdError()
@@ -44,22 +46,18 @@ class Kagami(commands.Bot):
 
 
     def init_data(self):
-        self.loadData()
         self.dbman = DatabaseManager(self.config.data_path + self.config.db_name, pool_size=self.config.connection_pool_size)
 
     def changeCmdError(self):
         tree = self.tree
         self._old_tree_error = tree.on_error
-        tree.on_error = errors.on_app_command_error
+        tree.on_error = on_app_command_error
 
     async def setup_hook(self):
         await self.dbman.setup(table_group="common",
                                drop_tables=self.config.drop_tables,
                                drop_triggers=self.config.drop_triggers,
                                update_tables=self.config.update_tables)
-        # await self.database.init(drop=self.config.drop_tables)
-        # guilds = [self.database.Guild.fromDiscord(guild) for guild in list(self.guilds)]
-        # await self.database.upsertGuilds(guilds)
 
         for file in os.listdir("cogs"):
             if file.endswith(".py"):
@@ -93,24 +91,6 @@ class Kagami(commands.Bot):
         if before.name != after.name:
             await self.database.upsertGuild(self.database.Guild.fromDiscord(after))
 
-    def loadData(self): # this is the old shit that uses json, needs to go at some point
-        data_path = self.config.data_path
-        try:
-            with open(f"{data_path}/data.json") as f:
-                self.raw_data = json.load(f)
-        except FileNotFoundError:
-            # print(f"Missing data.json file at {data_path}")
-            # print("path=", os.path.dirname(sys.argv[0]))
-            logging.warning(f"Missing data.json file at {data_path}")
-            # raise FileNotFoundError
-        self.data = BotData.fromDict(self.raw_data)
-
-    def saveData(self):
-        data_path = self.config.local_data_path
-        self.raw_data = self.data.toDict()
-        with open(f"{data_path}/data.json", "w") as f:
-            json.dump(self.raw_data, f, indent=4)
-
     def getPartialMessage(self, message_id, channel_id) -> discord.PartialMessage | None:
         channel = self.get_channel(channel_id)
         if channel:
@@ -118,15 +98,9 @@ class Kagami(commands.Bot):
         else:
             return None
 
-
-
-    LOG_CHANNEL = 825529492982333461
-    # TODO change the config system to utilize a dataclass
-    # Add LOG_CHANNEL to the config
-
-    async def logToChannel(self, message:str, channel: discord.TextChannel|int=LOG_CHANNEL, big_bold=True, code_block=True):
-        if not isinstance(channel, discord.TextChannel):
-            channel = self.get_channel(channel)
+    async def logToChannel(self, message: str, channel: discord.TextChannel=None, big_bold=True, code_block=True):
+        if not channel:
+            channel = await self.fetch_channel(self.config.log_channel_id)
 
         if code_block:
             message = f"`{message}`"
@@ -135,11 +109,6 @@ class Kagami(commands.Bot):
 
         await channel.send(message)
 
-    # async def on_interaction(self, interaction: Interaction):
-    #     print("-----------------------------\nON INTERACTION HAS FIRED")
-    #     print(f"{interaction.command.name}")
-    #     # current_interaction.value = interaction
-    #     server_data.value = self.getServerData(interaction.guild_id)
 
     async def on_interaction(self, interaction: Interaction):
         pass
@@ -172,3 +141,13 @@ class Kagami(commands.Bot):
         login_message = f"Logged in as {self.user} (ID: {self.user.id})"
         print(login_message)
         await self.logToChannel(login_message)
+
+
+async def on_app_command_error(interaction: Interaction, error: AppCommandError):
+    if isinstance(error, CustomCheck):
+        og_response = await respond(interaction, f"**{error}**")
+    else:
+        og_response = await interaction.original_response()
+        await og_response.channel.send(content=f"**Command encountered an error:**\n"
+                                               f"{error}")
+        traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)

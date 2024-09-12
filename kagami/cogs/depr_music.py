@@ -17,11 +17,8 @@ from wavelink.exceptions import InvalidLavalinkResponse
 
 from ui.custom_view import MessageInfo
 from ui.page_scroller import PageScroller, PageGenCallbacks
-from utils import depr_bot_data
 from utils.depr_db_interface import Database
 
-OldPlaylist = depr_bot_data.Playlist
-OldTrack = depr_bot_data.Track
 # context vars
 
 from helpers.music_utils import (
@@ -671,38 +668,9 @@ class Music(GroupCog,
     @commands.is_owner()
     @music.command(name="migrate")
     async def migrateCommand(self, ctx):
-        await self.migrateMusicData()
-        await ctx.send("migrated music probably")
-
-    async def migrateMusicData(self):
-        async def convertTracks(_guild_id: int, _playlist_name: str, _tracks: list[OldTrack]) -> list[MusicDB.Track]:
-            new_tracks: list[MusicDB.Track] = []
-            for track in _tracks:
-                try:
-                    wavelink_track = await buildTrack(track.encoded)
-                    _track = MusicDB.Track.fromWavelink(guild_id=_guild_id, playlist_name=_playlist_name,
-                                                        track=wavelink_track)
-                    new_tracks.append(_track)
-                except InvalidLavalinkResponse as e:
-                    print(e)
-                    print(_playlist_name, track.title)
-
-            return new_tracks
-
-        for server_id, server in self.bot.data.servers.items():
-            server_id = int(server_id)
-            try: guild = await self.bot.fetch_guild(server_id)
-            except discord.NotFound: continue
-            music_settings = MusicDB.MusicSettings(guild_id=guild.id, music_enabled=True, playlists_enabled=True)
-            await self.database.upsertMusicSettings(music_settings)
-            info_db = self.bot.database
-            await info_db.upsertGuild(info_db.Guild.fromDiscord(guild))
-            # await self.database.upsertGuild(self.database.Guild.fromDiscord(guild))
-            for playlist_name, playlist in server.playlists.items():
-                new_playlist = MusicDB.Playlist(server_id, playlist_name, playlist.description)
-                tracks = await convertTracks(server_id, playlist_name, playlist.tracks)
-                await self.database.upsertPlaylist(new_playlist)
-                await self.database.insertTracks(tracks)
+        await ctx.send("There is nothing to migrate")
+        # await self.migrateMusicData()
+        # await ctx.send("migrated music probably")
 
     async def cog_unload(self) -> None:
         pass

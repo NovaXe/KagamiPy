@@ -12,7 +12,6 @@ from discord.ext.commands import GroupCog
 from discord.app_commands import Transform, Transformer, Group, Choice
 from common import errors
 from bot import Kagami
-from utils.depr_bot_data import OldSentinel
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings
@@ -1246,67 +1245,12 @@ class Sentinels(GroupCog, name="s"):
     @commands.is_owner()
     @sentinel.command(name="migrate")
     async def migrateCommand(self, ctx):
-        await self.migrateData()
-        await asyncio.gather(
-            ctx.message.delete(delay=5),
-            ctx.send("Migrated sentinel data", delete_after=5)
-        )
-
-    @commands.is_owner()
-    @sentinel.command(name="clean_responses")
-    async def cleanNoneResponses(self, ctx):
-        await self.database.cleanNoneResponses()
-        await asyncio.gather(
-            ctx.message.delete(delay=5),
-            ctx.send("Removed `'None'` from sentinel response reactions and replaced it with `''`", delete_after=5)
-        )
-
-    async def migrateData(self):
-        """
-        Old Sentinels are triggered by their name being present as a phrase in the message
-        They have a separate response parameter
-        data migration missing usage numbers
-        upsert into the usage table for each as well
-        """
-        async def convertSentinel(_guild_id: int, _sentinel_name: str,  _sentinel: OldSentinel
-                                  ) -> tuple[SentinelTrigger, SentinelResponse]:
-
-            _trigger = SentinelTrigger(type=SentinelTrigger.TriggerType.phrase,
-                                       object=_sentinel_name)
-            reactions = ";".join(_sentinel.reactions)
-            if reactions == "None":
-                reactions = ""
-            _response = SentinelResponse(type=SentinelResponse.ResponseType.reply,
-                                         content=_sentinel.response, reactions=reactions)
-            # _uses = SentinelDB.SentinelTriggerUses(guild_id=_guild_id, trigger_object=)
-            return _trigger, _response
-
-        async with self.conn() as db:
-            for server_id, server in self.bot.data.servers.items():
-                server_id = int(server_id)
-                try: guild = await self.bot.fetch_guild(server_id)
-                except discord.NotFound: continue
-                converted_sentinels = [await convertSentinel(server_id, name, sentinel)
-                                       for name, sentinel in server.sentinels.items()]
-                if len(converted_sentinels):
-                    triggers, responses = zip(*converted_sentinels)
-                    for trigger, response in converted_sentinels:
-                        trigger_id = await trigger.insert(db)
-                        response_id = await response.insert(db)
-                        suit = SentinelSuit(guild_id=server_id, sentinel_name=trigger.object, name=trigger.object,
-                                            trigger_id=trigger_id, response_id=response_id)
-                        await suit.insert(db)
-
-            converted_sentinels = [await convertSentinel(0, name, sentinel)
-                                   for name, sentinel in self.bot.data.globals.sentinels.items()]
-            if len(converted_sentinels):
-                for trigger, response in converted_sentinels:
-                    trigger_id = await trigger.insert(db)
-                    response_id = await response.insert(db)
-                    suit = SentinelSuit(guild_id=0, sentinel_name=trigger.object, name=trigger.object,
-                                        trigger_id=trigger_id, response_id=response_id)
-                    await suit.insert(db)
-            await db.commit()
+        await ctx.send("There is no data to migrate")
+        # await self.migrateData()
+        # await asyncio.gather(
+        #     ctx.message.delete(delay=5),
+        #     ctx.send("Migrated sentinel data", delete_after=5)
+        # )
 
     @remove_group.command(name="sentinel", description="deletes a sentinel and all its suits")
     async def remove_sentinel(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform):

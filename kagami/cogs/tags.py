@@ -11,7 +11,6 @@ from discord.app_commands import Transformer, Group, Transform, Choice
 from discord.ext.commands import GroupCog
 
 from common import errors
-from utils.depr_bot_data import OldTag
 from utils.depr_db_interface import Database
 from common.interactions import respond
 from typing import Literal, Union, List, Any
@@ -419,31 +418,9 @@ class Tags(GroupCog, group_name="t"):
     @commands.is_owner()
     @tags.command(name="migrate")
     async def migrateCommand(self, ctx):
-        await self.migrateData()
-        await ctx.send("migrated tags probably")
-
-    async def migrateData(self):
-        async def convertTag(_guild_id: int, _tag_name: str, _tag: OldTag) -> Tag:
-            user = discord.utils.get(self.bot.get_all_members(), name=_tag.author)
-            user_id = user.id if user else 0
-            return Tag(guild_id=_guild_id, name=_tag_name,
-                       content=_tag.content, embeds="", author_id=user_id,
-                       creation_date=_tag.creation_date)
-
-        async with self.conn() as db:
-            for server_id, server in self.bot.data.servers.items():
-                server_id = int(server_id)
-                try: guild = await self.bot.fetch_guild(server_id)
-                except discord.NotFound: continue
-                # convert the old tags to the new format, will be depr at some point
-                new_tags = [await convertTag(server_id, tag_name, tag) for tag_name, tag in server.tags.items()]
-                for tag in new_tags:
-                    await tag.insert(db)
-
-            new_global_tags = [await convertTag(0, tag_name, tag)
-                               for tag_name, tag in self.bot.data.globals.tags.items()]
-            for tag in new_global_tags:
-                await tag.insert(db)
+        await ctx.send("There is nothing to migrate")
+        # await self.migrateData()
+        # await ctx.send("migrated tags probably")
 
     async def cog_unload(self) -> None:
         for ctx_menu in self.ctx_menus:

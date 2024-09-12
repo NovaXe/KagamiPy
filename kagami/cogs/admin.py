@@ -79,24 +79,6 @@ class Admin(commands.Cog):
         await ctx.send("Shutting Down")
         await self.bot.close()
 
-    # @commands.command(name="restart")
-    # async def restart_bot(self, ctx: commands.Context):
-    #     await ctx.send("Restarting")
-    #     self.bot.restart_on_close = True
-    #     await self.bot.close()
-
-    @commands.command(name="save", description="saves data")
-    @commands.is_owner()
-    async def save_data(self, ctx):
-        self.bot.saveData()
-        await ctx.send("Saved the data to file")
-
-    @commands.command(name="load", description="loads data")
-    @commands.is_owner()
-    async def load_data(self, ctx):
-        self.bot.loadData()
-        await ctx.send("Loaded data from file")
-
     @commands.command(name="clear_global", description="clears the global command tree")
     @commands.is_owner()
     async def clear_global(self, ctx: commands.Context):

@@ -9,6 +9,7 @@ class Configuration:
     token: str
     prefix: str
     owner_id: int
+    log_channel_id: int
     data_path: str
     db_name: str
     connection_pool_size: int
@@ -46,6 +47,7 @@ class Configuration:
             token=get("BOT_TOKEN"),
             prefix=get("COMMAND_PREFIX", default="->"),
             owner_id=get("OWNER_ID", int),
+            log_channel_id=get("LOG_CHANNEL_ID"),
             data_path=get("DATA_PATH"),
             db_name=get("DB_NAME"),
             connection_pool_size=get("CONNECTION_POOL_SIZE", int, 5),
