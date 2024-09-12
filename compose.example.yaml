@@ -4,7 +4,7 @@ services:
     container_name: kagami_bot
     network_mode: host
     volumes:
-      - ${DATA_PATH}:/kagami/bot/data
+      - ${DATA_PATH}:/kagami/data
     expose:
       - 8077
     ports:

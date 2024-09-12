@@ -48,7 +48,7 @@ class Configuration:
             owner_id=get("OWNER_ID", int),
             data_path=get("DATA_PATH"),
             db_name=get("DB_NAME"),
-            connection_pool_size=get("CONNECTION_POOL_SIZE", 5),
+            connection_pool_size=get("CONNECTION_POOL_SIZE", int, 5),
             lavalink={
                 "uri": get("LAVALINK_URI"),
                 "password": get("LAVALINK_PASSWORD")
