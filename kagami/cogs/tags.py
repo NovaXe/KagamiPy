@@ -216,7 +216,7 @@ class Tag(Table, table_group="tags", schema_altered=True):
         params = new_tag.asdict()
         params["old_name"] = self.name
         db.row_factory = Tag.row_factory
-        async with db.execute(query, self.asdict()) as cur:
+        async with db.execute(query, params) as cur:
             res = await cur.fetchone()
         return res
 
@@ -369,6 +369,28 @@ def is_tag_manager(user: discord.Member):
     return user.guild_permissions.manage_messages
 
 
+
+def check_json(json_str: str):
+    try:
+        json.loads(json_str)
+        return True, ""
+    except json.JSONDecodeError as e:
+        return False, e
+
+def validate_json(json_str: str):
+    try: json.loads(json_str)
+    except json.JSONDecodeError as e:
+        raise errors.CustomCheck(e)
+
+def decode_json(json_str: str):
+    return json.loads(json_str)
+
+def json_to_discord_embeds(json_str: str):
+    embeds = [discord.Embed.from_dict(e) for e in json.loads(json_str)]
+    return embeds
+
+
+
 class Tags(GroupCog, group_name="t"):
     def __init__(self, bot):
         self.bot: Kagami = bot
@@ -454,15 +476,18 @@ class Tags(GroupCog, group_name="t"):
 
     @set_group.command(name="global", description="add a new global tag")
     async def set_global(self, interaction: Interaction, tag: GlobalTag_Transform,
-                         content: str=None, embed: str=None):
+                         content: str=None, embeds: str=None):
         await respond(interaction, ephemeral=True)
         if tag:
             raise TagAlreadyExists
 
+        if embeds:
+            validate_json(embeds)
+
         tag = Tag(guild_id=0,
                   name=interaction.namespace.tag,
                   content=content,
-                  embeds=embed,
+                  embeds=embeds,
                   author_id=interaction.user.id)
         async with self.conn() as db:
             await tag.insert(db)
@@ -471,15 +496,16 @@ class Tags(GroupCog, group_name="t"):
 
     @set_group.command(name="here", description="add a new local tag")
     async def set_here(self, interaction: Interaction, tag: LocalTag_Transform,
-                       content: str=None, embed: str=None):
+                       content: str=None, embeds: str=None):
         await respond(interaction, ephemeral=True)
         if tag:
             raise TagAlreadyExists
-
+        if embeds:
+            validate_json(embeds)
         tag = Tag(guild_id=interaction.guild_id,
                   name=interaction.namespace.tag,
                   content=content,
-                  embeds=embed,
+                  embeds=embeds,
                   author_id=interaction.user.id)
         async with self.conn() as db:
             await tag.insert(db)
@@ -489,16 +515,17 @@ class Tags(GroupCog, group_name="t"):
     # @set_group.command(name="elsewhere", description="add a new tag to another server")
     async def set_elsewhere(self, interaction: Interaction,
                             guild: Guild_Transform, tag: GuildTag_Transform,
-                            content: str=None, embed: str=None):
+                            content: str=None, embeds: str=None):
         await respond(interaction, ephemeral=True)
         if tag:
             raise TagAlreadyExists
-
+        if embeds:
+            validate_json(embeds)
         guild_name = guild.name
         tag = Tag(guild_id=guild.id,
                   name=interaction.namespace.tag,
                   content=content,
-                  embeds=embed,
+                  embeds=embeds,
                   author_id=interaction.user.id)
         async with self.conn() as db:
             await tag.insert(db)
@@ -514,11 +541,17 @@ class Tags(GroupCog, group_name="t"):
             raise TagNotFound
 
         if tag.embeds:
-            embeds = [discord.Embed.from_dict(json.loads(embed_str))
-                      for embed_str in tag.embeds.split(",")]
+            embeds = json_to_discord_embeds(tag.embeds)
+            # embeds = [discord.Embed.from_dict(json.loads(embed_str))
+            #           for embed_str in tag.embeds.split(",")]
         else:
             embeds = []
-        content = tag.content if tag.content and tag.content != '' else "`The tag has no content`"
+        # content = tag.content if tag.content and tag.content != '' else "`The tag has no content`"
+        content = tag.content
+        if not tag.content and len(embeds) == 0:
+            content = "This tag is blank"
+        elif not tag.content:
+            content = ''
         await respond(interaction, content=content, embeds=embeds)
 
     @get_group.command(name="here", description="fetch a local tag")
@@ -529,11 +562,14 @@ class Tags(GroupCog, group_name="t"):
             raise TagNotFound
 
         if tag.embeds:
-            embeds = [discord.Embed.from_dict(json.loads(embed_str))
-                      for embed_str in tag.embeds.split(",")]
+            embeds = json_to_discord_embeds(tag.embeds)
         else:
             embeds = []
-        content = tag.content if tag.content and tag.content != '' else "`The tag has no content`"
+        content = tag.content
+        if not tag.content and len(embeds) == 0:
+            content = "This tag is blank"
+        elif not tag.content:
+            content = ''
         await respond(interaction, content=content, embeds=embeds)
 
     @get_group.command(name="elsewhere", description="fetch a tag from another server")
@@ -544,11 +580,14 @@ class Tags(GroupCog, group_name="t"):
             raise TagNotFound
 
         if tag.embeds:
-            embeds: list[discord.Embed] = [discord.Embed.from_dict(json.loads(embed_str))
-                                           for embed_str in tag.embeds.split(",")]
+            embeds = json_to_discord_embeds(tag.embeds)
         else:
             embeds = []
-        content = tag.content if tag.content and tag.content != '' else "`The tag has no content`"
+        content = tag.content
+        if not tag.content and len(embeds) == 0:
+            content = "This tag is blank"
+        elif not tag.content:
+            content = ''
         await respond(interaction, content=content, embeds=embeds)
 
     @delete_group.command(name="global", description="delete a global tag")
@@ -584,7 +623,7 @@ class Tags(GroupCog, group_name="t"):
     @app_commands.rename(new="name")
     @edit_group.command(name="global", description="edit a global tag")
     async def edit_global(self, interaction: Interaction, tag: GlobalTag_Transform, new: GlobalTag_Transform=None,
-                          content: str=None, embed: str=None):
+                          content: str=None, embeds: str=None):
         await respond(interaction, ephemeral=True)
         if not tag:
             raise TagNotFound
@@ -593,12 +632,13 @@ class Tags(GroupCog, group_name="t"):
             raise TagOwnerFail
         elif new:
             raise TagAlreadyExists
-
+        if embeds:
+            validate_json(embeds)
         new = Tag(guild_id=0,
                   name=interaction.namespace.name or tag.name,
                   author_id=interaction.user.id,
                   content=content if content != "" else None,
-                  embeds=embed if embed != "" else None)
+                  embeds=embeds if embeds != "" else None)
         async with self.conn() as db:
             await tag.edit(db, new_tag=new)
             await db.commit()
@@ -609,7 +649,7 @@ class Tags(GroupCog, group_name="t"):
     @app_commands.rename(new="name")
     @edit_group.command(name="here", description="edit a local tag")
     async def edit_local(self, interaction: Interaction, tag: LocalTag_Transform, new: LocalTag_Transform = None,
-                         content: str = None, embed: str = None):
+                         content: str = None, embeds: str = None):
         await respond(interaction, ephemeral=True)
         if not tag:
             raise TagNotFound
@@ -619,12 +659,13 @@ class Tags(GroupCog, group_name="t"):
             raise TagOwnerFail
         if new:
             raise TagAlreadyExists
-
+        if embeds:
+            validate_json(embeds)
         new = Tag(guild_id=interaction.guild_id,
                   name=interaction.namespace.name or tag.name,
                   author_id=interaction.user.id,
                   content=content if content != "" else None,
-                  embeds=embed if embed != "" else None)
+                  embeds=embeds if embeds != "" else None)
         async with self.conn() as db:
             await tag.edit(db, new_tag=new)
             await db.commit()
@@ -648,20 +689,21 @@ class TagModal(discord.ui.Modal, title="Set Tag"):
     name = discord.ui.TextInput(label="Tag Name", placeholder="Enter the name of the tag")
     content = discord.ui.TextInput(label="Tag Content", placeholder="Enter the content for the tag",
                                    style=discord.TextStyle.paragraph, required=False)
-    embeds = discord.ui.TextInput(label="Tag Embeds", placeholder="Embeds as json separated by commas",
+    embeds = discord.ui.TextInput(label="Tag Embeds", placeholder="Embeds as a list of json objects organized as follows\n[{...}, {...}, {...}]",
                                   style=discord.TextStyle.paragraph, required=False)
 
     async def on_submit(self, interaction: Interaction[Kagami], /) -> None:
         bot: Kagami = interaction.client
         if len(self.embeds.value.strip()) > 0:
-            for embed_str in self.embeds.value.split(","):
-                try:
-                    json.loads(embed_str)
-                except json.JSONDecodeError as e:
-                    response = "**Embed Error:**\n"
-                    response += e.msg
-                    await respond(interaction, ephemeral=True, content=response)
-                    return
+            validate_json(self.embeds.value)
+            # for embed_str in self.embeds.value.split(","):
+            #     try:
+            #         json.loads(embed_str)
+            #     except json.JSONDecodeError as e:
+            #         response = "**Embed Error:**\n"
+            #         response += e.msg
+            #         await respond(interaction, ephemeral=True, content=response)
+            #         return
 
         if self.location.value == "local":
             guild_id = interaction.guild_id

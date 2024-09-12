@@ -79,6 +79,12 @@ class Admin(commands.Cog):
         await ctx.send("Shutting Down")
         await self.bot.close()
 
+    # @commands.command(name="restart")
+    # async def restart_bot(self, ctx: commands.Context):
+    #     await ctx.send("Restarting")
+    #     self.bot.restart_on_close = True
+    #     await self.bot.close()
+
     @commands.command(name="save", description="saves data")
     @commands.is_owner()
     async def save_data(self, ctx):
@@ -102,6 +108,12 @@ class Admin(commands.Cog):
     async def clear_local(self, ctx: commands.Context):
         self.bot.tree.clear_commands(guild=ctx.guild)
         await ctx.send("Cleared the local command tree, the tree needs to be synced")
+
+    @commands.command(name="update_tables")
+    @commands.is_owner()
+    async def update_tables(self, ctx: commands.Context):
+        await self.bot.dbman.update_tables()
+        await ctx.send("Tables updated")
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):

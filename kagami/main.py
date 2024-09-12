@@ -4,7 +4,6 @@ import os
 # from dotenv import load_dotenv, find_dotenv
 
 
-
 def main():
     kagami = Kagami()
     kagami.run_bot()

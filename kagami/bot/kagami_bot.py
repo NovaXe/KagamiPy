@@ -40,6 +40,7 @@ class Kagami(commands.Bot):
         self.dbman: DatabaseManager = None
         self.changeCmdError()
         self.init_data()
+        # self.restart_on_close = False
 
 
     def init_data(self):
