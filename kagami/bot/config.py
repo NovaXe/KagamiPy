@@ -11,6 +11,7 @@ class Configuration:
     owner_id: int
     data_path: str
     db_name: str
+    connection_pool_size: int
     lavalink: dict[str, str] = None
     spotify: dict[str, str] = None
     update_tables: bool = False
@@ -47,6 +48,7 @@ class Configuration:
             owner_id=get("OWNER_ID", int),
             data_path=get("DATA_PATH"),
             db_name=get("DB_NAME"),
+            connection_pool_size=get("CONNECTION_POOL_SIZE", 5),
             lavalink={
                 "uri": get("LAVALINK_URI"),
                 "password": get("LAVALINK_PASSWORD")

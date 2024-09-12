@@ -45,7 +45,7 @@ class Kagami(commands.Bot):
 
     def init_data(self):
         self.loadData()
-        self.dbman = DatabaseManager(self.config.data_path + self.config.db_name)
+        self.dbman = DatabaseManager(self.config.data_path + self.config.db_name, pool_size=self.config.connection_pool_size)
 
     def changeCmdError(self):
         tree = self.tree
