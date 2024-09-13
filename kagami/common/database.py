@@ -434,6 +434,7 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
     async def drop_triggers(self, table_group: str=None):
         async with self.conn() as db:
             await self.__table_registry__.drop_triggers(db, group_name=table_group)
+            await db.commit()
 
 
     async def drop_table(self, tablename: str):
@@ -445,13 +446,15 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
     async def drop_unregistered(self):
         async with self.conn() as db:
             await self.__table_registry__.drop_unregistered(db)
+            await db.commit()
 
     async def update_tables(self):
         async with self.conn() as db:
             try:
                 await self.__table_registry__.alter_tables(db)
                 await self.__table_registry__.update_schema(db)
-            except aiosqlite.OperationalError as e:
+                await db.commit()
+            except aiosqlite.OperationalError or aiosqlite.DatabaseError as e:
                 logging.warning(f"Table Update error:\n {e}")
 
     __AsyncFunctionType = typing.Callable[[aiosqlite.Connection], typing.Awaitable]
