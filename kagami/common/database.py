@@ -125,7 +125,7 @@ class TableMeta(type):
     #         # cls._field_count = len(cls.__dataclass_fields__)
     #         pass
 
-@dataclass
+@dataclass(slots=True)
 class Table(metaclass=TableMeta, table_registry=None):
     @staticmethod
     def group(name: str):
