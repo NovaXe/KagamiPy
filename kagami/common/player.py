@@ -3,9 +3,8 @@ import wavelink
 
 from common.responses import PersistentMessage
 from common.depr_context_vars import CVar
+from helpers.depr_music_helpers import Track
 from helpers.wavelink_utils import WavelinkTrack
-from utils.depr_bot_data import Track
-
 
 class Player(wavelink.Player):
     class LoopType(Enum):

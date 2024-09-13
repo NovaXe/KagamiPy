@@ -1,12 +1,8 @@
-from dataclasses import dataclass
-from typing import Union
-
 from math import(ceil)
 
 from discord import(Interaction, InteractionType)
 
-from enum import (Enum, auto)
-
+from helpers.depr_music_helpers import Track
 from ui.custom_view import MessageInfo
 from ui.page_scroller import ITL, PageGenCallbacks, PageScroller
 from bot import Kagami
@@ -16,12 +12,8 @@ from utils.pages import createSinglePage, CustomRepr, PageBehavior, PageIndices,
     EdgeIndices, createPages, getQueueEdgeIndices
 # from bot.ext.ui import (PageScroller)
 from common.interactions import respond
-from helpers.wavelink_utils import createNowPlayingMessage, trackListData, getPageTracks, WavelinkTrack, buildTrack
+from helpers.wavelink_utils import createNowPlayingMessage, trackListData, getPageTracks, WavelinkTrack
 import wavelink
-class TrackType(Enum):
-    YOUTUBE = auto()
-    SPOTIFY = auto()
-    SOUNDCLOUD = auto()
 
 
 async def attemptHaltResume(interaction: Interaction, send_response=False, before_queue_length=0):
@@ -226,41 +218,6 @@ list[str, bool]
 upgrade old message scroller and player controls to utilize new dynamic shit
 
 """
-
-@dataclass
-class Track:
-    encoded: str
-    title: str= ""
-    duration: int=0
-
-    @classmethod
-    def fromDict(cls, data: dict):
-        data = {"encoded": data} if isinstance(data, str) else data
-
-        return cls(encoded=data.get("encoded", data),
-                   title=data.get("title", ""),
-                   duration=data.get("duration", 0))
-
-    def toDict(self):
-        return {
-            "encoded": self.encoded,
-            "title": self.title,
-            "duration": self.duration
-        }
-
-    async def buildWavelinkTrack(self) -> WavelinkTrack:
-        track = await buildTrack(self.encoded)
-        return track
-
-    @classmethod
-    def listFromDictList(cls, data: list[dict]):
-        return [cls.fromDict(track_data) for track_data in data]
-
-    @classmethod
-    def fromWavelinkTrack(cls, track: Union[WavelinkTrack, 'Track']):
-        if isinstance(track, Track):
-            return track
-        return cls(encoded=track.encoded, title=track.title, duration=track.duration)
 
 
 def addedToQueueMessage(track_count: int, duration: int):

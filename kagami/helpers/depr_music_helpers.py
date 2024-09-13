@@ -1,13 +1,16 @@
 import math
 import re
+from dataclasses import dataclass
+from typing import Union
 
 import wavelink
 from wavelink.ext import spotify
 import discord
-from enum import Enum
+from enum import Enum, auto
 from common.utils import (
     secondsDivMod
 )
+from helpers.wavelink_utils import WavelinkTrack, buildTrack
 
 
 class OldPlaylist:
@@ -339,3 +342,44 @@ async def search_song(search: str, single_track=False) -> list[wavelink.GenericT
         tracks = [(await wavelink.YouTubeTrack.search(search))[0]]
     return tracks[0] if single_track else tracks
 
+
+class TrackType(Enum):
+    YOUTUBE = auto()
+    SPOTIFY = auto()
+    SOUNDCLOUD = auto()
+
+
+@dataclass
+class Track:
+    encoded: str
+    title: str= ""
+    duration: int=0
+
+    @classmethod
+    def fromDict(cls, data: dict):
+        data = {"encoded": data} if isinstance(data, str) else data
+
+        return cls(encoded=data.get("encoded", data),
+                   title=data.get("title", ""),
+                   duration=data.get("duration", 0))
+
+    def toDict(self):
+        return {
+            "encoded": self.encoded,
+            "title": self.title,
+            "duration": self.duration
+        }
+
+    async def buildWavelinkTrack(self) -> WavelinkTrack:
+        track = await buildTrack(self.encoded)
+        return track
+
+    @classmethod
+    def listFromDictList(cls, data: list[dict]):
+        return [cls.fromDict(track_data) for track_data in data]
+
+    @classmethod
+    def fromWavelinkTrack(cls, track: Union[WavelinkTrack, 'Track']):
+        if isinstance(track, Track):
+            return track
+        return cls(encoded=track.encoded, title=track.title, duration=track.duration)

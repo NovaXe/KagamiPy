@@ -680,7 +680,7 @@ class Music(GroupCog,
     async def on_wavelink_node_ready(self, node: wavelink.Node):
         message = f"Node: <{node.id}> is ready"
         print(message)
-        await self.bot.logToChannel(message)
+        # await self.bot.logToChannel(message)
 
     # guild.voice_client = player
     # same fucking thing, don't forget it

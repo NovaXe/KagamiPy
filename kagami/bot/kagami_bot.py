@@ -100,7 +100,8 @@ class Kagami(commands.Bot):
 
     async def logToChannel(self, message: str, channel: discord.TextChannel=None, big_bold=True, code_block=True):
         if not channel:
-            channel = await self.fetch_channel(self.config.log_channel_id)
+            channel = self.get_channel(self.config.log_channel_id)
+            # channel = await self.fetch_channel(self.config.log_channel_id)
 
         if code_block:
             message = f"`{message}`"
@@ -140,7 +141,8 @@ class Kagami(commands.Bot):
     async def on_ready(self):
         login_message = f"Logged in as {self.user} (ID: {self.user.id})"
         print(login_message)
-        await self.logToChannel(login_message)
+        # await self.logToChannel(login_message)
+
 
 
 async def on_app_command_error(interaction: Interaction, error: AppCommandError):
