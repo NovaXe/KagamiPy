@@ -2,11 +2,11 @@ from discord import ui
 from discord.ui import (Modal)
 from discord import (ButtonStyle, Interaction)
 
-from bot.utils.interactions import respond
-from bot.utils.music_utils import (attemptHaltResume, respondWithTracks, addedToQueueMessage)
-from bot.utils.wavelink_utils import searchForTracks
-from bot.utils.player import Player
-from bot.ext.ui.custom_view import *
+from common.interactions import respond
+from helpers.music_utils import (attemptHaltResume, respondWithTracks, addedToQueueMessage)
+from helpers.wavelink_utils import searchForTracks
+from common.player import Player
+from ui.custom_view import *
 
 
 class PlayerController(CustomView):

@@ -1,9 +1,7 @@
 import asyncio
 
-from math import ceil
 from dataclasses import dataclass
-from math import ceil
-from typing import (Literal, Any, Union, List)
+from typing import (Literal)
 
 import aiosqlite
 import discord
@@ -12,37 +10,29 @@ from discord import (app_commands, Interaction, VoiceChannel, Message, Member, V
 from discord.app_commands import Group, Transformer, Transform, Choice, Range
 from discord.ext import (commands)
 from discord.ext.commands import GroupCog, Cog
-from discord.ui import Modal, TextInput
 from discord.utils import MISSING
 from wavelink import TrackEventPayload
 from wavelink.ext import spotify
-from wavelink.exceptions import WavelinkException, InvalidLavalinkResponse
+from wavelink.exceptions import InvalidLavalinkResponse
 
-from bot.ext.ui.custom_view import MessageInfo
-from bot.ext.ui.page_scroller import PageScroller, PageGenCallbacks, ITL
-from bot.utils import bot_data
-from bot.utils.database import Database
+from ui.custom_view import MessageInfo
+from ui.page_scroller import PageScroller, PageGenCallbacks
+from utils.depr_db_interface import Database
 
-OldPlaylist = bot_data.Playlist
-old_server_data = bot_data.server_data
-OldTrack = bot_data.Track
 # context vars
-from bot.kagami_bot import bot_var
 
-from bot.utils.music_utils import (
+from helpers.music_utils import (
     attemptHaltResume,
     createNowPlayingWithDescriptor, createQueuePage, secondsToTime, respondWithTracks, addedToQueueMessage)
-from bot.utils.wavelink_utils import createNowPlayingMessage, searchForTracks, buildTrack
-from bot.utils.player import Player, player_instance
-from bot.utils.wavelink_utils import WavelinkTrack
-from bot.kagami_bot import Kagami
-from bot.ext.ui.music import PlayerController
-from bot.ext.responses import (PersistentMessage, MessageElements)
-from bot.utils.interactions import respond
-from bot.ext import errors
-from bot.utils.pages import EdgeIndices, getQueueEdgeIndices, InfoTextElem, InfoSeparators, CustomRepr, \
-    PageBehavior, createSinglePage, PageIndices
-from bot.utils.utils import similaritySort
+from helpers.wavelink_utils import createNowPlayingMessage, searchForTracks, buildTrack
+from common.player import Player, player_instance
+from helpers.wavelink_utils import WavelinkTrack
+from bot import Kagami, Configuration
+from ui.music import PlayerController
+from common.responses import (PersistentMessage, MessageElements)
+from common.interactions import respond
+from common import errors
+from utils.pages import EdgeIndices, getQueueEdgeIndices
 
 
 # General functions for music and playlist use
@@ -114,7 +104,8 @@ def requireOptionalParams(params=list[str], min_count: int=1):
 
 def setCommandChannel():
     async def predicate(interaction: Interaction):
-        old_server_data.value.last_music_command_channel = interaction.channel
+        if voice_client := interaction.guild.voice_client:
+            voice_client.last_command_channel = interaction.channel
         return True
     return app_commands.check(predicate)
 
@@ -642,10 +633,10 @@ class MusicDB(Database):
 class Music(GroupCog,
             group_name="m",
             description="commands relating to music playback"):
-    def __init__(self, bot):
+    def __init__(self, bot: Kagami):
         self.bot: Kagami = bot
-        self.config = bot.config
-        self.database = MusicDB(bot.config.db_path)
+        self.config: Configuration = bot.config
+        self.database = MusicDB(bot.config.data_path + bot.config.db_name)
 
     # music_group = app_commands.Group(name="m", description="commands relating to music playback")
     music_group = app_commands
@@ -663,7 +654,7 @@ class Music(GroupCog,
     async def cog_load(self) -> None:
         await self.connectWavelinkNodes()
         await self.database.init(drop=self.bot.config.drop_tables)
-        if self.bot.config.migrate_data: await self.migrateMusicData()
+        # if self.bot.config.migrate_data: await self.migrateMusicData()
 
     @commands.is_owner()
     @commands.group(name="music")
@@ -677,42 +668,13 @@ class Music(GroupCog,
     @commands.is_owner()
     @music.command(name="migrate")
     async def migrateCommand(self, ctx):
-        await self.migrateMusicData()
-        await ctx.send("migrated music probably")
-
-    async def migrateMusicData(self):
-        async def convertTracks(_guild_id: int, _playlist_name: str, _tracks: list[OldTrack]) -> list[MusicDB.Track]:
-            new_tracks: list[MusicDB.Track] = []
-            for track in _tracks:
-                try:
-                    wavelink_track = await buildTrack(track.encoded)
-                    _track = MusicDB.Track.fromWavelink(guild_id=_guild_id, playlist_name=_playlist_name,
-                                                        track=wavelink_track)
-                    new_tracks.append(_track)
-                except InvalidLavalinkResponse as e:
-                    print(e)
-                    print(_playlist_name, track.title)
-
-            return new_tracks
-
-        for server_id, server in self.bot.data.servers.items():
-            server_id = int(server_id)
-            try: guild = await self.bot.fetch_guild(server_id)
-            except discord.NotFound: continue
-            music_settings = MusicDB.MusicSettings(guild_id=guild.id, music_enabled=True, playlists_enabled=True)
-            await self.database.upsertMusicSettings(music_settings)
-            info_db = self.bot.database
-            await info_db.upsertGuild(info_db.Guild.fromDiscord(guild))
-            # await self.database.upsertGuild(self.database.Guild.fromDiscord(guild))
-            for playlist_name, playlist in server.playlists.items():
-                new_playlist = MusicDB.Playlist(server_id, playlist_name, playlist.description)
-                tracks = await convertTracks(server_id, playlist_name, playlist.tracks)
-                await self.database.upsertPlaylist(new_playlist)
-                await self.database.insertTracks(tracks)
+        await ctx.send("There is nothing to migrate")
+        # await self.migrateMusicData()
+        # await ctx.send("migrated music probably")
 
     async def cog_unload(self) -> None:
         pass
-        # await self.migrateMusicData()
+            # await self.migrateMusicData()
 
     @commands.Cog.listener()
     async def on_wavelink_node_ready(self, node: wavelink.Node):
@@ -1089,18 +1051,21 @@ class Music(GroupCog,
             await self.database.upsertMusicSettings(music_settings)
         if not music_settings.music_enabled:
             raise MusicDB.MusicSettings
-        old_server_data.value = self.bot.getServerData(interaction.guild_id)
+
         if interaction.guild.voice_client and not isinstance(interaction.guild.voice_client, Player):
             raise errors.WrongVoiceClient("`Incorrect command for Player, Try /<command> instead`")
 
-        old_server_data.value.last_music_command_channel = interaction.channel
+        client: Player = interaction.guild.voice_client
+        if client:
+            client.last_command_channel = interaction.channel
+
         # await self.bot.database.upsertGuild(interaction.guild)
         return True
 
     @Cog.listener()
     async def on_voice_state_update(self, member: Member, before: VoiceState, after: VoiceState):
         voice_client: Player = member.guild.voice_client
-        server_data = self.bot.getServerData(member.guild.id)
+        # server_data = self.bot.getServerData(member.guild.id)
         bc = before.channel
         ac = after.channel
 
@@ -1119,7 +1084,7 @@ class Music(GroupCog,
             else:
                 return  # other voice state changed
 
-            last_channel = server_data.last_music_command_channel
+            last_channel = voice_client.last_command_channel
             if last_channel: await last_channel.send(message, delete_after=8)
         else:
             # member is not the bot
@@ -1167,10 +1132,10 @@ class PlaylistTransformer(Transformer):
 class PlaylistCog(GroupCog,
                   group_name="p",
                   description="commands relating to music playlists"):
-    def __init__(self, bot):
+    def __init__(self, bot: Kagami):
         self.bot: Kagami = bot
         self.config = bot.config
-        self.database = MusicDB(bot.config.db_path)
+        self.database = MusicDB(bot.config.data_path + bot.config.db_name)
         # self.playlist_transform = Transform[Playlist, PlaylistTransformer(bot=bot)]
 
     create = Group(name="create", description="creating playlists")
@@ -1486,7 +1451,8 @@ class PlaylistCog(GroupCog,
 
 
     def setContextVars(self, interaction: Interaction):
-        old_server_data.value = self.bot.getServerData(interaction.guild_id)
+        if client := interaction.guild.voice_client:
+            client.last_command_channel = interaction.channel
         player_instance.value = interaction.guild.voice_client
         pass
 
@@ -1499,7 +1465,8 @@ class PlaylistCog(GroupCog,
             raise MusicDB.PlaylistsDisabled
 
         self.setContextVars(interaction)
-        old_server_data.value.last_music_command_channel = interaction.channel
+        if client := interaction.guild.voice_client:
+            client.last_command_channel = interaction.channel
         # await self.bot.database.upsertGuild(interaction.guild)
         return True
     # async def autocomplete_check

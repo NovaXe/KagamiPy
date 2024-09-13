@@ -5,7 +5,7 @@ import wavelink
 from wavelink.ext import spotify
 import discord
 from enum import Enum
-from bot.utils.utils import (
+from common.utils import (
     secondsDivMod
 )
 

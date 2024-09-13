@@ -1,15 +1,13 @@
 import asyncio
-import json
 import os
 import sys
 import traceback
 
-import discord
 import discord.utils
 from discord.ext import commands
 from discord import app_commands
-from bot.kagami_bot import Kagami
-from bot.utils. interactions import respond
+from bot import Kagami
+from common.interactions import respond
 
 
 class Admin(commands.Cog):
@@ -55,7 +53,7 @@ class Admin(commands.Cog):
     @commands.command(name="reload_all", description="reloads all cogs")
     @commands.is_owner()
     async def reload_all_cogs(self, ctx):
-        for file in os.listdir("bot/cogs"):
+        for file in os.listdir("cogs"):
             if file.endswith(".py"):
                 name = file[:-3]
                 await self.bot.reload_extension(f"cogs.{name}")
@@ -64,11 +62,11 @@ class Admin(commands.Cog):
     @commands.command(name="reload", description="reloads a  cog")
     @commands.is_owner()
     async def reload_cog(self, ctx, cog_name):
-        for file in os.listdir("bot/cogs"):
+        for file in os.listdir("cogs"):
             if file.endswith(".py"):
                 name = file[:-3]
                 if name.lower() == cog_name.lower():
-                    await self.bot.reload_extension(f"bot.cogs.{name}")
+                    await self.bot.reload_extension(f"cogs.{name}")
                     break
         else:
             await ctx.send(f"No cog with that name could be found")
@@ -81,18 +79,6 @@ class Admin(commands.Cog):
         await ctx.send("Shutting Down")
         await self.bot.close()
 
-    @commands.command(name="newsave", description="saves data")
-    @commands.is_owner()
-    async def save_data(self, ctx):
-        self.bot.newSaveData()
-        await ctx.send("Saved the data to file")
-
-    @commands.command(name="newload", description="loads data")
-    @commands.is_owner()
-    async def load_data(self, ctx):
-        self.bot.newLoadData()
-        await ctx.send("Loaded data from file")
-
     @commands.command(name="clear_global", description="clears the global command tree")
     @commands.is_owner()
     async def clear_global(self, ctx: commands.Context):
@@ -104,6 +90,12 @@ class Admin(commands.Cog):
     async def clear_local(self, ctx: commands.Context):
         self.bot.tree.clear_commands(guild=ctx.guild)
         await ctx.send("Cleared the local command tree, the tree needs to be synced")
+
+    @commands.command(name="update_tables")
+    @commands.is_owner()
+    async def update_tables(self, ctx: commands.Context):
+        await self.bot.dbman.update_tables()
+        await ctx.send("Tables updated")
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):

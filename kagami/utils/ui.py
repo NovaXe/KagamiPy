@@ -1,9 +1,9 @@
 import discord.utils
-from bot.utils.utils import clamp
+from common.utils import clamp
 from typing import Optional
 
-from bot.utils.music_helpers import *
-from bot.utils.interactions import respond
+from helpers.depr_music_helpers import *
+from common.interactions import respond
 from discord.ext import tasks
 
 

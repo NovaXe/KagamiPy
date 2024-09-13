@@ -7,11 +7,10 @@ from typing import Literal
 import wavelink
 
 from discord import Interaction
-from discord.ext.commands import Bot
 
-from bot.ext.ui.custom_view import MessageInfo
-from bot.ext.ui.page_scroller import ITL, PageScroller, PageGenCallbacks
-from bot.kagami_bot import Kagami
+from ui.custom_view import MessageInfo
+from ui.page_scroller import ITL, PageScroller, PageGenCallbacks
+from bot import Kagami
 
 PageIndexBounds = namedtuple("IndexBounds", "start end")
 

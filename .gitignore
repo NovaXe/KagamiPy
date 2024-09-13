@@ -1,7 +1,7 @@
-/kagami/bot/data/config.json
-/kagami/bot/data/old_data.json
+/kagami/data/config.json
+/kagami/data/old_data.json
 /kagami/discord.log
-/kagami/bot/data/data.json
+/kagami/data/data.json
 /venv
 /kagami/compose.yaml
 /lavalink/compose.yaml
@@ -10,7 +10,7 @@
 __pycache__
 /.venv
 /lavalink/logs/*
-/kagami/bot/cogs/database.py
+/kagami/cogs/database.py
 /lavalink/Lavalink*.jar
 /lavalink/plugins
 /temp/*

@@ -1,18 +1,8 @@
-import abc
 import sqlite3
 import typing
-
-import aiosqlite
 from dataclasses import dataclass, asdict, astuple
-from enum import Enum, Flag, IntFlag, auto
+import aiosqlite
 import discord
-
-
-"""
-Potential plans outside of the database file
-Still need to maintain internal classes the represent stuff from the database and ways to write back to the database
-Dataclasses can represent the various objects and have their own methods to writing to the database
-"""
 
 
 class Database:
@@ -186,6 +176,7 @@ class Database:
         await self.createTables()
         await self.createTriggers()
 
+
 class InfoDB(Database):
     @dataclass
     class Guild(Database.Row):
@@ -229,6 +220,7 @@ class InfoDB(Database):
 
         @classmethod
         def fromDiscord(cls, guild=discord.Guild):
+
             return cls(id=guild.id, name=guild.name)
 
     @dataclass
@@ -297,13 +289,13 @@ class InfoDB(Database):
     async def upsertGuild(self, guild: Guild) -> Guild:
         async with aiosqlite.connect(self.file_path) as db:
             db.row_factory = guild.rowFactory
-            new_guild: Database.Guild = await db.execute_fetchall(guild.Queries.UPSERT, guild.asdict())
+            new_guild: InfoDB.Guild = await db.execute_fetchall(guild.Queries.UPSERT, guild.asdict())
             await db.commit()
         return new_guild
 
     async def upsertGuilds(self, guilds: list[Guild]) -> list[Guild]:
         async with aiosqlite.connect(self.file_path) as db:
-            db.row_factory = Database.Guild.rowFactory
+            db.row_factory = Database.Guild.row_factory
             guilds: list[Database.Guild] = await db.executemany(Database.Guild.Queries.UPSERT, guilds)
             await db.commit()
         return guilds
@@ -317,7 +309,7 @@ class InfoDB(Database):
 
     async def fetchGuild(self, guild_id: int) -> Guild:
         async with aiosqlite.connect(self.file_path) as db:
-            db.row_factory = Database.Guild.rowFactory
+            db.row_factory = Database.Guild.row_factory
             guild: Database.Guild = await db.execute_fetchall(Database.Guild.Queries.SELECT, (guild_id,))
             await db.commit()
             return guild
@@ -333,4 +325,3 @@ class InfoDB(Database):
             deleted_settings = await db.execute_fetchall(Database.GuildSettings.Queries.DELETE, (guild_id,))
             await db.commit()
             return deleted_settings
-

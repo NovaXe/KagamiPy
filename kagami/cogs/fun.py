@@ -13,14 +13,11 @@ from io import BytesIO
 
 import discord
 import discord.utils
-from discord.app_commands import Choice
 from discord.ext import commands
-from discord import app_commands, Interaction
+from discord import app_commands
 
-from bot.ext import errors
-from bot.utils.ui import MessageReply
-from bot.utils.bot_data import Server
-from bot.utils.interactions import respond
+from utils.ui import MessageReply
+from common.interactions import respond
 
 
 class Fun(commands.Cog):
@@ -135,10 +132,11 @@ class Fun(commands.Cog):
     @app_commands.command(name="fish", description="fish reacts all")
     async def fish_all(self, interaction: discord.Interaction):
         await respond(interaction)
-        server: Server = self.bot.fetch_server(interaction.guild_id)
-        server.fish_mode = not server.fish_mode
-
-        await respond(interaction, f"Fish Mode: {'On' if server.fish_mode else 'Off'}")
+        assert ("enabled" in self.fish_all.__dict__)
+        new_state = not self.fish_all.enabled.get(interaction.guild_id, False)
+        self.fish_all.enabled[interaction.guild_id] = new_state
+        await respond(interaction, f"Fish Mode: {'On' if new_state else 'Off'}")
+    fish_all.enabled = {}
 
     @app_commands.command(name='timeout', description='sever mutes someone in vc')
     async def timeout_user(self, interaction: discord.Interaction, member: discord.Member):
@@ -189,9 +187,10 @@ class Fun(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        server: Server = self.bot.fetch_server(message.guild.id)
-        if server.fish_mode:
-            await message.add_reaction("🐟")
+        d: dict
+        if d := self.fish_all.__dict__.get("enabled", False):
+            if d.get(message.guild.id, False):
+                await message.add_reaction("🐟")
 
     # context menu commands
     async def msg_reply(self, interaction: discord.Interaction, message: discord.Message):

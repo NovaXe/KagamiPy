@@ -1,23 +1,23 @@
+from dataclasses import dataclass
+from typing import Union
+
 from math import(ceil)
 
 from discord import(Interaction, InteractionType)
 
-import wavelink
 from enum import (Enum, auto)
 
-from bot.ext.ui.custom_view import MessageInfo
-from bot.ext.ui.page_scroller import ITL, PageGenCallbacks, PageScroller
-from bot.kagami_bot import Kagami
-from bot.utils.player import Player
-from bot.utils.wavelink_utils import WavelinkTrack
-from bot.utils.utils import (secondsToTime, secondsDivMod)
-from bot.utils.pages import createSinglePage, CustomRepr, PageBehavior, PageIndices, InfoSeparators, InfoTextElem, \
+from ui.custom_view import MessageInfo
+from ui.page_scroller import ITL, PageGenCallbacks, PageScroller
+from bot import Kagami
+from common.player import Player
+from common.utils import (secondsToTime, secondsDivMod)
+from utils.pages import createSinglePage, CustomRepr, PageBehavior, PageIndices, InfoSeparators, InfoTextElem, \
     EdgeIndices, createPages, getQueueEdgeIndices
 # from bot.ext.ui import (PageScroller)
-from bot.utils.interactions import respond
-from bot.utils.wavelink_utils import createNowPlayingMessage, trackListData, getPageTracks
-from bot.utils.bot_data import *
-
+from common.interactions import respond
+from helpers.wavelink_utils import createNowPlayingMessage, trackListData, getPageTracks, WavelinkTrack, buildTrack
+import wavelink
 class TrackType(Enum):
     YOUTUBE = auto()
     SPOTIFY = auto()
@@ -226,6 +226,42 @@ list[str, bool]
 upgrade old message scroller and player controls to utilize new dynamic shit
 
 """
+
+@dataclass
+class Track:
+    encoded: str
+    title: str= ""
+    duration: int=0
+
+    @classmethod
+    def fromDict(cls, data: dict):
+        data = {"encoded": data} if isinstance(data, str) else data
+
+        return cls(encoded=data.get("encoded", data),
+                   title=data.get("title", ""),
+                   duration=data.get("duration", 0))
+
+    def toDict(self):
+        return {
+            "encoded": self.encoded,
+            "title": self.title,
+            "duration": self.duration
+        }
+
+    async def buildWavelinkTrack(self) -> WavelinkTrack:
+        track = await buildTrack(self.encoded)
+        return track
+
+    @classmethod
+    def listFromDictList(cls, data: list[dict]):
+        return [cls.fromDict(track_data) for track_data in data]
+
+    @classmethod
+    def fromWavelinkTrack(cls, track: Union[WavelinkTrack, 'Track']):
+        if isinstance(track, Track):
+            return track
+        return cls(encoded=track.encoded, title=track.title, duration=track.duration)
+
 
 def addedToQueueMessage(track_count: int, duration: int):
     return f"{track_count} tracks with a duration of {secondsToTime(duration // 1000)} were added to the queue"

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import discord
 
-from bot.kagami_bot import Kagami
+from bot import Kagami
 from discord.ui import (View, Button, Select, TextInput)
 
 

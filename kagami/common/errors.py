@@ -1,11 +1,4 @@
-import sys
-import traceback
-
-import discord.app_commands
-from discord import Interaction
-from discord.app_commands import CheckFailure, AppCommandError
-
-from bot.utils.interactions import respond
+from discord.app_commands import CheckFailure
 
 
 class CustomCheck(CheckFailure):
@@ -40,13 +33,4 @@ class WrongVoiceClient(CustomCheck):
 
 class MissingParameters(CustomCheck):
     MESSAGE = "You are missing required parameters"
-
-async def on_app_command_error(interaction: Interaction, error: AppCommandError):
-    if isinstance(error, CustomCheck):
-        og_response = await respond(interaction, f"**{error}**")
-    else:
-        og_response = await interaction.original_response()
-        await og_response.channel.send(content=f"**Command encountered an error:**\n"
-                                               f"{error}")
-        traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
 

@@ -5,9 +5,9 @@ from typing import Callable
 from discord import Interaction, ui, ButtonStyle
 from discord.ui import Button
 
-from bot.ext.ui.custom_view import CustomView, StopBehavior, MessageInfo
-from bot.kagami_bot import Kagami
-from bot.utils.interactions import respond
+from ui.custom_view import CustomView, StopBehavior, MessageInfo
+from bot import Kagami
+from common.interactions import respond
 
 
 @dataclass
