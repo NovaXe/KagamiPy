@@ -165,7 +165,7 @@ class Tag(Table, table_group="tags", schema_altered=True):
             AFTER UPDATE ON {Tag}
             BEGIN
                 UPDATE {Tag}
-                SET modified_date = NULL
+                SET modified_date = CURRENT_DATE
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name);
             END
             """
@@ -184,7 +184,7 @@ class Tag(Table, table_group="tags", schema_altered=True):
     async def upsert(self, db: aiosqlite.Connection) -> "Tag":
         query = f"""
         INSERT INTO {Tag}(guild_id, name, content, embeds, author_id, creation_date)
-        VALUES (:guild_id, :name, :content, :embeds, :author_id, :creation_date)
+        VALUES (:guild_id, :name, :content, :embeds, :author_id)
             ON CONFLICT (guild_id, name)
             DO UPDATE SET content = :content, embeds = :embeds
         RETURNING *
