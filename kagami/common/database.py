@@ -454,8 +454,9 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                 await self.__table_registry__.alter_tables(db)
                 await self.__table_registry__.update_schema(db)
                 await db.commit()
-            except Exception as e:
+            except aiosqlite.Error as e:
                 logging.warning(f"Table Update error:\n {e}")
+                raise e
 
     __AsyncFunctionType = typing.Callable[[aiosqlite.Connection], typing.Awaitable]
     async def handle(self, functions: tuple[__AsyncFunctionType]) -> list[typing.Any]:
