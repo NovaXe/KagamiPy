@@ -39,33 +39,33 @@ class TableRegistry:
 
     @classmethod
     async def create_tables(cls, db: aiosqlite.Connection, group_name: str=None):
-        async for tablename, tableclass in cls.tableiter(group_name):
+        for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.create_table(db)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection, group_name):
-        async for tablename, tableclass in cls.tableiter(group_name):
+        for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.create_triggers(db)
 
     @classmethod
     async def drop_tables(cls, db: aiosqlite.Connection, group_name: str=None):
-        async for tablename, tableclass in cls.tableiter(group_name):
+        for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.drop_table(db)
 
     @classmethod
     async def drop_triggers(cls, db: aiosqlite.Connection, group_name: str=None):
-        async for tablename, tableclass in cls.tableiter(group_name):
+        for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.drop_triggers(db)
 
     @classmethod
     async def update_schema(cls, db: aiosqlite.Connection, group_name: str=None):
-        async for tablename, tableclass in cls.tableiter(group_name):
+        for tablename, tableclass in cls.tableiter(group_name):
             if tableclass.__schema_changed__:
                 await tableclass.update_schema(db)
 
     @classmethod
     async def alter_tables(cls, db: aiosqlite.Connection, group_name: str=None):
-        async for tablename, tableclass in cls.tableiter(group_name):
+        for tablename, tableclass in cls.tableiter(group_name):
             if tableclass.__schema_altered__:
                 await tableclass.alter_table(db)
 
@@ -75,7 +75,7 @@ class TableRegistry:
         async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cur:
             result = await cur.fetchall()
             existing_names = [e[0] for e in result]
-        async for name in existing_names:
+        for name in existing_names:
             if name not in names:
                 await db.execute(f"DROP TABLE IF EXISTS {name}")
 
@@ -397,7 +397,7 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                 try:
                     await self.__table_registry__.alter_tables(db, group_name=table_group)
                     await self.__table_registry__.update_schema(db, group_name=table_group)
-                except aiosqlite.OperationalError as e:
+                except aiosqlite.Error as e:
                     logging.warning(f"Table Update error on group {table_group}:\n {e}")
 
             if drop_triggers:
@@ -454,7 +454,7 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                 await self.__table_registry__.alter_tables(db)
                 await self.__table_registry__.update_schema(db)
                 await db.commit()
-            except aiosqlite.OperationalError or aiosqlite.DatabaseError as e:
+            except Exception as e:
                 logging.warning(f"Table Update error:\n {e}")
 
     __AsyncFunctionType = typing.Callable[[aiosqlite.Connection], typing.Awaitable]

@@ -1128,7 +1128,7 @@ class Sentinels(GroupCog, name="s"):
         async with self.conn() as db:
             triggered_suits = await SentinelSuit.selectFromReaction(db, guild_id, reaction_str)
             responses = []
-            async for suit in triggered_suits:
+            for suit in triggered_suits:
                 response_id = suit.response_id
                 if not response_id:
                     response_suit = await SentinelSuit.selectWeightedRandomResponse(db, guild_id, suit.sentinel_name)
