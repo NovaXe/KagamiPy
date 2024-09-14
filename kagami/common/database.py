@@ -61,13 +61,17 @@ class TableRegistry:
     async def update_schema(cls, db: aiosqlite.Connection, group_name: str=None):
         for tablename, tableclass in cls.tableiter(group_name):
             if tableclass.__schema_changed__:
+                logging.info(f"Began Update of Table: {tablename}")
                 await tableclass.update_schema(db)
+                logging.info(f"Finished Update of Table: {tablename}")
 
     @classmethod
     async def alter_tables(cls, db: aiosqlite.Connection, group_name: str=None):
         for tablename, tableclass in cls.tableiter(group_name):
             if tableclass.__schema_altered__:
+                logging.info(f"Began Alter of Table: {tablename}")
                 await tableclass.alter_table(db)
+                logging.info(f"Finished Alter of Table: {tablename}")
 
     @classmethod
     async def drop_unregistered(cls, db: aiosqlite.Connection):
@@ -127,6 +131,9 @@ class TableMeta(type):
 
 @dataclass(slots=True)
 class Table(metaclass=TableMeta, table_registry=None):
+    @classmethod
+    def is_altered(cls):
+        return cls.__schema_altered__
     @staticmethod
     def group(name: str):
         """
