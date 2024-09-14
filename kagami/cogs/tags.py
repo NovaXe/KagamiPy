@@ -20,7 +20,7 @@ from common.database import Table, DatabaseManager
 from common.tables import Guild, GuildSettings, User
 
 
-@dataclass(slots=True)
+@dataclass
 class TagSettings(Table, table_group="tags", schema_changed=True):
     guild_id: int
     enforce_ownership = True
@@ -97,7 +97,7 @@ class TagSettings(Table, table_group="tags", schema_changed=True):
     async def delete(self, db: aiosqlite.Connection) -> "TagSettings":
         return await TagSettings.deleteWhere(db, guild_id=self.guild_id)
 
-@dataclass(slots=True)
+@dataclass
 class Tag(Table, table_group="tags", schema_altered=True):
     guild_id: int
     name: str

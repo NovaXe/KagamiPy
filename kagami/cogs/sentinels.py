@@ -20,7 +20,7 @@ from typing import (
     Literal, List, Callable, Any
 )
 
-@dataclass(slots=True)
+@dataclass
 class SentinelSettings(Table, table_group="sentinel"):
     guild_id: int
     local_enabled: bool = True
@@ -112,7 +112,7 @@ class SentinelSettings(Table, table_group="sentinel"):
             result = await cur.fetchone()
         return result
 
-@dataclass(slots=True)
+@dataclass
 class Sentinel(Table, table_group="sentinel"):
     guild_id: int
     name: str
@@ -241,7 +241,7 @@ class Sentinel(Table, table_group="sentinel"):
             result = await cur.fetchone()
         return result
 
-@dataclass(slots=True)
+@dataclass
 class DisabledSentinelChannels(Table, table_group="sentinel"):
     guild_id: int
     channel_id: int
@@ -347,7 +347,7 @@ class DisabledSentinelChannels(Table, table_group="sentinel"):
             result = await cur.fetchone()
         return bool(result[0])
 
-@dataclass(slots=True)
+@dataclass
 class SentinelTrigger(Table, table_group="sentinel"):
     class TriggerType(IntEnum):
         word = 1  # in message split by spaces
@@ -422,7 +422,7 @@ class SentinelTrigger(Table, table_group="sentinel"):
             result = await cur.fetchone()
         return result
 
-@dataclass(slots=True)
+@dataclass
 class SentinelResponse(Table, table_group="sentinel"):
     class ResponseType(IntEnum):
         message = 1
@@ -485,7 +485,7 @@ class SentinelResponse(Table, table_group="sentinel"):
             result = await cur.fetchone()
         return result
 
-@dataclass(slots=True)
+@dataclass
 class SentinelSuit(Table, table_group="sentinel"):
     guild_id: int
     sentinel_name: str

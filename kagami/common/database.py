@@ -129,7 +129,7 @@ class TableMeta(type):
     #         # cls._field_count = len(cls.__dataclass_fields__)
     #         pass
 
-@dataclass(slots=True)
+@dataclass
 class Table(metaclass=TableMeta, table_registry=None):
     @classmethod
     def is_altered(cls):

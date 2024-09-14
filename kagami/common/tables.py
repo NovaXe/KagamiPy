@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import aiosqlite
 
 
-@dataclass(slots=True)
+@dataclass
 class GuildSettings(Table, group_name="common"):
     guild_id: int
     @classmethod
@@ -57,7 +57,7 @@ class GuildSettings(Table, group_name="common"):
             result = cur.fetchone()
         return result
 
-@dataclass(slots=True)
+@dataclass
 class Guild(Table, table_group="common"):
     id: int
     name: str
@@ -122,7 +122,7 @@ class Guild(Table, table_group="common"):
             result = await cur.fetchone()
         return result
 
-@dataclass(slots=True)
+@dataclass
 class User(Table, table_group="common"):
     id: int
     nickname: str
