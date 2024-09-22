@@ -199,7 +199,6 @@ class Fun(commands.Cog):
     async def msg_mirror_reactions(self, interaction: discord.Interaction, message: discord.Message):
         await respond(interaction, ephemeral=True)
         for reaction in message.reactions:
-            if reaction.me
             if interaction.user.id in (u.id for u in reaction.users()):
                 await message.add_reaction(reaction)
         await respond(interaction, content="I have mirrored your reactions on the message")
