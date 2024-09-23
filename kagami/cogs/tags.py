@@ -240,6 +240,52 @@ class Tag(Table, table_group="tags", schema_altered=True):
         return res
 
     @classmethod
+    async def selectAllWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str, author_id: int=None,
+                             limit: int=25, offset: int=0) -> list["Tag"]:
+        if author_id is None:
+            query = f"""
+            SELECT * FROM {Tag}
+            WHERE guild_id = ? AND name = ?
+            limit ? offset ?
+            """
+            params = (guild_id, name, limit, offset)
+        else:
+            query = f"""
+            SELECT * FROM {Tag}
+            WHERE guild_id = ? AND name = ? AND author_id = ?
+            limit ? offset ?
+            """
+            params = (guild_id, name, author_id, limit, offset)
+        db.row_factory = Tag.row_factory
+        async with db.execute(query, params) as cur:
+            res = await cur.fetchall()
+        return res
+
+
+    @classmethod
+    async def selectLikeGroupIds(cls, db: aiosqlite.Connection, group_id: int, limit: 1) -> list[int]:
+        query = f"""
+        SELECT guild_id FROM {Tag}
+        WHERE CAST (guild_id as TEXT) LIKE ?
+        LIMIT ?
+        """
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, (f"%{group_id}%",)) as cur:
+            res = await cur.fetchall()
+        return [r["guild_id"] for r in res]
+
+    @classmethod
+    async def selectGroupExists(cls, db: aiosqlite.Connection, group_id: int) -> bool:
+        query = f"""
+        SELECT 1 FROM {Tag}
+        WHERE guild_id = ?
+        """
+        db.row_factory = None
+        async with db.execute(query, (group_id, )) as cur:
+            res = await cur.fetchone()
+        return bool(res[0])
+
+    @classmethod
     async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Tag":
         query = f"""
         DELETE FROM {Tag}
@@ -291,6 +337,29 @@ class TagNotFound(errors.CustomCheck):
 class TagOwnerFail(errors.CustomCheck):
     MESSAGE = "You are not the owner of that tag"
 
+
+class TagGroupTransformer(Transformer):
+    async def autocomplete(self, interaction: Interaction,
+                           value: Union[int, str]) -> list[Choice[str]]:
+        bot: Kagami = interaction.client
+        groups = {"local": interaction.guild_id,
+                  "global": 0}
+
+        choices = []
+        if isinstance(value, str):
+            choices = [Choice(name=g, value=str(groups[g])) for g in groups.keys() if value.lower() in g.lower()]
+            pass
+        elif isinstance(value, int):
+            async with bot.dbman.conn() as db:
+                ids = await Tag.selectLikeGroupIds(db, value, limit=25)
+            choices = [Choice(name=str(i), value=str(i)) for i in ids]
+        return choices
+
+    async def transform(self, interaction: Interaction, value: str) -> int:
+        bot: Kagami = interaction.client
+        async with bot.dbman.conn() as db:
+            exists = await Tag.selectGroupExists(db, int(value))
+        return int(value) if exists else None
 
 class LocalTagTransformer(Transformer):
     async def autocomplete(self, interaction: Interaction,
@@ -653,6 +722,42 @@ class Tags(GroupCog, group_name="t"):
 
     async def ctx_menu_create_tag_handler(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.send_modal(TagModal(message=message))
+
+
+    view = Group(name="view", description="commands that display useful information")
+
+    def get_callback(self, dbman, group_id):
+        from common.paginator import ScrollerState, Scroller
+
+        async def callback(interaction_c: Interaction, state: ScrollerState):
+            async with self.conn() as db:
+                results = await Tag.selectAllWhere(db, group_id, interaction_c.user.id,
+                                                   limit=25, offset=state.home_offset + state.relative_offset)
+        return callback
+
+
+    @view.command(name="all")
+    @app_commands.rename(group_id="group")
+    async def view_all(self, interaction: Interaction, group_id: Transform[int, TagGroupTransformer]):
+        message = await respond(interaction)
+        if group_id is None:
+            raise errors.CustomCheck("That group doesn't exist")
+
+        from common.paginator import ScrollerState, Scroller
+
+        callback = self.get_callback(self.bot.dbman, group_id)
+        scroller = Scroller(message, interaction.user, page_callback=callback, home_offset=0)
+        await respond(interaction, view=scroller)
+
+
+
+
+
+
+
+
+
+
 
 
 class TagModal(discord.ui.Modal, title="Set Tag"):
