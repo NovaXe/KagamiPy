@@ -6,6 +6,64 @@ import aiosqlite
 
 
 @dataclass
+class TableMetadata(Table, group_name="common"):
+    table_name: str
+    version: int
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {TableMetadata}
+            table_name TEXT,
+            version INTEGER,
+            PRIMARY KEY (table_name)
+        """
+        await db.execute(query)
+
+    async def insert(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {TableMetadata}(table_name, version)
+        VALUES (:table_name, :version)
+        """
+        await db.execute(query, self.asdict())
+
+    async def upsert(self, db: aiosqlite.Connection) -> "Table":
+        query = f"""
+        INSERT INTO {TableMetadata}(table_name, version)
+        VALEUS(:table_name, :version)
+        ON CONFLICT table_name
+        UPDATE SET version = :version
+        returning *
+        """
+        db.row_factory = TableMetadata.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res
+
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, table_name: str) -> "TableMetadata":
+        query = f"""
+        SELECT * FROM {TableMetadata}
+        WHERE table_name = ?
+        """
+        db.row_factory = TableMetadata.row_factory
+        async with db.execute(query, (table_name,)) as cur:
+            res = await cur.fetchone()
+        return res
+
+    @classmethod
+    async def selectVersion(cls, db: aiosqlite.Connection, table_name: str) -> int:
+        query = f"""
+        SELECT version FROM {TableMetadata}
+        WHERE table_name = ?
+        """
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, (table_name,)) as cur:
+            res = await cur.fetchone()
+        return res["version"]
+
+
+
+@dataclass
 class GuildSettings(Table, group_name="common"):
     guild_id: int
     @classmethod
