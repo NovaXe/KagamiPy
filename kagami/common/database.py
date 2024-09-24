@@ -58,6 +58,16 @@ class TableRegistry:
             await tableclass.drop_triggers(db)
 
     @classmethod
+    async def update_schemas(cls, db: aiosqlite.Connection, group_name: str=None):
+        for tablename, tableclass in cls.tableiter(group_name):
+            current_version = TableMetadata.selectVersion(db, tablename)
+            if current_version < tableclass.version:
+                logging.info(f"Updating out of date Table: {tablename}")
+                await tableclass.update_schema(db)
+                logging.info()
+
+
+    @classmethod
     async def update_schema(cls, db: aiosqlite.Connection, group_name: str=None):
         for tablename, tableclass in cls.tableiter(group_name):
             if tableclass.__schema_changed__:
@@ -96,14 +106,15 @@ class TableSubclassMustImplement(NotImplementedError):
 class TableMeta(type):
     def __new__(mcs, name, bases, class_dict, *args,
                 table_registry: type["TableRegistry"]=TableRegistry,
-                table_group: str=None, schema_changed: bool=False,
-                schema_altered: bool=False, **kwargs):
+                schema_version: int,
+                table_group: str=None, **kwargs):
         cls = super().__new__(mcs, name, bases, class_dict)
         cls.__table_registry__ = table_registry
         cls.__tablename__ = name
+        cls.__schema_version__ = schema_version
         cls.__table_group__ = table_group if table_group else "unassigned"
-        cls.__schema_changed__ = schema_changed
-        cls.__schema_altered__ = schema_altered
+        # cls.__schema_changed__ = schema_changed
+        # cls.__schema_altered__ = schema_altered
         cls.__old_tablename__ = None
         if table_registry is not None:
             table_registry.register_table(cls)
@@ -129,11 +140,20 @@ class TableMeta(type):
     #         # cls._field_count = len(cls.__dataclass_fields__)
     #         pass
 
+
 @dataclass
 class Table(metaclass=TableMeta, table_registry=None):
+
     @classmethod
-    def is_altered(cls):
-        return cls.__schema_altered__
+    @property
+    def version(cls):
+        return cls.__schema_version__
+
+    @classmethod
+    @property
+    def name(cls):
+        return cls.__tablename__
+
     @staticmethod
     def group(name: str):
         """
@@ -325,6 +345,63 @@ class Table(metaclass=TableMeta, table_registry=None):
         raise TableSubclassMustImplement
 
 
+@dataclass
+class TableMetadata(Table, group_name="database"):
+    table_name: str
+    version: int
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {TableMetadata}
+            table_name TEXT,
+            version INTEGER,
+            PRIMARY KEY (table_name)
+        """
+        await db.execute(query)
+
+    async def insert(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {TableMetadata}(table_name, version)
+        VALUES (:table_name, :version)
+        """
+        await db.execute(query, self.asdict())
+
+    async def upsert(self, db: aiosqlite.Connection) -> "Table":
+        query = f"""
+        INSERT INTO {TableMetadata}(table_name, version)
+        VALEUS(:table_name, :version)
+        ON CONFLICT table_name
+        UPDATE SET version = :version
+        returning *
+        """
+        db.row_factory = TableMetadata.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res
+
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, table_name: str) -> "TableMetadata":
+        query = f"""
+        SELECT * FROM {TableMetadata}
+        WHERE table_name = ?
+        """
+        db.row_factory = TableMetadata.row_factory
+        async with db.execute(query, (table_name,)) as cur:
+            res = await cur.fetchone()
+        return res
+
+    @classmethod
+    async def selectVersion(cls, db: aiosqlite.Connection, table_name: str) -> int:
+        query = f"""
+        SELECT version FROM {TableMetadata}
+        WHERE table_name = ?
+        """
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, (table_name,)) as cur:
+            res = await cur.fetchone()
+        return res["version"]
+
+
 class ManagerMeta(type):
     def __new__(mcs, name, bases, class_dict, *args,
                 table_registry: type["TableRegistry"]=TableRegistry, **kwargs):
@@ -398,6 +475,11 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
             """
             Performs automated tables setup with the passed kwargs
             """
+
+            # drop tables if config set
+            # update table as long as it isn't forbidden
+            # the registry then gets called to attemp to update schemas
+
             if drop_tables:
                 await self.__table_registry__.drop_tables(db, group_name=table_group)
             elif update_tables:
