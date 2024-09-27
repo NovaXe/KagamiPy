@@ -14,3 +14,7 @@ __pycache__
 /lavalink/Lavalink*.jar
 /lavalink/plugins
 /temp/*
+/.idea/*
+!/.idea/runConfigurations/*
+~/.idea/KagamiPy.iml
+/kagami/data/*

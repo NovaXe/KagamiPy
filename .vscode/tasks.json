@@ -20,7 +20,7 @@
         {
             "label": "Start Lavalink",
             "type": "shell",
-            "command": "java -jar Lavalink.jar",
+            "command": "python lavalink.py",
             "options": {
                 "cwd": "${workspaceFolder}/lavalink",
             }
