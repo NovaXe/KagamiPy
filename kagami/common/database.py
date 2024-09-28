@@ -36,6 +36,7 @@ class TableRegistry:
 
     @classmethod
     def register_table(cls, table: type["Table"]):
+        logger.debug(f"Registered new Table: {table.__name__}")
         cls.tables[table.__name__] = table
 
     @classmethod
@@ -44,32 +45,44 @@ class TableRegistry:
 
     @classmethod
     async def create_tables(cls, db: aiosqlite.Connection, group_name: str=None):
+        logger.debug(f"Creating tables for group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.create_table(db)
+            logger.debug(f"Created Table: {tablename}")
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection, group_name):
+        logger.debug(f"Creating triggers for group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.create_triggers(db)
+            logger.debug(f"Created triggers for Table: {tablename}")
 
     @classmethod
     async def drop_tables(cls, db: aiosqlite.Connection, group_name: str=None):
+        logger.debug(f"Dropping tables in group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.drop_table(db)
+            logger.debug(f"Dropped Table: {tablename}")
 
     @classmethod
     async def drop_triggers(cls, db: aiosqlite.Connection, group_name: str=None):
+        logger.debug(f"Dropping triggers in group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.drop_triggers(db)
-
+            logger.debug(f"Dropped triggers for Table: {tablename}")
+    
     @classmethod
     async def update_schemas(cls, db: aiosqlite.Connection, group_name: str=None):
+        logger.debug(f"Updating shemas for group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
             current_version = await TableMetadata.selectVersion(db, tablename)
             if current_version < tableclass.version:
-                logger.info(f"Updating out of date Table: {tablename}")
+                logger.debug(f"Updating out of date Table: {tablename}")
                 await tableclass.update_schema(db)
-                logger.info()
+                logger.debug(f"Updated schema for Table: {tablename}")
+            metadata = TableMetadata(table_name=tablename, version=tableclass.version)
+            await metadata.insert(db)
+            logger.debug(f"Updated version for Table: {tablename}")
 
     # @classmethod
     # async def update_schema(cls, db: aiosqlite.Connection, group_name: str=None):
@@ -407,10 +420,14 @@ class TableMetadata(Table, group_name="database"):
         WHERE table_name = ?
         """
         db.row_factory = aiosqlite.Row
-        async with db.execute(query, (table_name,)) as cur:
-            res = await cur.fetchone()
-        return res["version"]
-
+        try:
+            async with db.execute(query, (table_name,)) as cur:
+                res = await cur.fetchone()
+        except aiosqlite.OperationalError as e:
+            logger.error(f"Could not find version for Table: {table_name}")
+            res = None
+        ver = res["version"] if res is not None else -1
+        return ver
 
 class ConnectionPool:
     def __init__(self, db_path: str, pool_size: int):
@@ -497,10 +514,12 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
     def __init__(self, db_path: str, pool_size: int=5):
         self.file_path = db_path
         self.pool = ConnectionPool(db_path, pool_size)
+        asyncio.run(self.setup(table_group="database"))
 
-    async def setupRegistry(self):
+    async def _initialize_resources(self):
+        logger.debug(f"Initializing resources for Manager: {repr(self)}")
         await self.setup(table_group="database")
-        logger.DEBUG
+        logger.debug(f"Initialized resources for Manager: {repr(self)}")
 
     async def setup(self, table_group: str=None,
                     update_tables: bool=False, drop_tables=False, drop_triggers=False):
