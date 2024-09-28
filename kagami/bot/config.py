@@ -10,6 +10,7 @@ class Configuration:
     prefix: str
     owner_id: int
     log_channel_id: int
+    logging_level: str
     data_path: str
     db_name: str
     connection_pool_size: int
@@ -40,7 +41,6 @@ class Configuration:
                 pass
             else:
                 raise RuntimeError(f"Invalid type '{type.__name__}'")
-
             return val
 
         conf = cls(
@@ -48,6 +48,7 @@ class Configuration:
             prefix=get("COMMAND_PREFIX", default="->"),
             owner_id=get("OWNER_ID", int),
             log_channel_id=get("LOG_CHANNEL_ID"),
+            log_level=l if (l:=get("LOG_LEVEL", str, "INFO")) in ["INFO", "DEBUG"] else "INFO",
             data_path=get("DATA_PATH"),
             db_name=get("DB_NAME"),
             connection_pool_size=get("CONNECTION_POOL_SIZE", int, 5),

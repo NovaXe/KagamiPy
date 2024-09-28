@@ -23,6 +23,7 @@ from .config import Configuration, config
 from common import errors
 from common.depr_context_vars import CVar
 from common.database import DatabaseManager
+from common.logging import bot_logger, discord_log_handler
 
 intents = discord.Intents.all()
 # intents.message = True
@@ -54,6 +55,7 @@ class Kagami(commands.Bot):
         tree.on_error = on_app_command_error
 
     async def setup_hook(self):
+        await self.dbman.setup(table_group="database")
         await self.dbman.setup(table_group="common",
                                drop_tables=self.config.drop_tables,
                                drop_triggers=self.config.drop_triggers,
@@ -71,8 +73,7 @@ class Kagami(commands.Bot):
         await super().start(token, reconnect=reconnect)
 
     def run_bot(self):
-        log_handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
-        self.run(token=self.config.token, log_handler=log_handler, log_level=logging.DEBUG)
+        self.run(token=self.config.token, log_handler=discord_log_handler, log_level=logging.DEBUG)
 
     async def close(self):
         for cog in self.cogs:
