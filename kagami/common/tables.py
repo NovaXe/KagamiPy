@@ -1,6 +1,6 @@
 import discord
 
-from common.database import Table, ManagerMeta
+from common.database import Table, ManagerMeta, exec_query
 from dataclasses import dataclass
 import aiosqlite
 
@@ -18,7 +18,7 @@ class GuildSettings(Table, schema_version=1, trigger_version=1, group_name="comm
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
-        await db.execute(query)
+        await exec_query(db, query)
 
     async def upsert(self, db: aiosqlite.Connection) -> "GuildSettings":
         query = f"""
@@ -29,7 +29,7 @@ class GuildSettings(Table, schema_version=1, trigger_version=1, group_name="comm
         RETURNING *
         """
         db.row_factory = GuildSettings.row_factory
-        async with db.execute(query, self.asdict()) as cur:
+        async with exec_query(db, query, self.asdict()) as cur:
             result = cur.fetchone()
         return result
 
@@ -41,7 +41,7 @@ class GuildSettings(Table, schema_version=1, trigger_version=1, group_name="comm
         """
         # Hi! I am so smart, I am coding so well
         db.row_factory = GuildSettings.row_factory
-        async with db.execute(query, (guild_id,)) as cur:
+        async with exec_query(db, query, (guild_id,)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -53,7 +53,7 @@ class GuildSettings(Table, schema_version=1, trigger_version=1, group_name="comm
         RETURNING *
         """
         db.row_factory = GuildSettings.row_factory
-        async with db.execute(query, (guild_id,)) as cur:
+        async with exec_query(db, query, (guild_id,)) as cur:
             result = cur.fetchone()
         return result
 
@@ -75,7 +75,7 @@ class Guild(Table, schema_version=1, trigger_version=1, table_group="common"):
             PRIMARY KEY (id)
         )
         """
-        await db.execute(query)
+        await exec_query(db, query)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -87,7 +87,7 @@ class Guild(Table, schema_version=1, trigger_version=1, table_group="common"):
             VALUES (NEW.id)
             ON CONFLICT (guild_id) DO NOTHING
         """
-        await db.execute(trigger)
+        await exec_query(db, trigger)
 
     async def upsert(self, db: aiosqlite.Connection):
         query = f"""
@@ -97,7 +97,7 @@ class Guild(Table, schema_version=1, trigger_version=1, table_group="common"):
             DO UPDATE SET name = :name
         RETURNING *
         """
-        await db.execute(query, self.asdict())
+        await exec_query(db, query, self.asdict())
 
     @classmethod
     async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "Guild":
@@ -106,7 +106,7 @@ class Guild(Table, schema_version=1, trigger_version=1, table_group="common"):
         WHERE id = ?
         """
         db.row_factory = Guild.row_factory
-        async with db.execute(query, (guild_id)) as cur:
+        async with exec_query(db, query, (guild_id)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -118,7 +118,7 @@ class Guild(Table, schema_version=1, trigger_version=1, table_group="common"):
         RETURNING *
         """
         db.row_factory = Guild.row_factory
-        async with db.execute(query, (guild_id)) as cur:
+        async with exec_query(db, query, (guild_id)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -136,7 +136,7 @@ class User(Table, schema_version=1, trigger_version=1, table_group="common"):
             PRIMARY KEY (id)
         )
         """
-        await db.execute(query)
+        await exec_query(db, query)
 
     async def upsert(self, db: aiosqlite.Connection) -> "User":
         query = f"""
@@ -146,7 +146,7 @@ class User(Table, schema_version=1, trigger_version=1, table_group="common"):
         DO UPDATE SET nickname = :nickname
         """
         db.row_factory = User.row_factory
-        async with db.execute(query, self.asdict()) as cur:
+        async with exec_query(db, query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
 
@@ -157,7 +157,7 @@ class User(Table, schema_version=1, trigger_version=1, table_group="common"):
         WHERE id ?
         """
         db.row_factory = User.row_factory
-        async with db.execute(query, (id,)) as cur:
+        async with exec_query(db, query, (id,)) as cur:
             res = await cur.fetchone()
         return res
 
@@ -169,6 +169,6 @@ class User(Table, schema_version=1, trigger_version=1, table_group="common"):
         RETURNING *
         """
         db.row_factory = User.row_factory
-        async with db.execute(query, (id,)) as cur:
+        async with exec_query(db, query, (id,)) as cur:
             res = await cur.fetchone()
         return res
