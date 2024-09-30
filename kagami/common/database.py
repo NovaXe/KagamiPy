@@ -3,7 +3,7 @@ import logging
 import typing
 import warnings
 from asyncio import Queue
-import sqlglot
+# import sqlglot
 import aiosqlite
 from dataclasses import dataclass, asdict, astuple, fields
 
@@ -16,13 +16,13 @@ logger = setup_logging(__name__)
 Gives some classes and methods for interfacing with an sqlite database in a standard way across cogs
 """
 
-def validate_syntax(query: str):
-    try:
-        parsed_query = sqlglot.parse_one(query, dialect="sqlite")
-    except sqlglot.ParseError as e:
-        logger.error(f"SQLite Syntax Error for query: {query} -\n{e.with_traceback}")
-        raise e
-    return query
+# def validate_syntax(query: str):
+#     try:
+#         parsed_query = sqlglot.parse_one(query, dialect="sqlite")
+#     except sqlglot.ParseError as e:
+#         logger.error(f"SQLite Syntax Error for query: {query} -\n{e.with_traceback}")
+#         raise e
+#     return query
 
 async def exec_query(db: aiosqlite.Connection, query: str, *params: Iterable[Any]):
     """
