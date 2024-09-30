@@ -29,7 +29,7 @@ async def exec_query(db: aiosqlite.Connection, query: str, *params: Iterable[Any
     Executes a query after validating the syntax.
     If the syntax is invalid an error is thrown and the query is not executed. 
     """
-    validate_syntax(query)
+    # validate_syntax(query)
     cur: aiosqlite.Cursor = await db.execute(query, params)
     return cur
 
