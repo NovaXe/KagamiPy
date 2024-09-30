@@ -23,7 +23,7 @@ from .config import Configuration, config
 from common import errors
 from common.depr_context_vars import CVar
 from common.database import DatabaseManager
-from common.logging import bot_logger, discord_log_handler
+from common.logging import bot_log_handler, discord_log_handler
 
 intents = discord.Intents.all()
 # intents.message = True
@@ -59,7 +59,8 @@ class Kagami(commands.Bot):
         await self.dbman.setup(table_group="common",
                                drop_tables=self.config.drop_tables,
                                drop_triggers=self.config.drop_triggers,
-                               update_tables=self.config.update_tables)
+                               ignore_schema_updates=self.config.ignore_schema_updates,
+                               ignore_trigger_updates=self.config.ignore_trigger_updates)
 
         for file in os.listdir("cogs"):
             if file.endswith(".py"):
@@ -73,6 +74,8 @@ class Kagami(commands.Bot):
         await super().start(token, reconnect=reconnect)
 
     def run_bot(self):
+        logger = logging.getLogger("discord")
+        logger.propagate = False
         self.run(token=self.config.token, log_handler=discord_log_handler, log_level=logging.DEBUG)
 
     async def close(self):

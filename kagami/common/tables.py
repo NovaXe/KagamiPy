@@ -6,7 +6,7 @@ import aiosqlite
 
 
 @dataclass
-class GuildSettings(Table, group_name="common"):
+class GuildSettings(Table, schema_version=1, trigger_version=1, group_name="common"):
     guild_id: int
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
@@ -58,7 +58,7 @@ class GuildSettings(Table, group_name="common"):
         return result
 
 @dataclass
-class Guild(Table, table_group="common"):
+class Guild(Table, schema_version=1, trigger_version=1, table_group="common"):
     id: int
     name: str
 
@@ -123,10 +123,10 @@ class Guild(Table, table_group="common"):
         return result
 
 @dataclass
-class User(Table, table_group="common"):
+class User(Table, schema_version=1, trigger_version=1, table_group="common"):
     id: int
-    nickname: str
-
+    nickname: str   
+    
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
         query = f"""

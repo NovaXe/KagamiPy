@@ -21,7 +21,7 @@ from typing import (
 )
 
 @dataclass
-class SentinelSettings(Table, table_group="sentinel"):
+class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
     guild_id: int
     local_enabled: bool = True
     global_enabled: bool = False
@@ -44,7 +44,7 @@ class SentinelSettings(Table, table_group="sentinel"):
         query = f"""
             INSERT INTO {SentinelSettings}(guild_id)
             SELECT guild_id
-            FROM temp_sentinel_settings
+            FROM temp_{SentinelSettings}
         """
         await db.execute(query)
 
@@ -113,7 +113,7 @@ class SentinelSettings(Table, table_group="sentinel"):
         return result
 
 @dataclass
-class Sentinel(Table, table_group="sentinel"):
+class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
     guild_id: int
     name: str
     uses: int
@@ -136,12 +136,13 @@ class Sentinel(Table, table_group="sentinel"):
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
-        query = f"""
-        INSERT INTO {Sentinel}(guild_id, name, enabled)
-        SELECT guild_id, name, enabled 
-        FROM temp_{Sentinel}
-        """
-        await db.execute(query)
+        # query = f"""
+        # INSERT INTO {Sentinel}(guild_id, name, enabled)
+        # SELECT guild_id, name, enabled 
+        # FROM temp_{Sentinel}
+        # """
+        # await db.execute(query)
+        await super().insert_from_temp(db)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -242,7 +243,7 @@ class Sentinel(Table, table_group="sentinel"):
         return result
 
 @dataclass
-class DisabledSentinelChannels(Table, table_group="sentinel"):
+class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
     guild_id: int
     channel_id: int
 
@@ -261,12 +262,13 @@ class DisabledSentinelChannels(Table, table_group="sentinel"):
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
-        query = f"""
-        INSERT INTO {DisabledSentinelChannels}(guild_id, channel_id)
-        SELECT guild_id, channel_id
-        FROM temp_{DisabledSentinelChannels}
-        """
-        await db.execute(query)
+        # query = f"""
+        # INSERT INTO {DisabledSentinelChannels}(guild_id, channel_id)
+        # SELECT guild_id, channel_id
+        # FROM temp_{DisabledSentinelChannels}
+        # """
+        # await db.execute(query)
+        await super().insert_from_temp(db)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -348,7 +350,7 @@ class DisabledSentinelChannels(Table, table_group="sentinel"):
         return bool(result[0])
 
 @dataclass
-class SentinelTrigger(Table, table_group="sentinel"):
+class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
     class TriggerType(IntEnum):
         word = 1  # in message split by spaces
         phrase = 2  # in message as string
@@ -423,7 +425,7 @@ class SentinelTrigger(Table, table_group="sentinel"):
         return result
 
 @dataclass
-class SentinelResponse(Table, table_group="sentinel"):
+class SentinelResponse(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
     class ResponseType(IntEnum):
         message = 1
         reply = 2
@@ -486,7 +488,7 @@ class SentinelResponse(Table, table_group="sentinel"):
         return result
 
 @dataclass
-class SentinelSuit(Table, table_group="sentinel"):
+class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
     guild_id: int
     sentinel_name: str
     name: str
@@ -519,12 +521,13 @@ class SentinelSuit(Table, table_group="sentinel"):
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
-        query = f"""
-        INSERT INTO {SentinelSuit}(guild_id, sentinel_name, name, weight, trigger_id, response_id)
-        SELECT guild_id, sentinel_name, name, weight, trigger_id, response_id
-        FROM temp_{SentinelSuit}
-        """
-        await db.execute(query)
+        # query = f"""
+        # INSERT INTO {SentinelSuit}(guild_id, sentinel_name, name, weight, trigger_id, response_id)
+        # SELECT guild_id, sentinel_name, name, weight, trigger_id, response_id
+        # FROM temp_{SentinelSuit}
+        # """
+        # await db.execute(query)
+        await super().insert_from_temp(db)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -1075,10 +1078,11 @@ class Sentinels(GroupCog, name="s"):
         self.config = bot.config
 
     async def cog_load(self) -> None:
-        await self.bot.dbman.setup      (table_group="sentinel",
+        await self.bot.dbman.setup(table_group="sentinel",
                                    drop_tables=self.bot.config.drop_tables,
                                    drop_triggers=self.bot.config.drop_triggers,
-                                   update_tables=self.bot.config.update_tables)
+                                   ignore_schema_updates=self.bot.config.ignore_schema_updates,
+                                   ignore_trigger_updates=self.bot.config.ignore_trigger_updates)
         # await self.database.init(drop=self.config.drop_tables, schema_update=self.config.schema_update)
         # await self.database.init(drop=True)
         # if self.bot.config.migrate_data: await self.migrateData()

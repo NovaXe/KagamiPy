@@ -21,7 +21,7 @@ from common.tables import Guild, GuildSettings, User
 
 
 @dataclass
-class TagSettings(Table, table_group="tags", schema_changed=True):
+class TagSettings(Table, schema_version=1, trigger_version=1, table_group="tags"):
     guild_id: int
     enforce_ownership = True
 
@@ -40,12 +40,13 @@ class TagSettings(Table, table_group="tags", schema_changed=True):
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
-        query = f"""
-            INSERT INTO {TagSettings}(guild_id, enforce_ownership)
-            SELECT guild_id 
-            FROM temp_{TagSettings} 
-        """
-        await db.execute(query)
+        # query = f"""
+        #     INSERT INTO {TagSettings}(guild_id, enforce_ownership)
+        #     SELECT guild_id 
+        #     FROM temp_{TagSettings} 
+        # """
+        # await db.execute(query)
+        await super().insert_from_temp(db)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -98,7 +99,7 @@ class TagSettings(Table, table_group="tags", schema_changed=True):
         return await TagSettings.deleteWhere(db, guild_id=self.guild_id)
 
 @dataclass
-class Tag(Table, table_group="tags", schema_altered=True):
+class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema_altered=True):
     guild_id: int
     name: str
     content: str
@@ -499,7 +500,8 @@ class Tags(GroupCog, group_name="t"):
         await self.bot.dbman.setup(table_group="tags",
                                    drop_tables=self.bot.config.drop_tables,
                                    drop_triggers=self.bot.config.drop_triggers,
-                                   update_tables=self.bot.config.update_tables)
+                                   ignore_schema_updates=self.bot.config.ignore_schema_updates,
+                                   ignore_trigger_updates=self.bot.config.ignore_trigger_updates)
         # await self.database.init(drop=self.bot.config.drop_tables)
         # if self.bot.config.migrate_data: await self.migrateData()
 
