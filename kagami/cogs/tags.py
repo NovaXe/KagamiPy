@@ -16,7 +16,7 @@ from common.interactions import respond
 from typing import Literal, Union, List, Any
 from bot import Kagami
 from utils.pages import CustomRepr
-from common.database import Table, DatabaseManager, exec_query
+from common.database import Table, DatabaseManager
 from common.tables import Guild, GuildSettings, User
 
 
@@ -36,7 +36,7 @@ class TagSettings(Table, schema_version=1, trigger_version=1, table_group="tags"
             ON UPDATE CASCADE ON DELETE CASCADE
         )
         """
-        await exec_query(db, query)
+        await db.execute(query)
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
@@ -45,7 +45,7 @@ class TagSettings(Table, schema_version=1, trigger_version=1, table_group="tags"
         #     SELECT guild_id 
         #     FROM temp_{TagSettings} 
         # """
-        # await exec_query(db, query)
+        # await db.execute(query)
         await super().insert_from_temp(db)
 
     @classmethod
@@ -58,7 +58,7 @@ class TagSettings(Table, schema_version=1, trigger_version=1, table_group="tags"
             VALUES (NEW.guild_id);
         END
         """
-        await exec_query(db, trigger)
+        await db.execute(trigger)
 
     async def upsert(self, db: aiosqlite.Connection) -> "TagSettings":
         query = f"""
@@ -69,7 +69,7 @@ class TagSettings(Table, schema_version=1, trigger_version=1, table_group="tags"
         RETURNING *
         """
         db.row_factory = TagSettings.row_factory
-        async with exec_query(db, query, self.asdict()) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
 
@@ -80,7 +80,7 @@ class TagSettings(Table, schema_version=1, trigger_version=1, table_group="tags"
         WHERE guild_id = ?
         """
         db.row_factory = TagSettings.row_factory
-        async with exec_query(db, query, (guild_id,)) as cur:
+        async with db.execute(query, (guild_id,)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -91,7 +91,7 @@ class TagSettings(Table, schema_version=1, trigger_version=1, table_group="tags"
         WHERE guild_id = ?
         """
         db.row_factory = TagSettings.row_factory
-        async with exec_query(db, query, (guild_id,)) as cur:
+        async with db.execute(query, (guild_id,)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -130,7 +130,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
-        await exec_query(db, query)
+        await db.execute(query)
 
     @classmethod
     async def alter_table(cls, db: aiosqlite.Connection):
@@ -138,7 +138,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
         ALTER TABLE {Tag}
         RENAME COLUMN embeds to embed
         """
-        await exec_query(db, query)
+        await db.execute(query)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -172,7 +172,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
             """
         ]
         for t in triggers:
-            await exec_query(db, t)
+            await db.execute(t)
 
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
@@ -180,7 +180,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
         VALUES (:guild_id, :name, :content, :embed, :author_id, :creation_date, :creation_date)
             ON CONFLICT DO NOTHING
         """
-        await exec_query(db, query, self.asdict())
+        await db.execute(query, self.asdict())
 
     async def upsert(self, db: aiosqlite.Connection) -> "Tag":
         query = f"""
@@ -191,7 +191,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
         RETURNING *
         """
         db.row_factory = Tag.row_factory
-        async with exec_query(db, query, self.asdict()) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
         return res
 
@@ -202,7 +202,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
         RETURNING *
         """
         db.row_factory = Tag.row_factory
-        async with exec_query(db, query, self.asdict()) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchon()
         return res
 
@@ -216,7 +216,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
         params = new_tag.asdict()
         params["old_name"] = self.name
         db.row_factory = Tag.row_factory
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             res = await cur.fetchone()
         return res
 
@@ -236,29 +236,29 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
             params = (guild_id, name, author_id)
 
         db.row_factory = Tag.row_factory
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             res = await cur.fetchone()
         return res
 
     @classmethod
-    async def selectAllWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str, author_id: int=None,
+    async def selectAllWhere(cls, db: aiosqlite.Connection, guild_id: int, author_id: int=None,
                              limit: int=25, offset: int=0) -> list["Tag"]:
         if author_id is None:
             query = f"""
             SELECT * FROM {Tag}
-            WHERE guild_id = ? AND name = ?
+            WHERE guild_id = ? 
             limit ? offset ?
             """
-            params = (guild_id, name, limit, offset)
+            params = (guild_id, limit, offset)
         else:
             query = f"""
             SELECT * FROM {Tag}
-            WHERE guild_id = ? AND name = ? AND author_id = ?
+            WHERE guild_id = ? AND author_id = ?
             limit ? offset ?
             """
-            params = (guild_id, name, author_id, limit, offset)
+            params = (guild_id, author_id, limit, offset)
         db.row_factory = Tag.row_factory
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             res = await cur.fetchall()
         return res
 
@@ -271,7 +271,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
         LIMIT ?
         """
         db.row_factory = aiosqlite.Row
-        async with exec_query(db, query, (f"%{group_id}%",)) as cur:
+        async with db.execute(query, (f"%{group_id}%",)) as cur:
             res = await cur.fetchall()
         return [r["guild_id"] for r in res]
 
@@ -282,9 +282,28 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
         WHERE guild_id = ?
         """
         db.row_factory = None
-        async with exec_query(db, query, (group_id, )) as cur:
+        async with db.execute(query, (group_id, )) as cur:
             res = await cur.fetchone()
         return bool(res[0])
+
+    @classmethod
+    async def selectCountWhere(cls, db: aiosqlite.Connection, group_id: int, author_id: int=None) -> int:
+        if author_id is not None:
+            query = f"""
+            SELECT COUNT(*) AS count FROM {Tag}
+            WHERE guild_id = ? AND author_id = ?
+            """
+            params = (group_id, author_id)
+        else:
+            query = f"""
+            SELECT COUNT(*) AS count FROM {Tag}
+            WHERE guild_id = ? 
+            """
+            params = (group_id, )
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, params) as cur:
+            res = await cur.fetchone()
+        return res["count"] if res else 0
 
     @classmethod
     async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Tag":
@@ -294,7 +313,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
         RETURNING *
         """
         db.row_factory = Tag.row_factory
-        async with exec_query(db, query, (guild_id, name)) as cur:
+        async with db.execute(query, (guild_id, name)) as cur:
             res = await cur.fetchone()
         return res
 
@@ -309,7 +328,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
         RETURNING *
         """
         db.row_factory = Tag.row_factory
-        async with exec_query(db, query, (guild_id, author_id,)) as cur:
+        async with db.execute(query, (guild_id, author_id,)) as cur:
             res = await cur.fetchall()
         return res
 
@@ -321,7 +340,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
             LIMIT ? OFFSET ?
         """
         db.row_factory = Tag.row_factory
-        async with exec_query(db, query, (guild_id, f"%{name}%", limit, offset)) as cur:
+        async with db.execute(query, (guild_id, f"%{name}%", limit, offset)) as cur:
             res = await cur.fetchall()
         return [n.name for n in res]
 
@@ -587,7 +606,8 @@ class Tags(GroupCog, group_name="t"):
         await respond(interaction)
         if not tag:
             raise TagNotFound
-
+        if tag.embed is Ellipsis:
+            tag.embed = None
         embed = None
         if tag.embed:
             validate_json(tag.embed)
@@ -728,14 +748,27 @@ class Tags(GroupCog, group_name="t"):
 
     view = Group(name="view", description="commands that display useful information")
 
-    def get_callback(self, dbman, group_id):
+    def get_callbacks(self, dbman, group_id):
         from common.paginator import ScrollerState, Scroller
 
-        async def callback(interaction_c: Interaction, state: ScrollerState):
-            async with self.conn() as db:
-                results = await Tag.selectAllWhere(db, group_id, interaction_c.user.id,
-                                                   limit=25, offset=state.home_offset + state.relative_offset)
-        return callback
+        async def page(interaction_c: Interaction, state: ScrollerState) -> list[str]:
+            async with dbman.conn() as db:
+                results = await Tag.selectAllWhere(db, group_id,
+                                                   limit=10, offset=state.initial_offset + state.relative_offset)
+                reps = []
+                for i, tag in enumerate(results):
+                    index = state.initial_offset + state.relative_offset + i + 1
+                    temp = f"{index:<5} {tag.name} - {tag.author_id} : {tag.creation_date}"
+                    reps.append(temp)
+                return reps
+        
+        async def count(interaction_c: Interaction, state: ScrollerState) -> int:
+            async with dbman.conn() as db:
+                count = await Tag.selectCountWhere(db, group_id)
+                return count
+
+        return page, count
+
 
 
     @view.command(name="all")
@@ -747,8 +780,8 @@ class Tags(GroupCog, group_name="t"):
 
         from common.paginator import ScrollerState, Scroller
 
-        callback = self.get_callback(self.bot.dbman, group_id)
-        scroller = Scroller(message, interaction.user, page_callback=callback, home_offset=0)
+        page, count = self.get_callbacks(self.bot.dbman, group_id)
+        scroller = Scroller(message, interaction.user, page_callback=page, count_callback=count, initial_offset=0)
         await respond(interaction, view=scroller)
 
 

@@ -5,7 +5,9 @@ import warnings
 from asyncio import Queue
 # import sqlglot
 import aiosqlite
+from aiosqlite.context import contextmanager
 from dataclasses import dataclass, asdict, astuple, fields
+from contextlib import asynccontextmanager
 
 from common.logging import setup_logging
 from typing import Generator, Iterable, Any
@@ -24,14 +26,20 @@ Gives some classes and methods for interfacing with an sqlite database in a stan
 #         raise e
 #     return query
 
-async def exec_query(db: aiosqlite.Connection, query: str, *params: Iterable[Any]):
-    """
-    Executes a query after validating the syntax.
-    If the syntax is invalid an error is thrown and the query is not executed. 
-    """
-    # validate_syntax(query)
-    cur: aiosqlite.Cursor = await db.execute(query, params)
-    return cur
+# @contextmanager
+# async def exec_query(db: aiosqlite.Connection, query: str, *params: Iterable[Any]):
+#     """
+#     Executes a query after validating the syntax.
+#     If the syntax is invalid an error is thrown and the query is not executed. 
+#     """
+#     if params is None:
+#         params = ()
+#     # validate_syntax(query)
+#     cur: aiosqlite.Cursor = await db.execute(query, params)
+#     try: 
+#         yield cur
+#     finally:
+#         await cur.close()
 
 
 class TableRegistry:
@@ -152,12 +160,12 @@ class TableRegistry:
     @classmethod
     async def drop_unregistered(cls, db: aiosqlite.Connection):
         names = cls.tables.keys()
-        async with exec_query(db, "SELECT name FROM sqlite_master WHERE type='table'") as cur:
+        async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cur:
             result = await cur.fetchall()
             existing_names = [e[0] for e in result]
         for name in existing_names:
             if name not in names:
-                await exec_query(db, f"DROP TABLE IF EXISTS {name}")
+                await db.execute(f"DROP TABLE IF EXISTS {name}")
 
 
 class TableNameError(ValueError):
@@ -262,7 +270,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
     @classmethod
     async def _validate_query(cls, db: aiosqlite.Connection, query: str):
         try:
-            await exec_query(db, f"EXPLAIN {query}")
+            await db.execute(f"EXPLAIN {query}")
             return True
         except aiosqlite.DatabaseError as e:
             print(f"Error in query: {e.with_traceback()}")
@@ -271,7 +279,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
     @classmethod
     async def _exists(cls, db: aiosqlite.Connection, check_old_name: bool=False) -> bool:
         tablename = cls.__old_tablename__ if check_old_name and cls.__old_tablename__ is not None else cls.__tablename__
-        async with exec_query(db, "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tablename,)) as cur:
+        async with db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tablename,)) as cur:
             name = await cur.fetchone()
         return name is not None
 
@@ -279,14 +287,14 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
     async def _execute_query(cls, db: aiosqlite.Connection, query: str, params: tuple | dict=None):
         is_valid = cls._validate_query(db, query)
         if is_valid:
-            await exec_query(db, query, params)
+            await db.execute(query, params)
 
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
         """
         Called to create a table and add it to the database
         """
-        await exec_query(db, f"CREATE TABLE IF NOT EXISTS {cls.__tablename__}(rowid INTEGER PRIMARY KEY)")
+        await db.execute(f"CREATE TABLE IF NOT EXISTS {cls.__tablename__}(rowid INTEGER PRIMARY KEY)")
 
     @classmethod
     async def alter_table(cls, db: aiosqlite.Connection):
@@ -300,11 +308,11 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
         """
         Called to drop an existing table from the database
         """
-        await exec_query(db, f"DROP TABLE IF EXISTS {cls.__tablename__}")
+        await db.execute(f"DROP TABLE IF EXISTS {cls.__tablename__}")
 
     @classmethod
     async def create_temp_copy(cls, db: aiosqlite.Connection):
-        await exec_query(db, f"CREATE TABLE temp_{cls.__tablename__} "
+        await db.execute(f"CREATE TABLE temp_{cls.__tablename__} "
                          f"AS SELECT * FROM {cls.__tablename__}")
 
     @classmethod
@@ -312,19 +320,19 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
         """
         Depending on what has changed in the schema this may need an override
         """
-        await exec_query(db, f"INSERT INTO {cls.__tablename__} "
+        await db.execute(f"INSERT INTO {cls.__tablename__} "
                          f"SELECT * FROM temp_{cls.__tablename__}")
 
     @classmethod
     async def drop_temp(cls, db: aiosqlite.Connection):
-        await exec_query(db, f"DROP TABLE IF EXISTS temp_{cls.__tablename__}")
+        await db.execute(f"DROP TABLE IF EXISTS temp_{cls.__tablename__}")
 
     @classmethod
     async def rename_from_old(cls, db: aiosqlite.Connection):
         old_exists = await cls._exists(db, check_old_name=True)
         new_exists = await cls._exists(db)
         if old_exists and not new_exists:
-            await exec_query(db, f"ALTER TABLE {cls.__old_tablename__} RENAME TO {cls.__tablename__}")
+            await db.execute(f"ALTER TABLE {cls.__old_tablename__} RENAME TO {cls.__tablename__}")
             logger.debug(f"DBInterface: Renamed table: {cls.__old_tablename__} to {cls.__tablename__}")
         elif old_exists and new_exists:
             logger.debug(f"Didn't rename table: {cls.__old_tablename__} because table: {cls.__tablename__} already exists")
@@ -374,7 +382,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
         trigger_names = await db.execute_fetchall(query)
         for name in trigger_names:
             name = name[0]
-            await exec_query(db, f"DROP TRIGGER IF EXISTS {name}")
+            await db.execute(f"DROP TRIGGER IF EXISTS {name}")
 
     def asdict(self): return asdict(self)
 
@@ -387,7 +395,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
         field_count = self.__class__.__field_count()
         placeholders = ",".join('?' for _ in range(field_count))
         query = f"INSERT OR IGNORE INTO {self.__tablename__} VALUES ({placeholders})"
-        await exec_query(db, query, self.astuple())
+        await db.execute(query, self.astuple())
 
     async def upsert(self, db: aiosqlite.Connection) -> "Table":
         """
@@ -457,14 +465,14 @@ class TableMetadata(Table, schema_version=1, trigger_version=1, table_group="dat
             PRIMARY KEY (table_name)
         )
         """
-        await exec_query(db, query)
+        await db.execute(query)
     
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
         INSERT INTO {TableMetadata}(table_name, schema_version, trigger_version)
         VALUES (:table_name, :schema_version, :trigger_version)
         """
-        await exec_query(db, query, self.asdict())
+        await db.execute(query, self.asdict())
 
     async def upsert(self, db: aiosqlite.Connection) -> "Table":
         query = f"""
@@ -475,7 +483,7 @@ class TableMetadata(Table, schema_version=1, trigger_version=1, table_group="dat
         returning *
         """
         db.row_factory = TableMetadata.row_factory
-        async with exec_query(db, query, self.asdict()) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
         return res
 
@@ -486,7 +494,7 @@ class TableMetadata(Table, schema_version=1, trigger_version=1, table_group="dat
         WHERE table_name = ?
         """
         db.row_factory = TableMetadata.row_factory
-        async with exec_query(db, query, (table_name,)) as cur:
+        async with db.execute(query, (table_name,)) as cur:
             res = await cur.fetchone()
         return res
 
@@ -498,7 +506,7 @@ class TableMetadata(Table, schema_version=1, trigger_version=1, table_group="dat
         """
         db.row_factory = aiosqlite.Row
         try:
-            async with exec_query(db, query, (table_name,)) as cur:
+            async with db.execute(query, (table_name,)) as cur:
                 res = await cur.fetchone()
         except aiosqlite.OperationalError as e:
             logger.error(f"Could not find version for Table: {table_name}")

@@ -13,7 +13,7 @@ from discord.app_commands import Transform, Transformer, Group, Choice
 from common import errors
 from bot import Kagami
 from common.interactions import respond
-from common.database import Table, DatabaseManager, ConnectionContext, exec_query
+from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings
 from utils.depr_db_interface import Database
 from typing import (
@@ -37,7 +37,7 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
-        await exec_query(db, query)
+        await db.execute(query)
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
@@ -46,7 +46,7 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="
             SELECT guild_id
             FROM temp_{SentinelSettings}
         """
-        await exec_query(db, query)
+        await db.execute(query)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -72,7 +72,7 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="
             """
         ]
         for trigger in triggers:
-            await exec_query(db, trigger)
+            await db.execute(trigger)
 
     async def upsert(self, db: aiosqlite.Connection) -> "SentinelSettings":
         query = f"""
@@ -85,7 +85,7 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="
         RETURNING *
         """
         db.row_factory = SentinelSettings.row_factory
-        async with exec_query(db, query, self.asdict()) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
 
@@ -96,7 +96,7 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="
         WHERE guild_id = ?
         """
         db.row_factory = SentinelSettings.row_factory
-        async with exec_query(db, query, (guild_id,)) as cur:
+        async with db.execute(query, (guild_id,)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -108,7 +108,7 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="
         RETURNING *
         """
         db.row_factory = SentinelSettings.row_factory
-        async with exec_query(db, query, (guild_id,)) as cur:
+        async with db.execute(query, (guild_id,)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -132,7 +132,7 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
             ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
-        await exec_query(db, query)
+        await db.execute(query)
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
@@ -141,7 +141,7 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         # SELECT guild_id, name, enabled 
         # FROM temp_{Sentinel}
         # """
-        # await exec_query(db, query)
+        # await db.execute(query)
         await super().insert_from_temp(db)
 
     @classmethod
@@ -155,14 +155,14 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
             ON CONFLICT(guild_id) DO NOTHING;
         END;
         """
-        await exec_query(db, trigger)
+        await db.execute(trigger)
 
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
         INSERT OR IGNORE INTO {Sentinel}(guild_id, name)
         VALUES(:guild_id, :name)
         """
-        await exec_query(db, query, self.asdict())
+        await db.execute(query, self.asdict())
 
     @classmethod
     async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Sentinel":
@@ -172,7 +172,7 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         RETURNING *
         """
         db.row_factory = Sentinel.row_factory
-        async with exec_query(db, query, (guild_id, name)) as cur:
+        async with db.execute(query, (guild_id, name)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -183,7 +183,7 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         RETURNING *
         """
         db.row_factory = Sentinel.row_factory
-        async with exec_query(db, query, self.asdict()) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
 
@@ -194,7 +194,7 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         WHERE guild_id = ? AND name = ?
         """
         db.row_factory = Sentinel.row_factory
-        async with exec_query(db, query, (guild_id, name)) as cur:
+        async with db.execute(query, (guild_id, name)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -206,7 +206,7 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         LIMIT ? OFFSET ?
         """
         db.row_factory = Sentinel.row_factory
-        async with exec_query(db, query, (guild_id, f"%{name}%", limit, offset)) as cur:
+        async with db.execute(query, (guild_id, f"%{name}%", limit, offset)) as cur:
             results = await cur.fetchall()
         return [n.name for n in results]
 
@@ -223,7 +223,7 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         RETURNING *
         """
         db.row_factory = Sentinel
-        async with exec_query(db, query, (guild_id, name)) as cur:
+        async with db.execute(query, (guild_id, name)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -238,7 +238,7 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         RETURNING *
         """
         db.row_factory = Sentinel
-        async with exec_query(db, query, self.asdict()) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
 
@@ -258,7 +258,7 @@ class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
-        await exec_query(db, query)
+        await db.execute(query)
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
@@ -267,7 +267,7 @@ class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table
         # SELECT guild_id, channel_id
         # FROM temp_{DisabledSentinelChannels}
         # """
-        # await exec_query(db, query)
+        # await db.execute(query)
         await super().insert_from_temp(db)
 
     @classmethod
@@ -287,7 +287,7 @@ class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table
         INSERT OR IGNORE INTO {DisabledSentinelChannels}(guild_id, channel_id)
             VALUES(:guild_id, :channel_id)
         """
-        await exec_query(db, query, self.asdict())
+        await db.execute(query, self.asdict())
 
     @classmethod
     async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> "DisabledSentinelChannels":
@@ -298,7 +298,7 @@ class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table
         RETURNING *
         """
         db.row_factory = DisabledSentinelChannels.row_factory
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             result = await cur.fetchone()
         return result
 
@@ -309,7 +309,7 @@ class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table
                 RETURNING *
                 """
         db.row_factory = DisabledSentinelChannels.row_factory
-        async with exec_query(db, query, self.asdict()) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
 
@@ -328,7 +328,7 @@ class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table
             VALUES(:guild_id, :channel_id)
         END;
         """
-        await exec_query(db, query, params)
+        await db.execute(query, params)
 
 
     @classmethod
@@ -345,7 +345,7 @@ class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table
         END;
         """
         db.row_factory = None
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             result = await cur.fetchone()
         return bool(result[0])
 
@@ -372,7 +372,7 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="s
             UNIQUE (type, object) 
         )
         """
-        await exec_query(db, query)
+        await db.execute(query)
 
     @classmethod
     async def selectID(cls, db: aiosqlite.Connection, trigger_type: TriggerType, trigger_object: str) -> int:
@@ -381,7 +381,7 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="s
         WHERE type = ? AND object = ?
         """
         db.row_factory = None
-        async with exec_query(db, query, (trigger_type, trigger_object)) as cur:
+        async with db.execute(query, (trigger_type, trigger_object)) as cur:
             result = await cur.fetchone()
         if result: result = result[0]
         return result
@@ -394,7 +394,7 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="s
         RETURNING id
         """
         db.row_factory = None
-        async with exec_query(db, query, self.asdict()) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
 
         if not result:
@@ -409,7 +409,7 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="s
         RETURNING *
         """
         db.row_factory = SentinelTrigger.row_factory
-        async with exec_query(db, query, (self.id,)) as cur:
+        async with db.execute(query, (self.id,)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -420,7 +420,7 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="s
             WHERE id = ?
             """
         db.row_factory = SentinelTrigger.row_factory
-        async with exec_query(db, query, (id,)) as cur:
+        async with db.execute(query, (id,)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -446,7 +446,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1, table_group="
             UNIQUE (type, content, reactions)
         )
         """
-        await exec_query(db, query)
+        await db.execute(query)
 
     @classmethod
     async def selectID(cls, db: aiosqlite.Connection, response_type: ResponseType, content: str, reactions: str) -> int:
@@ -455,7 +455,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1, table_group="
         WHERE type = ? AND content = ? AND reactions = ?
         """
         db.row_factory = None
-        async with exec_query(db, query, (response_type, content, reactions)) as cur:
+        async with db.execute(query, (response_type, content, reactions)) as cur:
             result = await cur.fetchone()
         if result: result = result[0]
         return result
@@ -468,7 +468,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1, table_group="
         RETURNING id
         """
         db.row_factory = None
-        async with exec_query(db, query, self.asdict()) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
 
         if not result:
@@ -483,7 +483,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1, table_group="
         WHERE id = ?
         """
         db.row_factory = SentinelResponse.row_factory
-        async with exec_query(db, query, (id,)) as cur:
+        async with db.execute(query, (id,)) as cur:
             result = await cur.fetchone()
         return result
 
@@ -517,7 +517,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
                 ON UPDATE RESTRICT ON DELETE SET NULL
         )
         """
-        await exec_query(db, query)
+        await db.execute(query)
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
@@ -526,7 +526,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         # SELECT guild_id, sentinel_name, name, weight, trigger_id, response_id
         # FROM temp_{SentinelSuit}
         # """
-        # await exec_query(db, query)
+        # await db.execute(query)
         await super().insert_from_temp(db)
 
     @classmethod
@@ -594,7 +594,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
             """
         ]
         for trigger in triggers:
-            await exec_query(db, trigger)
+            await db.execute(trigger)
 
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
@@ -605,7 +605,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
             :guild_id, :sentinel_name, :name, :weight, :trigger_id, :response_id
         )
         """
-        await exec_query(db, query, self.asdict())
+        await db.execute(query, self.asdict())
 
     async def upsert(self, db: aiosqlite.Connection):
         query = f"""
@@ -615,7 +615,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         DO UPDATE SET trigger_id = coalesce(trigger_id, :trigger_id), 
                       response_id = coalesce(response_id, :response_id)
         """
-        await exec_query(db, query, self.asdict())
+        await db.execute(query, self.asdict())
 
     async def update(self, db: aiosqlite.Connection):
         query = f"""
@@ -626,7 +626,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
                       response_id = :response_id,
                       weight = :weight
         """
-        await exec_query(db, query, self.asdict())
+        await db.execute(query, self.asdict())
 
     @classmethod
     async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit":
@@ -636,7 +636,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         """
         params = (guild_id, sentinel_name, name)
         db.row_factory = SentinelSuit.row_factory
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             result = await cur.fetchone()
         return result
 
@@ -649,7 +649,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         """
         params = (guild_id, sentinel_name, name)
         db.row_factory = SentinelSuit.row_factory
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             result = await cur.fetchone()
         return result
 
@@ -673,7 +673,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         """
         params = (guild_id, sentinel_name, f"%{name}%", limit, offset)
         db.row_factory = SentinelSuit.row_factory
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             result: list[SentinelSuit] = await cur.fetchall()
         return [n.name for n in result]
 
@@ -691,7 +691,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         """
         params = (guild_id, sentinel_name, name)
         db.row_factory = SentinelSuit.row_factory
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             result = await cur.fetchone()
         return result
 
@@ -707,7 +707,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         RETURNING *
         """
         db.row_factory = SentinelSuit.row_factory
-        async with exec_query(db, query, self.asdict()) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
 
@@ -787,7 +787,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         await db.create_function("REGEXP", 2, regexp)
         db.row_factory = SentinelSuit.row_factory
         params = {"guild_id": guild_id, "message_content": message_content}
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             results = await cur.fetchall()
         return results
 
@@ -826,7 +826,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         """
         db.row_factory = SentinelSuit.row_factory
         params = {"guild_id": guild_id, "sentinel_name": sentinel_name}
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             result = await cur.fetchone()
         return result
 
@@ -897,7 +897,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         """
         params = {"guild_id": guild_id, "reaction_str": reaction_str}
         db.row_factory = SentinelSuit.row_factory
-        async with exec_query(db, query, params) as cur:
+        async with db.execute(query, params) as cur:
             results = await cur.fetchall()
         return results
 
