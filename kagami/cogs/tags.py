@@ -767,6 +767,9 @@ class Tags(GroupCog, group_name="t"):
                 count = await Tag.selectCountWhere(db, group_id)
                 return count
 
+        # async def margins(interaction_c: Interaction, state: ScrollerState) -> tuple(str, str, list[tuple[str, str]]):
+        #     async with dbman.conn() as db:
+                
         return page, count
 
 
@@ -782,7 +785,8 @@ class Tags(GroupCog, group_name="t"):
 
         page, count = self.get_callbacks(self.bot.dbman, group_id)
         scroller = Scroller(message, interaction.user, page_callback=page, count_callback=count, initial_offset=0)
-        await respond(interaction, view=scroller)
+        content = await scroller.get_page_content(interaction)
+        await respond(interaction, content=content, view=scroller)
 
 
 

@@ -31,8 +31,14 @@ class Scroller(ui.View):
     def __init__(self, message: discord.Message, user: discord.User,
                  page_callback: Callable[[Interaction, ScrollerState], list[str]],
                  count_callback: Callable[[Interaction, ScrollerState], list[str]],
+                #  margin_callback: Callable[[Interaction, ScrollerState], list[str]],
                  initial_offset=0, max_page_size=10,
                  timeout: float=300):
+        """
+        page_callback: Returns a list of strings representing items for a page
+        count_callback: Return an integer representing the total number of items
+        margin_callback: Returns a tuple containing the header, footer and side margin decorations
+        """
         super().__init__(timeout=timeout)
         self.message: discord.Message = message
         self.user: discord.User = user
@@ -40,6 +46,7 @@ class Scroller(ui.View):
         self.relative_offset = 0
         self.page_callback: Callable[[Interaction, ScrollerState], list[str]] = page_callback
         self.count_callback: Callable[[Interaction, ScrollerState], int] = count_callback 
+        self.margin_callback: Callable[[Interaction, ScrollerState], list[str]] = margin_callback
         self.max_page_size = max_page_size
 
     # def getStatePayload(self):
@@ -87,6 +94,12 @@ class Scroller(ui.View):
         message = f"An error occurred while processing the interaction for {str(item)}:\n```py\n{tb}\n```"
         await interaction.response.send_message(message)
 
+    async def get_page_content(self, interaction: Interaction) -> str:
+        items: list[str] = await self.page_callback(interaction, self.state)
+        content = "\n".join(items)
+        content = f"```\n{content}\n```"
+        return content
+
     async def update(self, interaction: Interaction):
         item_count = await self.count_callback(interaction, self.state)
         max_offset = ((item_count - self.initial_offset) // self.max_page_size) * self.max_page_size
@@ -109,10 +122,8 @@ class Scroller(ui.View):
             elif button.custom_id == "Scroller:last":
                 button.disabled = self.offset == max_offset
 
-        items: list[str] = await self.page_callback(interaction, self.state)
-        content = "\n".join(items)
-        content = f"```\n{content}\n```"
 
+        content = await self.get_page_content(interaction)
         await self.message.edit(content=content, view=self)
     
     @ui.button(emoji="⬆", custom_id="Scroller:first")
