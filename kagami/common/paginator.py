@@ -1,7 +1,7 @@
 import collections
 import dataclasses
 import traceback
-from typing import Any, Callable
+from typing import Any, Callable, Awaitable
 from math import floor, ceil
 import sys
 
@@ -29,33 +29,25 @@ class ScrollerState:
 T_Callback = Callable[[Interaction, ScrollerState], list[str]]
 class Scroller(ui.View):
     def __init__(self, message: discord.Message, user: discord.User,
-                 page_callback: Callable[[Interaction, ScrollerState], list[str]],
-                 count_callback: Callable[[Interaction, ScrollerState], list[str]],
+                 page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, bool]]],
+                #  count_callback: Callable[[Interaction, ScrollerState], list[str]],
                 #  margin_callback: Callable[[Interaction, ScrollerState], list[str]],
-                 initial_offset=0, max_page_size=10,
+                 initial_offset=0,
                  timeout: float=300):
         """
-        page_callback: Returns a list of strings representing items for a page
-        count_callback: Return an integer representing the total number of items
-        margin_callback: Returns a tuple containing the header, footer and side margin decorations
+        page_callback: Returns a string representing the page, and a boolean dictating whether the current page is the last
         """
         super().__init__(timeout=timeout)
         self.message: discord.Message = message
         self.user: discord.User = user
         self.initial_offset: int = initial_offset
-        self.relative_offset = 0
-        self.page_callback: Callable[[Interaction, ScrollerState], list[str]] = page_callback
-        self.count_callback: Callable[[Interaction, ScrollerState], int] = count_callback 
-        self.margin_callback: Callable[[Interaction, ScrollerState], list[str]] = margin_callback
-        self.max_page_size = max_page_size
-
-    # def getStatePayload(self):
-    #     return ScrollerState(
-    #         message=self.message,
-    #         user=self.user,
-    #         home_offset=self.initial_offset,
-    #         relative_offset=self.relative_offset
-    #     )
+        self.relative_offset: int = 0
+        self.page_callback: AsyncCallable[[Interaction, ScrollerState], Awaitable[tuple[str, bool]]] = page_callback
+        # self.page_callback: Callable[[Interaction, ScrollerState], list[str]] = page_callback
+        # self.count_callback: Callable[[Interaction, ScrollerState], int] = count_callback 
+        # self.margin_callback: Callable[[Interaction, ScrollerState], list[str]] = margin_callback
+        # self.max_page_size: int = max_page_size
+        self.button_delta = 1
 
     @property
     def state(self):
@@ -73,7 +65,11 @@ class Scroller(ui.View):
     @property
     def buttons(self):
         return (item for item in self.children if isinstance(item, ui.Button))
-    
+
+    async def getPage(self, interaction: Interaction) -> tuple[str, bool]:
+        content, is_last = await self.page_callback(interaction, self.state)
+        return content, is_last
+
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         if interaction.user == self.user:
             return True
@@ -94,15 +90,15 @@ class Scroller(ui.View):
         message = f"An error occurred while processing the interaction for {str(item)}:\n```py\n{tb}\n```"
         await interaction.response.send_message(message)
 
-    async def get_page_content(self, interaction: Interaction) -> str:
-        items: list[str] = await self.page_callback(interaction, self.state)
-        content = "\n".join(items)
-        content = f"```\n{content}\n```"
-        return content
+    # async def get_page_content(self, interaction: Interaction) -> str:
+        # items: list[str] = await self.page_callback(interaction, self.state)
+        # content = "\n".join(items)
+        # content = f"```\n{content}\n```"
+        # return content
 
-    async def update(self, interaction: Interaction):
+    async def update_old(self, interaction: Interaction):
         item_count = await self.count_callback(interaction, self.state)
-        max_offset = ((item_count - self.initial_offset) // self.max_page_size) * self.max_page_size
+        max_offset = ((item_count - self.initial_offset) // self.button_delta) * self.button_delta
         
         # 0 ............    i    ..... i + r  ..... max
         # -initial ..... initial ..... offset ..... max
@@ -125,7 +121,24 @@ class Scroller(ui.View):
 
         content = await self.get_page_content(interaction)
         await self.message.edit(content=content, view=self)
-    
+
+    async def update(self, interaction: Interaction):
+        content, is_last = await self.getPage(interaction)
+
+        for button in self.buttons:
+            if button.custom_id == "Scroller:first":
+                button.disabled = self.offset == 0
+            elif button.custom_id == "Scroller:prev":
+                button.disabled = self.offset == 0
+            elif button.custom_id == "Scroller:home":
+                button.disabled = self.relative_offset == 0
+            elif button.custom_id == "Scroller:next":
+                button.disabled = is_last
+            elif button.custom_id == "Scroller:last":
+                button.disabled = is_last 
+        await self.message.edit(content=content, view=self) 
+
+
     @ui.button(emoji="⬆", custom_id="Scroller:first")
     async def first(self, interaction: Interaction, button: ui.Button):
         await respond(interaction)
@@ -135,7 +148,7 @@ class Scroller(ui.View):
     @ui.button(emoji="🔼", custom_id="Scroller:prev")
     async def prev(self, interaction: Interaction, button: ui.Button):
         await respond(interaction)
-        self.relative_offset -= self.max_page_size
+        self.relative_offset -= self.button_delta
         await self.update(interaction)
 
     @ui.button(emoji="*️⃣", custom_id="Scroller:home")
@@ -147,7 +160,7 @@ class Scroller(ui.View):
     @ui.button(emoji="🔽", custom_id="Scroller:next")
     async def next(self, interaction: Interaction, button: ui.Button):
         await respond(interaction)
-        self.relative_offset += self.max_page_size
+        self.relative_offset += self.button_delta
         await self.update(interaction)
     
     @ui.button(emoji="⬇", custom_id="Scroller:last")
