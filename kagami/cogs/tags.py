@@ -18,7 +18,7 @@ from bot import Kagami
 from utils.pages import CustomRepr
 from common.database import Table, DatabaseManager
 from common.tables import Guild, GuildSettings, User
-
+from common.paginator import Scroller, ScrollerState
 
 @dataclass
 class TagSettings(Table, schema_version=1, trigger_version=1, table_group="tags"):
@@ -284,7 +284,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
         db.row_factory = None
         async with db.execute(query, (group_id, )) as cur:
             res = await cur.fetchone()
-        return bool(res[0])
+        return res is not None
 
     @classmethod
     async def selectCountWhere(cls, db: aiosqlite.Connection, group_id: int, author_id: int=None) -> int:
@@ -748,41 +748,42 @@ class Tags(GroupCog, group_name="t"):
 
     view = Group(name="view", description="commands that display useful information")
 
-    def get_callbacks(self, dbman, group_id):
-        from common.paginator import ScrollerState, Scroller
+    @view.command(name="user")
+    @app_commands.rename(group_id="group")
+    async def view_user(self, interaction: Interaction, group_id: Transform[int, TagGroupTransformer], user: discord.User):
+        message = await respond(interaction)
+        if group_id is None:
+            raise errors.CustomCheck(f"There are no tags in that group")
 
-        async def page(interaction_c: Interaction, state: ScrollerState) -> list[str]:
-            async with dbman.conn() as db:
-                results = await Tag.selectAllWhere(db, group_id,
-                                                   limit=10, offset=state.initial_offset + state.relative_offset)
-                reps = []
-                for i, tag in enumerate(results):
-                    index = state.initial_offset + state.relative_offset + i + 1
-                    temp = f"{index:<5} {tag.name} - {tag.author_id} : {tag.creation_date}"
-                    reps.append(temp)
-                return reps
-        
-        async def count(interaction_c: Interaction, state: ScrollerState) -> int:
-            async with dbman.conn() as db:
-                count = await Tag.selectCountWhere(db, group_id)
-                return count
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, bool]:
+            ITEM_COUNT = 10
+            async with self.bot.dbman.conn() as db:
+                tag_count = await Tag.selectCountWhere(db, group_id=group_id, author_id=user.id)
+                offset = state.initial_offset + state.relative_offset
+                results = await Tag.selectAllWhere(db, guild_id=group_id, author_id=user.id, limit=ITEM_COUNT, offset=offset * ITEM_COUNT)
+            
+            reps = []
+            for i, tag in enumerate(results):
+                index = (offset * ITEM_COUNT) + i + 1
+                temp = f"{index:<5} {tag.name} - {tag.author_id} : {tag.creation_date}"
+                reps.append(temp)
+            
+            group_name = "global" if group_id == 0 else "local"
+            body = '\n'.join(reps)
+            content = f"```swift\nThere are {tag_count} tags in the {group_name} group, belonging to {user.name}\n---\n{body}\n---\n```"
+            is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
+            return content, is_last 
 
-        # async def margins(interaction_c: Interaction, state: ScrollerState) -> tuple(str, str, list[tuple[str, str]]):
-        #     async with dbman.conn() as db:
-                
-        return page, count
-
-
+        scroller = Scroller(message, interaction.user, page_callback=callback, initial_offset=0)
+        await scroller.update(interaction)
 
     @view.command(name="all")
     @app_commands.rename(group_id="group")
     async def view_all(self, interaction: Interaction, group_id: Transform[int, TagGroupTransformer]):
         message = await respond(interaction)
         if group_id is None:
-            raise errors.CustomCheck("That group doesn't exist")
+            raise errors.CustomCheck("There are no tags in that group")
 
-        from common.paginator import ScrollerState, Scroller
-        import textwrap
         async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, bool]:
             ITEM_COUNT = 10
             async with self.bot.dbman.conn() as db:
@@ -809,17 +810,6 @@ class Tags(GroupCog, group_name="t"):
         
         # content, _ = await scroller.get_page_content(interaction)
         # await respond(interaction, content=content, view=scroller)
-
-
-
-
-
-
-
-
-
-
-
 
 class TagModal(discord.ui.Modal, title="Set Tag"):
     def __init__(self, message: discord.Message):

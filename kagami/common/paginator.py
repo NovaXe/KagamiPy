@@ -1,8 +1,9 @@
 import collections
 import dataclasses
 import traceback
-from typing import Any, Callable, Awaitable
+from typing import Any, Callable, Awaitable, Generator
 from math import floor, ceil
+from copy import copy
 import sys
 
 import discord
@@ -33,21 +34,31 @@ class Scroller(ui.View):
                 #  count_callback: Callable[[Interaction, ScrollerState], list[str]],
                 #  margin_callback: Callable[[Interaction, ScrollerState], list[str]],
                  initial_offset=0,
-                 timeout: float=300):
+                 timeout: float=300, timeout_delete_delay: float=3):
         """
         page_callback: Returns a string representing the page, and a boolean dictating whether the current page is the last
+        initial_offset: What page index the scroller starts on
+        timeout: How long until the view enters recovery
+        recovery_time: If not 0, specifies how long you have to click on the message before it's deleted
         """
         super().__init__(timeout=timeout)
         self.message: discord.Message = message
+        self.timeout_delete_delay = timeout_delete_delay
         self.user: discord.User = user
         self.initial_offset: int = initial_offset
         self.relative_offset: int = 0
         self.page_callback: AsyncCallable[[Interaction, ScrollerState], Awaitable[tuple[str, bool]]] = page_callback
-        # self.page_callback: Callable[[Interaction, ScrollerState], list[str]] = page_callback
-        # self.count_callback: Callable[[Interaction, ScrollerState], int] = count_callback 
-        # self.margin_callback: Callable[[Interaction, ScrollerState], list[str]] = margin_callback
-        # self.max_page_size: int = max_page_size
-        self.button_delta = 1
+
+    def __copy__(self):
+        scroller = Scroller(
+            message=self.message, 
+            user=self.user, 
+            page_callback=self.page_callback, 
+            initial_offset=self.initial_offset, 
+            timeout=self.timeout
+        )
+        scroller.relative_offset = self.relative_offset
+        return scroller
 
     @property
     def state(self):
@@ -63,7 +74,7 @@ class Scroller(ui.View):
         return self.initial_offset + self.relative_offset
 
     @property
-    def buttons(self):
+    def buttons(self) -> Generator[ui.Button, None, None]:
         return (item for item in self.children if isinstance(item, ui.Button))
 
     async def getPage(self, interaction: Interaction) -> tuple[str, bool]:
@@ -73,101 +84,67 @@ class Scroller(ui.View):
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         if interaction.user == self.user:
             return True
-
         await respond(interaction, f"Only {self.user.mention} can use this view", ephemeral=True)
         return False
 
     async def on_timeout(self) -> None:
-        for button in self.children:
-            button.disabled = True
+        # for button in self.buttons:
+            # button.disabled = True
         if self.message:
-            await self.message.edit(view=self, delete_after=30)
-# Instead of using delete after, I should instead have a system that changes the color of the buttons.
-# That way the user of the message is able to click it to refresh the timer
-
+            for child in self.children:
+                child.disabled = True
+            await self.message.edit(view=self, delete_after=self.timeout_delete_delay)
+        
     async def on_error(self, interaction: Interaction, error: Exception, item: Item[Any], /) -> None:
         tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
         message = f"An error occurred while processing the interaction for {str(item)}:\n```py\n{tb}\n```"
         await interaction.response.send_message(message)
 
-    # async def get_page_content(self, interaction: Interaction) -> str:
-        # items: list[str] = await self.page_callback(interaction, self.state)
-        # content = "\n".join(items)
-        # content = f"```\n{content}\n```"
-        # return content
-
-    async def update_old(self, interaction: Interaction):
-        item_count = await self.count_callback(interaction, self.state)
-        max_offset = ((item_count - self.initial_offset) // self.button_delta) * self.button_delta
-        
-        # 0 ............    i    ..... i + r  ..... max
-        # -initial ..... initial ..... offset ..... max
-        self.relative_offset = min(max(self.offset, -self.initial_offset), max_offset) - self.initial_offset
-        # self.relative_offset *= self.max_page_size
-        
-        button: ui.Button
-        for button in self.buttons:
-            if button.custom_id == "Scroller:first":
-                button.disabled = self.offset == 0
-            elif button.custom_id == "Scroller:prev":
-                button.disabled = self.offset == 0
-            elif button.custom_id == "Scroller:home":
-                button.disabled = self.relative_offset == 0
-            elif button.custom_id == "Scroller:next":
-                button.disabled = self.offset == max_offset
-            elif button.custom_id == "Scroller:last":
-                button.disabled = self.offset == max_offset
-
-
-        content = await self.get_page_content(interaction)
-        await self.message.edit(content=content, view=self)
-
     async def update(self, interaction: Interaction):
         content, is_last = await self.getPage(interaction)
 
-        for button in self.buttons:
-            if button.custom_id == "Scroller:first":
-                button.disabled = self.offset == 0
-            elif button.custom_id == "Scroller:prev":
-                button.disabled = self.offset == 0
-            elif button.custom_id == "Scroller:home":
-                button.disabled = self.relative_offset == 0
-            elif button.custom_id == "Scroller:next":
-                button.disabled = is_last
-            elif button.custom_id == "Scroller:last":
-                button.disabled = is_last 
+        self.first.disabled = self.offset == 0
+        self.prev.disabled = self.offset == 0
+        self.home.disabled = self.relative_offset == 0
+        self.next.disabled = is_last
+        self.last.disabled = is_last
+
+        self.home.style = ButtonStyle.blurple 
+
         await self.message.edit(content=content, view=self) 
 
-
-    @ui.button(emoji="⬆", custom_id="Scroller:first")
+    @ui.button(emoji="⬆", custom_id="Scroller:first", row=0)
     async def first(self, interaction: Interaction, button: ui.Button):
         await respond(interaction)
         self.relative_offset = 0 - self.initial_offset
         await self.update(interaction)
 
-    @ui.button(emoji="🔼", custom_id="Scroller:prev")
+    @ui.button(emoji="🔼", custom_id="Scroller:prev", row=0)
     async def prev(self, interaction: Interaction, button: ui.Button):
         await respond(interaction)
-        self.relative_offset -= self.button_delta
+        self.relative_offset -= 1
         await self.update(interaction)
 
-    @ui.button(emoji="*️⃣", custom_id="Scroller:home")
+    @ui.button(emoji="*️⃣", custom_id="Scroller:home", style=ButtonStyle.blurple, row=0)
     async def home(self, interaction: Interaction, button: ui.Button):
         await respond(interaction)
         self.relative_offset = 0
         await self.update(interaction)
 
-    @ui.button(emoji="🔽", custom_id="Scroller:next")
+    @ui.button(emoji="🔽", custom_id="Scroller:next", row=0)
     async def next(self, interaction: Interaction, button: ui.Button):
         await respond(interaction)
-        self.relative_offset += self.button_delta
+        self.relative_offset += 1
         await self.update(interaction)
     
-    @ui.button(emoji="⬇", custom_id="Scroller:last")
+    @ui.button(emoji="⬇", custom_id="Scroller:last", row=0)
     async def last(self, interaction: Interaction, button: ui.Button):
         await respond(interaction)
         self.relative_offset = sys.maxsize
         await self.update(interaction)
 
-
-
+    @ui.button(emoji="🗑", custom_id="Scroller:delete", row=4, style=ButtonStyle.red)
+    async def delete(self, interaction: Interaction, button: ui.Button):
+        # await respond(interaction)
+        await self.message.delete()
+        # await respond(interaction, content="Deleted the message", ephemeral=True, delete_after=3)
