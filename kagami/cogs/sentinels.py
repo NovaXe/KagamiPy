@@ -209,6 +209,15 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         async with db.execute(query, (guild_id, f"%{name}%", limit, offset)) as cur:
             results = await cur.fetchall()
         return [n.name for n in results]
+    
+    @classmethod
+    async def selectInfoWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str, limit: int=None, offset: int=0):
+        raise NotImplementedError
+        query = f"""
+        SELECT 
+        """
+        # TODO Implement this with a new dataclass representing sentinel info
+        # This should contain the name, response + trigger count, scope, whatever else makes sense for an overview
 
 
     @classmethod
@@ -1586,9 +1595,14 @@ class Sentinels(GroupCog, name="s"):
     #         await respond(interaction, content=f"Local and Global sentinels are now `disabled` in `{channel.name}`")
 
 
+
     @view_group.command(name="all", description="view all sentinels on a guild")
-    async def view_all(self, interaction: Interaction):
+    async def view_all(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform):
         await respond(interaction, ephemeral=True)
+        if sentinel is None: raise SentinelDoesNotExist
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, bool]:
+            async with self.bot.dbman.conn() as db:
+                sentinels = await Sentinel.selectInfoWhere(db, scope: scope, name: sentinel.name)
         raise errors.NotImplementedYet
 
     @view_group.command(name="sentinel", description="view all suits in a sentinel")
