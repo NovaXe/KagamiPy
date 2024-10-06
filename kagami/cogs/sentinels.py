@@ -15,6 +15,7 @@ from bot import Kagami
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings
+from common.paginator import Scroller, ScrollerState
 from utils.depr_db_interface import Database
 from typing import (
     Literal, List, Callable, Any
@@ -199,6 +200,29 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         return result
 
     @classmethod
+    async def selectAllWhere(cls, db: aiosqlite.Connection, guild_id: int, limit: int=None, offset: int=0) -> list["Sentinel"]:
+        query = f"""
+        SELECT * FROM {Sentinel}
+        WHERE guild_id = ?
+        LIMIT ? OFFSET ?
+        """
+        db.row_factory = Sentinel.row_factory
+        async with db.execute(query, (guild_id, limit, offset)) as cur:
+            result = await cur.fetchall()
+        return result
+
+    @classmethod
+    async def selectCountWhere(cls, db: aiosqlite.Connection, guild_id: int) -> int:
+        query = f"""
+        SELECT COUNT(*) FROM {Sentinel}
+        WHERE guild_id = ?
+        """
+        db.row_factory = None
+        async with db.execute(query, (guild_id,)) as cur:
+            res = await cur.fetchone()
+        return res[0] if res else 0
+
+    @classmethod
     async def selectLikeNamesWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str, limit: int=None, offset: int=0):
         query = f"""
         SELECT name FROM {Sentinel}
@@ -211,11 +235,9 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         return [n.name for n in results]
     
     @classmethod
-    async def selectInfoWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str, limit: int=None, offset: int=0):
-        raise NotImplementedError
-        query = f"""
-        SELECT 
-        """
+    async def selectAllInfoWhere(cls, db: aiosqlite.Connection, guild_id: int, limit: int=None, offset: int=0) -> list["SentinelInfo"]:
+        infos = await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=limit, offset=offset)
+        return infos
         # TODO Implement this with a new dataclass representing sentinel info
         # This should contain the name, response + trigger count, scope, whatever else makes sense for an overview
 
@@ -250,6 +272,50 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
+
+@dataclass
+class SentinelInfo:
+    guild_id: int
+    name: str
+    suit_count: int
+    trigger_count: int
+    response_count: int
+    enabled: int
+
+    @classmethod
+    async def selectAllWhere(cls, db: aiosqlite.Connection, guild_id: int, limit: int=None, offset: int=0) -> list["SentinelInfo"]:
+        query = f"""
+        SELECT 
+            {Sentinel}.guild_id as guild_id,
+            {Sentinel}.name as name,
+            (SELECT COUNT(*) FROM {SentinelSuit} 
+                WHERE 
+                    {SentinelSuit}.sentinel_name = {Sentinel}.name AND 
+                    {SentinelSuit}.trigger_id NOT NULL AND 
+                    {SentinelSuit}.response_id NOT NULL
+            ) AS suit_count,
+            (SELECT COUNT(*) FROM {SentinelSuit} 
+                WHERE 
+                    {SentinelSuit}.sentinel_name = {Sentinel}.name AND 
+                    {SentinelSuit}.response_id IS NULL
+            ) AS trigger_count,
+		    (SELECT COUNT(*) FROM {SentinelSuit} 
+                WHERE 
+                    {SentinelSuit}.sentinel_name = {Sentinel}.name AND 
+                    {SentinelSuit}.trigger_id IS NULL
+            ) AS response_count,
+            {Sentinel}.enabled AS enabled
+	    FROM {SentinelSuit}
+	    LEFT JOIN {Sentinel} ON 
+		    {Sentinel}.name = {SentinelSuit}.sentinel_name
+        WHERE {Sentinel}.guild_id = ?
+        LIMIT ? OFFSET ?
+        """
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, (guild_id, limit, offset)) as cur:
+            ress = await cur.fetchall()
+        infos = [cls(**res) for res in ress]
+        return infos
 
 @dataclass
 class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
@@ -1597,14 +1663,29 @@ class Sentinels(GroupCog, name="s"):
 
 
     @view_group.command(name="all", description="view all sentinels on a guild")
-    async def view_all(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform):
-        await respond(interaction, ephemeral=True)
-        if sentinel is None: raise SentinelDoesNotExist
+    async def view_all(self, interaction: Interaction, scope: SentinelScope):
+        message = await respond(interaction)
+        guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, bool]:
+            offset = state.initial_offset + state.relative_offset
             async with self.bot.dbman.conn() as db:
-                sentinels = await Sentinel.selectInfoWhere(db, scope: scope, name: sentinel.name)
-        raise errors.NotImplementedYet
-
+                sentinel_infos = await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=10, offset=offset * 10)
+                count = await Sentinel.selectCountWhere(db, guild_id=guild_id)
+            
+            reps = []
+            for i, info in enumerate(sentinel_infos):
+                index = (offset * 10) + i + 1
+                temp = f"{index:<5} {info.name} - {info.suit_count} / ({info.trigger_count}, {info.response_count}) : {info.enabled}"
+                reps.append(temp)
+            body = "\n".join(reps)
+            header = f"There are {count} sentinels within the {scope} scope\n"
+            header += "index Name - Suit Count / (Trigger Count, Response Count) : Enabled"
+            content = f"```swift\n{header}\n---\n{body}\n---\n```"
+            is_last = (count - offset * 10) < 10
+            return content, is_last
+        scroller = Scroller(message, interaction.user, page_callback=callback)
+        await scroller.update(interaction)
+        
     @view_group.command(name="sentinel", description="view all suits in a sentinel")
     async def view_sentinel(self, interaction: Interaction):
         await respond(interaction, ephemeral=True)

@@ -93,8 +93,10 @@ class Scroller(ui.View):
         if self.message:
             for child in self.children:
                 child.disabled = True
-            await self.message.edit(view=self, delete_after=self.timeout_delete_delay)
-        
+            try:
+                await self.message.edit(view=self, delete_after=self.timeout_delete_delay)
+            except discord.NotFound:
+                pass
     async def on_error(self, interaction: Interaction, error: Exception, item: Item[Any], /) -> None:
         tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
         message = f"An error occurred while processing the interaction for {str(item)}:\n```py\n{tb}\n```"
@@ -147,4 +149,5 @@ class Scroller(ui.View):
     async def delete(self, interaction: Interaction, button: ui.Button):
         # await respond(interaction)
         await self.message.delete()
+        self.stop()
         # await respond(interaction, content="Deleted the message", ephemeral=True, delete_after=3)
