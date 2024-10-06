@@ -755,12 +755,15 @@ class Tags(GroupCog, group_name="t"):
         if group_id is None:
             raise errors.CustomCheck(f"There are no tags in that group")
 
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, bool]:
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
             ITEM_COUNT = 10
+            offset = state.initial_offset + state.relative_offset
             async with self.bot.dbman.conn() as db:
                 tag_count = await Tag.selectCountWhere(db, group_id=group_id, author_id=user.id)
-                offset = state.initial_offset + state.relative_offset
                 results = await Tag.selectAllWhere(db, guild_id=group_id, author_id=user.id, limit=ITEM_COUNT, offset=offset * ITEM_COUNT)
+
+            if offset * ITEM_COUNT > tag_count:
+                offset = tag_count // 10
             
             reps = []
             for i, tag in enumerate(results):
@@ -771,8 +774,9 @@ class Tags(GroupCog, group_name="t"):
             group_name = "global" if group_id == 0 else "local"
             body = '\n'.join(reps)
             content = f"```swift\nThere are {tag_count} tags in the {group_name} group, belonging to {user.name}\n---\n{body}\n---\n```"
-            is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
-            return content, is_last 
+            # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
+            last_index = tag_count // ITEM_COUNT
+            return content, last_index
 
         scroller = Scroller(message, interaction.user, page_callback=callback, initial_offset=0)
         await scroller.update(interaction)
@@ -784,12 +788,16 @@ class Tags(GroupCog, group_name="t"):
         if group_id is None:
             raise errors.CustomCheck("There are no tags in that group")
 
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, bool]:
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
             ITEM_COUNT = 10
+            offset = state.initial_offset + state.relative_offset
             async with self.bot.dbman.conn() as db:
-                tag_count = await Tag.selectCountWhere(db, group_id=group_id)
-                offset = state.initial_offset + state.relative_offset
-                results = await Tag.selectAllWhere(db, guild_id=group_id, limit=ITEM_COUNT, offset=offset * ITEM_COUNT)
+                tag_count = await Tag.selectCountWhere(db, group_id=group_id, author_id=user.id)
+                results = await Tag.selectAllWhere(db, guild_id=group_id, author_id=user.id, limit=ITEM_COUNT, offset=offset * ITEM_COUNT)
+
+            if offset * ITEM_COUNT > tag_count:
+                offset = tag_count // 10
+            
             
             reps = []
             for i, tag in enumerate(results):
@@ -800,8 +808,9 @@ class Tags(GroupCog, group_name="t"):
             group_name = "global" if group_id == 0 else "local"
             body = '\n'.join(reps)
             content = f"```swift\nThere are {tag_count} tags in the {group_name} group\n---\n{body}\n---\n```"
-            is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
-            return content, is_last 
+            # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
+            last_index = tag_count // ITEM_COUNT 
+            return content, last_index
 
         # page, count = self.get_callbacks(self.bot.dbman, group_id)
         # scroller = Scroller(message, interaction.user, page_callback=page, count_callback=count, initial_offset=0)

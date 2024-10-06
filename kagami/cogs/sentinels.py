@@ -1666,12 +1666,15 @@ class Sentinels(GroupCog, name="s"):
     async def view_all(self, interaction: Interaction, scope: SentinelScope):
         message = await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, bool]:
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
             offset = state.initial_offset + state.relative_offset
             async with self.bot.dbman.conn() as db:
-                sentinel_infos = await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=10, offset=offset * 10)
                 count = await Sentinel.selectCountWhere(db, guild_id=guild_id)
-            
+                sentinel_infos = await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=10, offset=offset * 10)
+
+            if offset * 10 > count:
+                offset = count // 10
+
             reps = []
             for i, info in enumerate(sentinel_infos):
                 index = (offset * 10) + i + 1
@@ -1681,8 +1684,10 @@ class Sentinels(GroupCog, name="s"):
             header = f"There are {count} sentinels within the {scope} scope\n"
             header += "index Name - Suit Count / (Trigger Count, Response Count) : Enabled"
             content = f"```swift\n{header}\n---\n{body}\n---\n```"
-            is_last = (count - offset * 10) < 10
-            return content, is_last
+            # is_last = (count - offset * 10) < 10
+            last_index = count // 10
+            return content, last_index
+
         scroller = Scroller(message, interaction.user, page_callback=callback)
         await scroller.update(interaction)
         
