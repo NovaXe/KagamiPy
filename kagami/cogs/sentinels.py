@@ -1,4 +1,5 @@
 import asyncio
+from math import floor
 import re
 from dataclasses import dataclass
 from enum import IntEnum
@@ -17,6 +18,7 @@ from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings
 from common.paginator import Scroller, ScrollerState
 from utils.depr_db_interface import Database
+from common.utils import acstr
 from typing import (
     Literal, List, Callable, Any
 )
@@ -1660,34 +1662,37 @@ class Sentinels(GroupCog, name="s"):
     #         await self.database.disableChannel(guild_id=0, channel_id=channel.id)
     #         await respond(interaction, content=f"Local and Global sentinels are now `disabled` in `{channel.name}`")
 
+    @staticmethod 
+    def get_view_callback(dbman: DatabaseManager, scope: str, guild_id: int):
+        
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+            offset = state.initial_offset + state.relative_offset
+            async with dbman.conn() as db:
+                count = await Sentinel.selectCountWhere(db, guild_id=guild_id)
+                if offset * 10 > count:
+                    offset = floor(count / 10)
+                sentinel_infos = await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=10, offset=offset * 10)
 
+            reps = []
+            for i, info in enumerate(sentinel_infos):
+                index = (offset * 10) + i + 1
+                temp = f"{acstr(index, 6)} {acstr(info.name, 16)} - {acstr(info.suit_count, 5)} / ({acstr(info.trigger_count, 8 , 'm')}, {acstr(info.response_count, 9, 'm')}) : {acstr(info.enabled, 7, 'r')}"
+                reps.append(temp)
+            body = "\n".join(reps)
+            header = f"There are {count} sentinels within the {scope} scope\n"
+            header += f"{acstr('Index', 6)} {acstr('Name', 16)} - {acstr('Suits', 5, 'm')} / ({acstr('Triggers', 8, 'm')}, {acstr('Responses', 9, 'm')}) : {acstr('Enabled', 7, 'r')}"
+            content = f"```swift\n{header}\n---\n{body}\n---\n```"
+            # is_last = (count - offset * 10) < 10
+            last_index = count // 10
+            return content, last_index
+        return callback
 
     @view_group.command(name="all", description="view all sentinels on a guild")
     async def view_all(self, interaction: Interaction, scope: SentinelScope):
         message = await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
-            offset = state.initial_offset + state.relative_offset
-            async with self.bot.dbman.conn() as db:
-                count = await Sentinel.selectCountWhere(db, guild_id=guild_id)
-                sentinel_infos = await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=10, offset=offset * 10)
-
-            if offset * 10 > count:
-                offset = count // 10
-
-            reps = []
-            for i, info in enumerate(sentinel_infos):
-                index = (offset * 10) + i + 1
-                temp = f"{index:<5} {info.name} - {info.suit_count} / ({info.trigger_count}, {info.response_count}) : {info.enabled}"
-                reps.append(temp)
-            body = "\n".join(reps)
-            header = f"There are {count} sentinels within the {scope} scope\n"
-            header += "index Name - Suit Count / (Trigger Count, Response Count) : Enabled"
-            content = f"```swift\n{header}\n---\n{body}\n---\n```"
-            # is_last = (count - offset * 10) < 10
-            last_index = count // 10
-            return content, last_index
-
+        scope_str = "local" if scope != 0 else "global"
+        callback = self.get_view_callback(self.bot.dbman, scope_str, guild_id)
         scroller = Scroller(message, interaction.user, page_callback=callback)
         await scroller.update(interaction)
         

@@ -1,3 +1,4 @@
+from typing import Any, Literal
 import aiohttp
 from io import BytesIO
 from difflib import (
@@ -9,6 +10,25 @@ import discord.utils
 
 
 
+def acstr(string: str | Any, length: int, just: Literal["l", "r", "m"]="l"):
+    """String alignment and cropping
+    string: The string in questions
+    length: The max length of the string
+    just: The justification, [l]eft, [r]ight, [m]iddle
+    """
+    if not isinstance(string, str):
+        string = str(string)
+    cont = "..."
+    match just:
+        case "l":
+            string = string.ljust(length)
+        case "r":
+            string = string.rjust(length)
+        case "m":
+            string = string.center(length)
+    if len(string) > length:
+        string = string[:length-len(cont)] + cont
+    return string
 
 def clamp(num, min_value, max_value):
     num = max(min(num, max_value), min_value)

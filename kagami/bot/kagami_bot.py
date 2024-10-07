@@ -63,7 +63,7 @@ class Kagami(commands.Bot):
                                ignore_trigger_updates=self.config.ignore_trigger_updates)
 
         for file in os.listdir("cogs"):
-            if file.endswith(".py"):
+            if file.endswith(".py") and not file.startswith("~"):
                 name = file[:-3]
                 # if name == "sentinels":
                 #     continue
