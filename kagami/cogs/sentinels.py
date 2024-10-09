@@ -434,6 +434,9 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="s
         regex = 3  # regex matching
         reaction = 4  # triggers on a reaction
 
+        def __str__(self):
+            return self.name
+
     type: TriggerType
     object: str
     id: int = None
@@ -506,6 +509,8 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1, table_group="
     class ResponseType(IntEnum):
         message = 1
         reply = 2
+        def __str__(self):
+            return self.name
     type: ResponseType
     content: str
     reactions: str
@@ -716,6 +721,19 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         async with db.execute(query, params) as cur:
             result = await cur.fetchone()
         return result
+    
+    @classmethod
+    async def selectCountWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str) -> int:
+        query = f"""
+        SELECT count(*) FROM {SentinelSuit}
+        WHERE guild_id = ? AND sentinel_name = ?
+        """
+        params = (guild_id, sentinel_name)
+        db.row_factory = None
+        async with db.execute(query, params) as cur:
+            result = await cur.fetchone()
+        assert result is not None
+        return result[0]
 
     @classmethod
     async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit":
@@ -977,6 +995,47 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         async with db.execute(query, params) as cur:
             results = await cur.fetchall()
         return results
+
+@dataclass
+class SuitInfo:
+    guild_id: int
+    sentinel_name: str
+    name: str
+    weight: int
+    enabled: bool
+    trigger_type: SentinelTrigger.TriggerType
+    trigger_object: str
+    response_type: SentinelResponse.ResponseType
+    response_content: str
+    response_reactions: str
+    
+    @classmethod
+    async def selectAllWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, limit: int=5, offset: int=0) -> list["SuitInfo"]:
+        query = f"""
+        SELECT 
+            Suit.guild_id as guild_id,
+            Suit.sentinel_name as sentinel_name,
+            Suit.name as name,
+            Suit.weight as weight,
+            Suit.enabled as enabled,
+            Trigger.type as trigger_type,
+            Trigger.object as trigger_object,
+            Response.type as response_type,
+            Response.content as response_content,
+            Response.reactions as response_reactions
+        FROM {SentinelSuit} as Suit
+        LEFT JOIN {SentinelTrigger} as Trigger ON
+            Trigger.id = Suit.trigger_id
+        LEFT JOIN {SentinelResponse} as Response ON
+            Response.id = Suit.response_id
+        WHERE
+            guild_id = ? AND sentinel_name = ?
+        LIMIT ? OFFSET ?
+        """
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, (guild_id, sentinel_name, limit, offset)) as cur:
+            ress = await cur.fetchall()
+        return [cls(**res) for res in ress] 
 
 
 class SentinelScope(IntEnum):
@@ -1663,7 +1722,7 @@ class Sentinels(GroupCog, name="s"):
     #         await respond(interaction, content=f"Local and Global sentinels are now `disabled` in `{channel.name}`")
 
     @staticmethod 
-    def get_view_callback(dbman: DatabaseManager, scope: str, guild_id: int):
+    def get_view_all_callback(dbman: DatabaseManager, scope: str, guild_id: int):
         
         async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
             offset = state.initial_offset + state.relative_offset
@@ -1686,20 +1745,59 @@ class Sentinels(GroupCog, name="s"):
             last_index = count // 10
             return content, last_index
         return callback
+    
+    @staticmethod
+    def get_sentinel_view_callback(dbman: DatabaseManager, scope: str, guild_id: int, sentinel_name: str):
+        ITEM_COUNT = 5
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+            offset = state.initial_offset + state.relative_offset
+            async with dbman.conn() as db:
+                count = await SentinelSuit.selectCountWhere(db, guild_id=guild_id, sentinel_name=sentinel_name)
+                if offset * ITEM_COUNT > count:
+                    offset = floor(count / 10)
+                infos = await SuitInfo.selectAllWhere(db, guild_id, sentinel_name)
+            
+            item_reps = []
+            edges = ("'", "'")
+            for index, info in enumerate(infos):
+                t_type = SentinelTrigger.TriggerType(info.trigger_type)
+                r_type = SentinelResponse.ResponseType(info.response_type) 
+                temp = f"{acstr(index, 6)} {acstr(info.name, 12)} - {acstr(info.weight, 6, 'r')} : {acstr(bool(info.enabled), 9, 'r')}"
+                temp += f"\n{acstr('', 6)} > {acstr(str(t_type), 14)} {acstr(info.trigger_object, 18, edges=edges)}"
+                temp += f"\n{acstr('', 6)} > {acstr(str(r_type), 14)} {acstr(info.response_content, 18, edges=edges)} {acstr(info.response_reactions, 20, edges=('(', ')'))}"
+                item_reps += [temp]
+
+            header = f"There are {count} suits for the sentinel: {sentinel_name} within the {scope} scope"
+            header += f"\n{acstr('Index', 6)} {acstr('Suit Name', 12)} - {acstr('Weight', 6, 'r')} : {acstr('Enabled', 9, 'r')}"
+            header += f"\n{acstr('', 6)} {acstr('> Trigger Type', 16)} {acstr('Trigger Object', 18, edges=edges)}"
+            header += f"\n{acstr('', 6)} {acstr('> Response Type', 16)} {acstr('Response Content', 18, edges=edges)} {acstr('Response Reactions', 20, edges=('(', ')'))}"
+            body = '\n'.join(item_reps)
+            content = f"```swift\n{header}\n---\n{body}\n---\n```"
+
+            last_index = floor(count / 10)
+            return content, last_index
+        return callback
+
+
+
 
     @view_group.command(name="all", description="view all sentinels on a guild")
     async def view_all(self, interaction: Interaction, scope: SentinelScope):
         message = await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         scope_str = "local" if scope != 0 else "global"
-        callback = self.get_view_callback(self.bot.dbman, scope_str, guild_id)
+        callback = self.get_view_all_callback(self.bot.dbman, scope_str, guild_id)
         scroller = Scroller(message, interaction.user, page_callback=callback)
         await scroller.update(interaction)
         
     @view_group.command(name="sentinel", description="view all suits in a sentinel")
-    async def view_sentinel(self, interaction: Interaction):
-        await respond(interaction, ephemeral=True)
-        raise errors.NotImplementedYet
+    async def view_sentinel(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform):
+        message = await respond(interaction)
+        guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        scope_str = "local" if scope != 0 else "global"
+        callback = self.get_sentinel_view_callback(self.bot.dbman, scope_str, guild_id, sentinel.name)
+        scroller = Scroller(message, interaction.user, callback)
+        await scroller.update(interaction)
 
     @view_group.command(name="suit", description="view the trigger and response associated with a suit")
     async def view_suit(self, interaction: Interaction):

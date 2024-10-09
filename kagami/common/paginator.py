@@ -108,7 +108,7 @@ class Scroller(ui.View):
 
         self.first.disabled = self.offset == 0
         self.prev.disabled = self.offset == 0
-        self.home.disabled = self.relative_offset == 0
+        # self.home.disabled = self.relative_offset == 0
         self.next.disabled = is_last 
         self.last.disabled = is_last
         if is_last:
