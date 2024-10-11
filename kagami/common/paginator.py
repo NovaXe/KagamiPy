@@ -1,7 +1,7 @@
 import collections
 import dataclasses
 import traceback
-from typing import Any, Callable, Awaitable, Generator
+from typing import Any, Callable, Awaitable, Generator, Union
 from math import floor, ceil
 from copy import copy
 import sys
@@ -13,7 +13,7 @@ from discord.ui import Item
 
 from common.interactions import respond
 
-
+def create_button()
 
 # class OwnedView(ui.View)
 # class CustomView(ui.View)
@@ -50,7 +50,9 @@ class Scroller(ui.View):
         self.user: discord.User = user
         self.initial_offset: int = initial_offset
         self.relative_offset: int = 0
-        self.page_callback: AsyncCallable[[Interaction, ScrollerState], Awaitable[tuple[str, int]]] = page_callback
+        self.page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int]]] = page_callback
+        # for button in custom_buttons:
+        #     self.add_item()
 
     def __copy__(self):
         scroller = Scroller(
@@ -79,6 +81,24 @@ class Scroller(ui.View):
     @property
     def buttons(self) -> Generator[ui.Button, None, None]:
         return (item for item in self.children if isinstance(item, ui.Button))
+    
+    def add_button(self, callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int]]], 
+                   style: ButtonStyle=ButtonStyle.secondary, 
+                   label: str=None, 
+                   emoji: Union[discord.PartialEmoji, discord.Emoji, str]=None, 
+                   row: int=None,
+                   ephemeral: bool=False):
+
+        class CustomButtom(ui.Button):
+            def __init__(self): # All variables are from the wrapper method so proper initialization isn't needed, kinda hacky but really no different than bind
+                super().__init__(self, style=style, label=label, emoji=emoji, row=row)
+            
+            async def callback(self, interaction: Interaction) -> Any:
+                await respond(interaction, ephemeral=ephemeral)
+                assert isinstance(self.view, Scroller) # Works under the assumption of the view having a state property
+                await callback(interaction, self.view.state)
+                await self.view.update() 
+        self.add_button(CustomButtom())
 
     async def getPage(self, interaction: Interaction) -> tuple[str, int]:
         content, last_index = await self.page_callback(interaction, self.state)
@@ -100,6 +120,7 @@ class Scroller(ui.View):
                 await self.message.edit(view=self, delete_after=self.timeout_delete_delay)
             except discord.NotFound:
                 pass
+
     async def on_error(self, interaction: Interaction, error: Exception, item: Item[Any], /) -> None:
         tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
         message = f"An error occurred while processing the interaction for {str(item)}:\n```py\n{tb}\n```"
