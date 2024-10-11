@@ -65,8 +65,8 @@ class Kagami(commands.Bot):
         for file in os.listdir("cogs"):
             if file.endswith(".py") and not file.startswith("~"):
                 name = file[:-3]
-                # if name == "sentinels":
-                #     continue
+                if name in self.config.excluded_cogs:
+                    continue
                 path = f"cogs.{name}"
                 await self.load_extension(path)
 
