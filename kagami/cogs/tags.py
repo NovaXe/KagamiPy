@@ -787,6 +787,7 @@ class Tags(GroupCog, group_name="t"):
         message = await respond(interaction)
         if group_id is None:
             raise errors.CustomCheck("There are no tags in that group")
+        user = interaction.user
 
         async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
             ITEM_COUNT = 10
@@ -797,7 +798,6 @@ class Tags(GroupCog, group_name="t"):
 
             if offset * ITEM_COUNT > tag_count:
                 offset = tag_count // 10
-            
             
             reps = []
             for i, tag in enumerate(results):
