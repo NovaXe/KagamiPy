@@ -26,6 +26,9 @@ class ScrollerState:
     message: discord.Message
     initial_offset: int
     relative_offset: int
+    @property
+    def offset(self):
+        return self.initial_offset + self.relative_offset
 
 T_Callback = Callable[[Interaction, ScrollerState], list[str]]
 class Scroller(ui.View):

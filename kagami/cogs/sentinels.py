@@ -1036,6 +1036,34 @@ class SuitInfo:
         async with db.execute(query, (guild_id, sentinel_name, limit, offset)) as cur:
             ress = await cur.fetchall()
         return [cls(**res) for res in ress] 
+    
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str) -> "SuitInfo":
+        query = f"""
+        SELECT 
+            Suit.guild_id as guild_id,
+            Suit.sentinel_name as sentinel_name,
+            Suit.name as name,
+            Suit.weight as weight,
+            Suit.enabled as enabled,
+            Trigger.type as trigger_type,
+            Trigger.object as trigger_object,
+            Response.type as response_type,
+            Response.content as response_content,
+            Response.reactions as response_reactions
+        FROM {SentinelSuit} as Suit
+        LEFT JOIN {SentinelTrigger} as Trigger ON
+            Trigger.id = Suit.trigger_id
+        LEFT JOIN {SentinelResponse} as Response ON
+            Response.id = Suit.response_id
+        WHERE
+            guild_id = ? AND sentinel_name = ?
+        """
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, (guild_id, sentinel_name)) as cur:
+            res = await cur.fetchone()
+        return cls(**res) 
+
 
 
 class SentinelScope(IntEnum):
@@ -1113,7 +1141,7 @@ class SentinelTransformer(Transformer):
 
     async def transform(self, interaction: Interaction,
                         value: str, /) -> discord.Guild:
-        await respond(interaction)
+        # await respond(interaction)
         guild_id = interaction.namespace.scope
         if guild_id == 1: guild_id = interaction.guild_id
         bot: Kagami = interaction.client
@@ -1150,7 +1178,7 @@ class SentinelSuitTransformer(Transformer):
         return [Choice(name=name, value=name) for name in names]
 
     async def transform(self, interaction: Interaction, value: str, /) -> SentinelSuit:
-        await respond(interaction)
+        # await respond(interaction)
         guild_id = interaction.namespace.scope
         if guild_id == 1: guild_id = interaction.guild_id
         bot: Kagami = interaction.client
@@ -1778,9 +1806,6 @@ class Sentinels(GroupCog, name="s"):
             return content, last_index
         return callback
 
-
-
-
     @view_group.command(name="all", description="view all sentinels on a guild")
     async def view_all(self, interaction: Interaction, scope: SentinelScope):
         message = await respond(interaction)
@@ -1793,6 +1818,8 @@ class Sentinels(GroupCog, name="s"):
     @view_group.command(name="sentinel", description="view all suits in a sentinel")
     async def view_sentinel(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform):
         message = await respond(interaction)
+        if sentinel is None:
+            raise SentinelDoesNotExist
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         scope_str = "local" if scope != 0 else "global"
         callback = self.get_sentinel_view_callback(self.bot.dbman, scope_str, guild_id, sentinel.name)
@@ -1800,10 +1827,28 @@ class Sentinels(GroupCog, name="s"):
         await scroller.update(interaction)
 
     @view_group.command(name="suit", description="view the trigger and response associated with a suit")
-    async def view_suit(self, interaction: Interaction):
-        await respond(interaction, ephemeral=True)
-        raise errors.NotImplementedYet
-
+    async def view_suit(self, interaction: Interaction, scope: SentinelScope, sentinel: Sentinel_Transform, suit: Suit_Transform):
+        messsage = await respond(interaction, ephemeral=True)
+        if sentinel is None:
+            raise SentinelDoesNotExist
+        if suit is None:
+            raise SuitDoesNotExist
+        guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        scope_str = "local" if scope != 0 else "global"
+        async with self.conn() as db:
+            info = await SuitInfo.selectWhere(db, guild_id, sentinel.name)
+        header = f"Here is the full info for the suit: {suit.name}"
+        body = f"Trigger - " + \
+               f"\n> Type : {SentinelTrigger.TriggerType(info.trigger_type)}" + \
+               f"\n> Object : " + \
+               f"'{info.trigger_object}'" + \
+               f"\nResponse - " + \
+               f"\n> Type : {SentinelResponse.ResponseType(info.response_type)}" + \
+               f"\n> Reactions : ({info.response_reactions})" + \
+               f"\n> Content : " + \
+               f"'{info.response_content}'"
+        content = f"```swift\n{header}\n---\n{body}\n---\n```"
+        await respond(interaction, content=content)
 
 async def setup(bot):
     await bot.add_cog(Sentinels(bot))
