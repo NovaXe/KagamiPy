@@ -1783,7 +1783,7 @@ class Sentinels(GroupCog, name="s"):
             for index, settings in enumerate(channel_settings):
                 channel = self.bot.get_channel(settings.channel_id)
                 
-                temp = f"{acstr(index, 6)} {acstr(channel.name, 24)} - {acstr(rep(bool(settings.global_disabled)), 8)} | {acstr(rep(bool(settings.local_disabled)), 8)}"
+                temp = f"{acstr(index + 1, 6)} {acstr(channel.name, 24)} - {acstr(rep(bool(settings.global_disabled)), 8)} | {acstr(rep(bool(settings.local_disabled)), 8)}"
                 reps.append(temp)
             body = "\n".join(reps)
             header = f"{acstr('Index', 6)} {acstr('Channel Name', 24)} - {acstr('Globals', 8)} | {acstr('Locals', 8)}"
@@ -1893,16 +1893,16 @@ class Sentinels(GroupCog, name="s"):
             info = await SuitInfo.selectWhere(db, guild_id, sentinel.name)
         header = f"Here is the full info for the suit: {suit.name}"
         body = f"Trigger - " + \
-               f"\n> Type : {SentinelTrigger.TriggerType(info.trigger_type)}" + \
-               f"\n> Object : " + \
+               f"\n    > Type : {SentinelTrigger.TriggerType(info.trigger_type)}" + \
+               f"\n    > Object : " + \
                f"'{info.trigger_object}'" + \
                f"\nResponse - " + \
-               f"\n> Type : {SentinelResponse.ResponseType(info.response_type)}" + \
-               f"\n> Reactions : ({info.response_reactions})" + \
-               f"\n> Content : " + \
+               f"\n    > Type : {SentinelResponse.ResponseType(info.response_type)}" + \
+               f"\n    > Reactions : ({info.response_reactions})" + \
+               f"\n    > Content : " + \
                f"'{info.response_content}'"
         content = f"```swift\n{header}\n---\n{body}\n---\n```"
-        await respond(interaction, content=content)
+        await respond(interaction, content=content, delete_after=30)
 
 async def setup(bot):
     await bot.add_cog(Sentinels(bot))
