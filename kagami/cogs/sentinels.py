@@ -1780,10 +1780,10 @@ class Sentinels(GroupCog, name="s"):
                 channel_settings = await SentinelChannelSettings.selectAllWhere(db, interaction.guild_id, limit=10, offset=offset)
             
             reps = []
-            for index, settings in enumerate(channel_settings):
+            for i, settings in enumerate(channel_settings):
+                index = (offset * 10) + i + 1
                 channel = self.bot.get_channel(settings.channel_id)
-                
-                temp = f"{acstr(index + 1, 6)} {acstr(channel.name, 24)} - {acstr(rep(bool(settings.global_disabled)), 8)} | {acstr(rep(bool(settings.local_disabled)), 8)}"
+                temp = f"{acstr(index, 6)} {acstr(channel.name, 24)} - {acstr(rep(bool(settings.global_disabled)), 8)} | {acstr(rep(bool(settings.local_disabled)), 8)}"
                 reps.append(temp)
             body = "\n".join(reps)
             header = f"{acstr('Index', 6)} {acstr('Channel Name', 24)} - {acstr('Globals', 8)} | {acstr('Locals', 8)}"

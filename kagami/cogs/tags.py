@@ -11,6 +11,7 @@ from discord.app_commands import Transformer, Group, Transform, Choice
 from discord.ext.commands import GroupCog
 
 from common import errors
+from common.utils import acstr
 from utils.depr_db_interface import Database
 from common.interactions import respond
 from typing import Literal, Union, List, Any
@@ -802,12 +803,13 @@ class Tags(GroupCog, group_name="t"):
             reps = []
             for i, tag in enumerate(results):
                 index = (offset * ITEM_COUNT) + i + 1
-                temp = f"{index:<5} {tag.name} - {tag.author_id} : {tag.creation_date}"
+                temp = f"{acstr(index, 6)} {acstr(tag.name, 16)} - {acstr(self.bot.get_user(tag.author_id).name, 16)} : {acstr(tag.creation_date, 14)}"
                 reps.append(temp)
             
             group_name = "global" if group_id == 0 else "local"
             body = '\n'.join(reps)
-            content = f"```swift\nThere are {tag_count} tags in the {group_name} group\n---\n{body}\n---\n```"
+            header = f"{acstr('Index', 6)} {acstr('Tag Name', 16)} - {acstr('Tag Author', 16)} : {acstr('Creation Date', 14)}"
+            content = f"```swift\nThere are {tag_count} tags in the {group_name} group\n{header}\n---\n{body}\n---\n```"
             # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
             last_index = tag_count // ITEM_COUNT 
             return content, last_index
