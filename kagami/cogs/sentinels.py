@@ -320,16 +320,20 @@ class SentinelInfo:
         return infos
 
 @dataclass
-class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
+class SentinelChannelSettings(Table, schema_version=2, trigger_version=1, table_group="sentinel"):
     guild_id: int
     channel_id: int
+    global_disabled: bool = False
+    local_disabled: bool = False
 
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
         query = f"""
-        CREATE TABLE IF NOT EXISTS {DisabledSentinelChannels}(
+        CREATE TABLE IF NOT EXISTS {SentinelChannelSettings}(
             guild_id INTEGER NOT NULL,
             channel_id INTEGER NOT NULL,
+            global_disabled INTEGER DEFAULT 0,
+            local_disabled INTEGER DEFAULT 0,
             PRIMARY KEY(guild_id, channel_id),
             FOREIGN KEY(guild_id) REFERENCES {SentinelSettings}(guild_id)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
@@ -345,13 +349,14 @@ class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table
         # FROM temp_{DisabledSentinelChannels}
         # """
         # await db.execute(query)
+        # pass
         await super().insert_from_temp(db)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
         trigger = f"""
-        CREATE TRIGGER IF NOT EXISTS {DisabledSentinelChannels}_insert_settings_before_insert
-        BEFORE INSERT ON {DisabledSentinelChannels}
+        CREATE TRIGGER IF NOT EXISTS {SentinelChannelSettings}_insert_settings_before_insert
+        BEFORE INSERT ON {SentinelChannelSettings}
         BEGIN
             INSERT INTO {SentinelSettings}(guild_id)
             VALUES (NEW.guild_id)
@@ -361,70 +366,114 @@ class DisabledSentinelChannels(Table, schema_version=1, trigger_version=1, table
 
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
-        INSERT OR IGNORE INTO {DisabledSentinelChannels}(guild_id, channel_id)
-            VALUES(:guild_id, :channel_id)
+        INSERT OR IGNORE INTO {SentinelChannelSettings}(guild_id, channel_id, global_disabled, local_disabled)
+            VALUES(:guild_id, :channel_id, :global_disabled, :local_disabled)
         """
         await db.execute(query, self.asdict())
 
     @classmethod
-    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> "DisabledSentinelChannels":
+    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> "SentinelChannelSettings":
         params = {"guild_id": guild_id, "channel_id": channel_id}
         query = f"""
-        DELETE FROM {DisabledSentinelChannels}
+        DELETE FROM {SentinelChannelSettings}
         WHERE guild_id = :guild_id AND channel_id = :channel_id
         RETURNING *
         """
-        db.row_factory = DisabledSentinelChannels.row_factory
+        db.row_factory = SentinelChannelSettings.row_factory
         async with db.execute(query, params) as cur:
             result = await cur.fetchone()
         return result
 
-    async def delete(self, db: aiosqlite.Connection) -> "DisabledSentinelChannels":
+    async def delete(self, db: aiosqlite.Connection) -> "SentinelChannelSettings":
         query = f"""
-                DELETE FROM {DisabledSentinelChannels}
-                WHERE guild_id = :guild_id AND channel_id = :channel_id
-                RETURNING *
-                """
-        db.row_factory = DisabledSentinelChannels.row_factory
+        DELETE FROM {SentinelChannelSettings}
+        WHERE guild_id = :guild_id AND channel_id = :channel_id
+        RETURNING *
+        """
+        db.row_factory = SentinelChannelSettings.row_factory
         async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
 
-    @classmethod
-    async def toggleWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int):
-        params = {"guild_id": guild_id, "channel_id": channel_id}
+    async def upsert(self, db: aiosqlite.Connection):
         query = f"""
-        SELECT CASE WHEN EXISTS (
-                SELECT 1 FROM DisabledSentinelChannels WHERE 
-                    guild_id = :guild_id AND channel_id = :channel_id
-            ) THEN
-            DELETE FROM {DisabledSentinelChannels}
-            WHERE guild_id = :guild_id AND channel_id = :channel_id
-        ELSE
-            INSERT OR IGNORE INTO {DisabledSentinelChannels}(guild_id, channel_id)
-            VALUES(:guild_id, :channel_id)
-        END;
+        INSERT INTO {SentinelChannelSettings}(guild_id, channel_id, global_disabled, local_disabled)
+        VALUES(:guild_id, :channel_id, :global_disabled, :local_disabled)
+        ON CONFLICT (guild_id, channel_id) 
+        DO UPDATE SET 
+            global_disabled = :global_disabled, 
+            local_disabled = :local_disabled
+        RETURNING *
         """
-        await db.execute(query, params)
-
-
-    @classmethod
-    async def selectExists(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> bool:
-        params = {"guild_id": guild_id, "channel_id": channel_id}
-        query = f"""
-        SELECT CASE WHEN EXISTS (
-            SELECT 1 FROM {DisabledSentinelChannels}
-            WHERE
-                guild_id = :guild_id AND channel_id = :channel_id
-        )
-        THEN 1
-        ELSE 0
-        END;
-        """
-        db.row_factory = None
-        async with db.execute(query, params) as cur:
+        db.row_factory = SentinelChannelSettings.row_factory
+        data = self.asdict()
+        async with db.execute(query, data) as cur:
             result = await cur.fetchone()
-        return bool(result[0])
+        return result
+    
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, channel_id: int) -> "SentinelChannelSettings":
+        query = f"SELECT * FROM {SentinelChannelSettings} WHERE channel_id = ?"
+        db.row_factory = SentinelChannelSettings.row_factory
+        async with db.execute(query, (channel_id,)) as cur:
+            result = await cur.fetchone()
+        return result
+
+    @classmethod
+    async def selectAllWhere(cls, db: aiosqlite.Connection, guild_id: int, limit: int=10, offset: int=0) -> list["SentinelChannelSettings"]:
+        query = f"""
+        SELECT * FROM {SentinelChannelSettings}
+        WHERE guild_id = ?
+        LIMIT ? OFFSET ?
+        """
+        db.row_factory = SentinelChannelSettings.row_factory
+        async with db.execute(query, (guild_id, limit, offset)) as cur:
+            results = await cur.fetchall()
+        return results
+
+    @classmethod
+    async def selectDisabledStatus(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> bool:
+        """Returns True of False for the specific scope requested.\\
+        The weird guild_id behavior is because I didn't feel like doing a full refactor after a change.
+        Everything still operates under the assumptions from the previous simple version of this table.
+
+        Args:
+            db (aiosqlite.Connection): The aiosqlite database connection
+            guild_id (int): The scope, 0 for global and anything else for a specific guild
+            channel_id (int): The id of the discord channel that is being looked up
+
+        Returns:
+            bool: _description_
+        """        
+        query = f"SELECT * FROM {SentinelChannelSettings} WHERE channel_id = ?"
+        db.row_factory = SentinelChannelSettings.row_factory
+        async with db.execute(query, (channel_id,)) as cur:
+            res: SentinelChannelSettings = await cur.fetchone()
+        if guild_id == 0:
+            return bool(res.global_disabled)
+        else:
+            return bool(res.local_disabled)
+
+    
+    @classmethod
+    async def selectCountWhere(cls, db: aiosqlite.Connection, guild_id: int) -> int:
+        query = f"SELECT COUNT(*) FROM {SentinelChannelSettings} WHERE guild_id = ?"
+        db.row_factory = None
+        async with db.execute(query, (guild_id,)) as cur:
+            res = await cur.fetchone()
+        return res[0] if res else 0
+
+    @classmethod
+    async def selectStatusWhere(cls, db: aiosqlite.Connection, channel_id: int) -> "SentinelChannelSettings":
+        query = f"""
+        SELECT * FROM {SentinelChannelSettings}
+        WHERE channel_id = ?
+        """
+        db.row_factory = SentinelChannelSettings.row_factory
+        async with db.execute(query, (channel_id,)) as cur:
+            result = await cur.fetchone()
+        return result
+
 
 @dataclass
 class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
@@ -1323,7 +1372,10 @@ class Sentinels(GroupCog, name="s"):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         channel_id = message.channel.id
-        guild_id = message.guild.id
+        if message.guild:
+            guild_id = message.guild.id
+        else:
+            return
         if message.author.id == self.bot.user.id:
             return
 
@@ -1334,8 +1386,8 @@ class Sentinels(GroupCog, name="s"):
                 guild_settings = SentinelSettings(guild_id)
                 await guild_settings.upsert(db)
                 await db.commit()
-            channel_global_disabled = await DisabledSentinelChannels.selectExists(db, 0, channel_id)
-            channel_local_disabled = await DisabledSentinelChannels.selectExists(db, guild_id, channel_id)
+            channel_global_disabled = await SentinelChannelSettings.selectDisabledStatus(db, 0, channel_id)
+            channel_local_disabled = await SentinelChannelSettings.selectDisabledStatus(db, guild_id, channel_id)
 
         if global_settings.global_enabled and guild_settings.global_enabled and not channel_global_disabled:
             global_responses = await self.getResponsesForMessage(0, message.content)
@@ -1379,7 +1431,7 @@ class Sentinels(GroupCog, name="s"):
         if event.user_id == self.bot.user.id:
             return
         async with self.conn() as db:
-            if await DisabledSentinelChannels.selectExists(db, event.guild_id, event.channel_id):
+            if await SentinelChannelSettings.selectDisabledStatus(db, event.guild_id, event.channel_id):
                 return
 
             global_settings = await SentinelSettings.selectWhere(db, 0)
@@ -1388,8 +1440,8 @@ class Sentinels(GroupCog, name="s"):
                 guild_settings = SentinelSettings(guild_id)
                 await guild_settings.upsert(db)
                 await db.commit()
-            channel_global_disabled = await DisabledSentinelChannels.selectExists(db, 0, channel_id)
-            channel_local_disabled = await DisabledSentinelChannels.selectExists(db, guild_id, channel_id)
+            channel_global_disabled = await SentinelChannelSettings.selectDisabledStatus(db, 0, channel_id)
+            channel_local_disabled = await SentinelChannelSettings.selectDisabledStatus(db, guild_id, channel_id)
         channel = await self.bot.fetch_channel(channel_id)
         message = await channel.fetch_message(message_id)
 
@@ -1690,64 +1742,66 @@ class Sentinels(GroupCog, name="s"):
         await respond(interaction, ephemeral=True)
         if channel is None:
             channel = interaction.channel
-        state = state == "Enabled"
-        state_str = "enabled" if state else "disabled"
-
+        disabled = state == "Disabled"
+        # state_str = "enabled" if state else "disabled"
+        response = ""
         async with self.conn() as db:
-            async def toggle(new_state: bool, guild_id):
-                if new_state:
-                    await DisabledSentinelChannels.deleteWhere(db, guild_id=guild_id, channel_id=channel.id)
-                else:
-                    await DisabledSentinelChannels(guild_id, channel.id).insert(db)
+            settings = await SentinelChannelSettings.selectWhere(db, channel_id=channel.id)
+            if settings is None:
+                settings = SentinelChannelSettings(interaction.guild_id, channel.id)
+            match extent:
+                case "all":
+                   settings.global_disabled = disabled
+                   settings.local_disabled = disabled
+                   response = f"Local and Global sentinels are now `{state}` in `{channel.name}`"
+                case "local":
+                    settings.local_disabled = disabled 
+                    response = f"Local sentinels are now `{state}` in `{channel.name}`"
+                case "global":
+                    settings.global_disabled = disabled
+                    response = f"Global sentinels are now `{state}` in `{channel.name}`"
+                case _:
+                    raise ValueError("A literal was violated")
+            await settings.upsert(db)
+            await db.commit()
+        await respond(interaction, response)
 
-            if extent == "local":
-                await toggle(new_state=state, guild_id=interaction.guild_id)
-                await respond(interaction, content=f"Local sentinels are now `{state_str}` in `{channel.name}`")
-            elif extent == "global":
-                await toggle(new_state=state, guild_id=0)
-                await respond(interaction, content=f"Global sentinels are now `{state_str}` in `{channel.name}`")
-            else:
-                await toggle(new_state=state, guild_id=interaction.guild_id)
-                await toggle(new_state=state, guild_id=0)
-                await respond(interaction, content=f"Local and Global sentinels are now `{state_str}` in `{channel.name}`")
+    @view_group.command(name="all-channel-settings", description="View all the channels which have disabled sentinels")
+    async def view_channels(self, interaction: Interaction):
+        message = await respond(interaction, ephemeral=False)
+        def rep(b):
+            return "Disabled" if b else "Enabled"
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+            offset = state.offset
+            async with self.bot.dbman.conn() as db:
+                count = await SentinelChannelSettings.selectCountWhere(db, interaction.guild_id)
+                if offset * 10 > count:
+                    offset = floor(count / 10)
+                channel_settings = await SentinelChannelSettings.selectAllWhere(db, interaction.guild_id, limit=10, offset=offset)
+            
+            reps = []
+            for index, settings in enumerate(channel_settings):
+                channel = self.bot.get_channel(settings.channel_id)
+                
+                temp = f"{acstr(index, 6)} {acstr(channel.name, 24)} - {acstr(rep(bool(settings.global_disabled)), 8)} | {acstr(rep(bool(settings.local_disabled)), 8)}"
+                reps.append(temp)
+            body = "\n".join(reps)
+            header = f"{acstr('Index', 6)} {acstr('Channel Name', 24)} - {acstr('Globals', 8)} | {acstr('Locals', 8)}"
+            content = f"```swift\n{header}\n---\n{body}\n---\n```"
+            return content, floor(count / 10)
+        scroller = Scroller(message, interaction.user, callback)
+        await scroller.update(interaction)
 
-    # @enable_group.command(name="channel", description="enable all sentinels for a channel")
-    # # @commands.has_permissions(manage_channels=True)
-    # async def enable_channel(self, interaction: Interaction, channel: discord.TextChannel | discord.VoiceChannel=None, extent: Literal["all", "local", "global"]="all"):
-    #     await respond(interaction)
-    #     if channel is None:
-    #         channel = interaction.channel
-    #
-    #     if extent == "local":
-    #         await self.database.enableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
-    #         await respond(interaction, content=f"Local sentinels are now `enabled` in `{channel.name}`")
-    #     elif extent == "global":
-    #         await self.database.enableChannel(guild_id=0, channel_id=channel.id)
-    #         await respond(interaction, content=f"Global sentinels are now `enabled` in `{channel.name}`")
-    #     else:
-    #         await self.database.enableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
-    #         await self.database.enableChannel(guild_id=0, channel_id=channel.id)
-    #         await respond(interaction, content=f"Local and Global sentinels are now `enabled` in `{channel.name}`")
-    #
-    # @disable_group.command(name="channel", description="enable all sentinels for a channel")
-    # # @commands.has_permissions(manage_channels=True)
-    # async def disable_channel(self, interaction: Interaction,
-    #                           channel: discord.TextChannel | discord.VoiceChannel = None,
-    #                           extent: Literal["all", "local", "global"] = "all"):
-    #     await respond(interaction)
-    #     if channel is None:
-    #         channel = interaction.channel
-    #
-    #     if extent == "local":
-    #         await self.database.disableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
-    #         await respond(interaction, content=f"Local sentinels are now `disabled` in `{channel.name}`")
-    #     elif extent == "global":
-    #         await self.database.disableChannel(guild_id=0, channel_id=channel.id)
-    #         await respond(interaction, content=f"Global sentinels are now `disabled` in `{channel.name}`")
-    #     else:
-    #         await self.database.disableChannel(guild_id=interaction.guild_id, channel_id=channel.id)
-    #         await self.database.disableChannel(guild_id=0, channel_id=channel.id)
-    #         await respond(interaction, content=f"Local and Global sentinels are now `disabled` in `{channel.name}`")
+    @view_group.command(name="channel-settings")
+    async def view_channel(self, interaction: Interaction, channel: discord.TextChannel=None):
+        await respond(interaction, ephemeral=True) 
+        channel = channel or interaction.channel
+        async with self.conn() as db:
+            settings = await SentinelChannelSettings.selectWhere(db, channel.id)
+        def rep(b):
+            return "Disabled" if b else "Enabled"
+        text = f"`{channel.name}` - globals: `{rep(bool(settings.global_disabled))}`  |  locals: `{rep(bool(settings.local_disabled))}`"
+        await respond(interaction, text, delete_after=6)
 
     @staticmethod 
     def get_view_all_callback(dbman: DatabaseManager, scope: str, guild_id: int):
