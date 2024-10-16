@@ -72,6 +72,12 @@ class Admin(commands.Cog):
             await ctx.send(f"No cog with that name could be found")
             return
         await ctx.send(f"Reloaded cog: '{cog_name}'")
+    
+    @commands.command(name="drop-unregisterd")
+    @commands.is_owner()
+    async def drop_unregistered(self, ctx):
+        await self.bot.dbman.drop_unregistered()
+        await ctx.send("Dropped all unregistered tables")
 
     @commands.command(name="close", description="closes the bot")
     @commands.is_owner()
