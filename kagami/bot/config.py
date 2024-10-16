@@ -53,7 +53,7 @@ class Configuration:
         def get(var_name: str, type: type=str, default=None):
             val = env.get(var_name, None)
             if val is None:
-                logging.warning(f"{var_name} missing in .env file")
+                logger.warning(f"{var_name} missing in .env file")
                 return default
 
             if type is bool or type == "bool":

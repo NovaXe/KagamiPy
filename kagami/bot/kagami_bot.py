@@ -75,7 +75,7 @@ class Kagami(commands.Bot):
 
     def run_bot(self):
         logger = logging.getLogger("discord")
-        logger.propagate = False
+        logger.propagate = True
         self.run(token=self.config.token, log_handler=discord_log_handler, log_level=logging.DEBUG)
 
     async def close(self):

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import typing
-import warnings
+# import warnings
 from asyncio import Queue
 # import sqlglot
 import aiosqlite
@@ -22,7 +22,7 @@ Gives some classes and methods for interfacing with an sqlite database in a stan
 #     try:
 #         parsed_query = sqlglot.parse_one(query, dialect="sqlite")
 #     except sqlglot.ParseError as e:
-#         logger.error(f"SQLite Syntax Error for query: {query} -\n{e.with_traceback}")
+#         logger.error(f"SQLite Syntax Error for query: {query} -\n{e)
 #         raise e
 #     return query
 
@@ -77,10 +77,9 @@ class TableRegistry:
             try:
                 await tableclass.create_table(db)
             except aiosqlite.OperationalError as e:
-                logger.error(f"Issue creating table: {tablename} - {e.with_traceback()}")
+                logger.error(f"Issue creating table: {tablename} - {e}")
                 await db.rollback()
                 raise e
-
             logger.debug(f"Created Table: {tablename}")
 
     @classmethod
@@ -90,7 +89,7 @@ class TableRegistry:
             try:
                 await tableclass.create_triggers(db)
             except aiosqlite.OperationalError as e:
-                logger.error(f"Issue creating triggers for table: {tablename} - {e.with_traceback()}")
+                logger.error(f"Issue creating triggers for table: {tablename} - {e}")
                 await db.rollback()
                 raise e
             logger.debug(f"Created triggers for Table: {tablename}")
@@ -125,9 +124,12 @@ class TableRegistry:
                 logger.debug(f"Updating out of date Table: {tablename}")
                 await tableclass.update_schema(db)
                 logger.debug(f"Updated schema for Table: {tablename}")
-            metadata.schema_version = tableclass.__schema_version__
-            await metadata.upsert(db)
-            logger.debug(f"Updated schema version for Table: {tablename}")
+                metadata.schema_version = tableclass.__schema_version__
+                await metadata.upsert(db)
+                logger.debug(f"Updated schema version for Table: {tablename}")
+            else:
+                logger.debug(f"Schema for Table: {tablename} is already up to date")
+            # logger.debug(f"Updated schema version for Table: {tablename}")
     
     @classmethod
     async def update_triggers(cls, db: aiosqlite.Connection, group_name: str=None):
@@ -140,14 +142,16 @@ class TableRegistry:
             if not metadata:
                 metadata = TableMetadata(tablename)
             
-            if metadata.schema_version < tableclass.__trigger_version__:
+            if metadata.trigger_version < tableclass.__trigger_version__:
                 logger.debug(f"Updating out od data triggers on Table: {tablename}")
                 await tableclass.drop_triggers(db)
                 await tableclass.create_triggers(db)
                 logger.debug(f"Updated triggers for Table: {tablename}")
-            metadata.trigger_version = tableclass.__trigger_version__
-            await metadata.upsert(db)
-            logger.debug(f"Updated trigger version for Table: {tablename}")
+                metadata.trigger_version = tableclass.__trigger_version__
+                await metadata.upsert(db)
+                logger.debug(f"Updated trigger version for Table: {tablename}")
+            else:
+                logger.debug(f"Triggers for Table: {tablename} are up to date")
 
     @classmethod
     async def alter_tables(cls, db: aiosqlite.Connection, group_name: str=None):
@@ -195,7 +199,7 @@ class TableMeta(type):
         if table_registry is not None:
             table_registry.register_table(cls)
         else:
-            warnings.warn(f"The table class: {name} has it's registry set to None")
+            logger.warn(f"The table class: {name} has it's registry set to None")
         return cls
 
     def __str__(cls):
@@ -273,7 +277,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
             await db.execute(f"EXPLAIN {query}")
             return True
         except aiosqlite.DatabaseError as e:
-            print(f"Error in query: {e.with_traceback()}")
+            print(f"Error in query: {e}")
             return False
 
     @classmethod
@@ -354,7 +358,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
             await cls.insert_from_temp(db)
             await cls.drop_temp(db)
         except aiosqlite.OperationalError as e:
-            logger.error(f"Issue updating schema for table: {cls.__tablename__} - \n{e.with_traceback()}")
+            logger.error(f"Issue updating schema for table: {cls.__tablename__} - \n{e}")
             await db.rollback()
             raise e
         logger.debug(f"The schema for table: {cls} was updated and data migrated")
@@ -632,7 +636,7 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                     # await self.__table_registry__.alter_tables(db, group_name=table_group)
                     await DatabaseManager.registry.update_schemas(db, group_name=table_group)
                 except aiosqlite.Error as e:
-                    logger.error(f"Table Update error on group {table_group}:\n {e.with_traceback()}")
+                    logger.error(f"Table Update error on group {table_group}:\n {e}")
                     await db.rollback()
                     raise e
 
@@ -642,7 +646,8 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                 try:
                     await self.registry.update_triggers(db, table_group)
                 except aiosqlite.Error as e:
-                    logger.error(f"Trigger Update error on group: {table_group}:\n {e.with_traceback()}")
+                    message = f"Trigger Update error on group: {table_group}:\n {e}"
+                    logger.error(message)
                     await db.rollback()
                     raise e
 
@@ -700,7 +705,7 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                 await self.__table_registry__.update_schema(db)
                 await db.commit()
             except aiosqlite.Error as e:
-                logger.warning(f"Table Update error:\n {e.with_traceback()}")
+                logger.warning(f"Table Update error:\n {e}")
                 raise e
 
     __AsyncFunctionType = typing.Callable[[aiosqlite.Connection], typing.Awaitable]
