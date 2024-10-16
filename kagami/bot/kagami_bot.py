@@ -23,12 +23,14 @@ from .config import Configuration, config
 from common import errors
 from common.depr_context_vars import CVar
 from common.database import DatabaseManager
-from common.logging import bot_log_handler, discord_log_handler
+from common.tables import Guild
+from common.logging import bot_log_handler, discord_log_handler, setup_logging
 
 intents = discord.Intents.all()
 # intents.message = True
 # intents.voice_states = True
 # intents.
+my_logger = setup_logging(__name__)
 
 class Kagami(commands.Bot):
     def __init__(self):
@@ -52,7 +54,7 @@ class Kagami(commands.Bot):
     def changeCmdError(self):
         tree = self.tree
         self._old_tree_error = tree.on_error
-        tree.on_error = on_app_command_error
+        tree.on_error = self.on_app_command_error
 
     async def setup_hook(self):
         await self.dbman.setup(table_group="database")
@@ -76,7 +78,7 @@ class Kagami(commands.Bot):
     def run_bot(self):
         logger = logging.getLogger("discord")
         logger.propagate = True
-        self.run(token=self.config.token, log_handler=discord_log_handler, log_level=logging.DEBUG)
+        self.run(token=self.config.token, log_handler=discord_log_handler, log_level=logging.INFO) # Set to info so it isn't nonsense webhook spam
 
     async def close(self):
         for cog in self.cogs:
@@ -86,14 +88,24 @@ class Kagami(commands.Bot):
         await super().close()
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
-        await self.database.upsertGuild(self.database.Guild.fromDiscord(guild))
+        guild_data = Guild.fromDiscord(guild)
+        async with self.dbman() as db:
+            await guild_data.upsert(db)
+            await db.commit()
+        my_logger.info(f"Registered new guild: {guild} to the Guild Table")
 
     async def on_guild_leave(self, guild: discord.Guild) -> None:
-        await self.database.deleteGuild(guild.id)
+        async with self.dbman() as db:
+            await Guild.deleteWhere(guild_id=guild.id)
+            await db.commit()
+        my_logger.info(f"Removed guild: {guild} from the Guild Table")
 
     async def on_guild_update(self, before: discord.Guild, after: discord.Guild):
         if before.name != after.name:
-            await self.database.upsertGuild(self.database.Guild.fromDiscord(after))
+            async with self.dbman() as db:
+                guild_data = Guild.fromDiscord(after)
+                await guild_data.upsert(db)
+        my_logger.info(f"Updated data for guild: {guild_data} in the Guild Table")
 
     def getPartialMessage(self, message_id, channel_id) -> discord.PartialMessage | None:
         channel = self.get_channel(channel_id)
@@ -102,58 +114,39 @@ class Kagami(commands.Bot):
         else:
             return None
 
-    async def logToChannel(self, message: str, channel: discord.TextChannel=None, big_bold=True, code_block=True):
-        if not channel:
-            channel = self.get_channel(self.config.log_channel_id)
-            # channel = await self.fetch_channel(self.config.log_channel_id)
-
-        if code_block:
-            message = f"`{message}`"
-        if big_bold:
-            message = f"## {message}"
-
-        await channel.send(message)
-
-
     async def on_interaction(self, interaction: Interaction):
+        """Could potentially implement some fancy behind the scene interaction handling or something. Not sure what use case tho"""
         pass
-        # guild = self.database.Guild.fromDiscord(interaction.guild)
-        # await self.database.upsertGuild(guild)
 
     async def on_command_error(self, context: Context | Interaction, exception: commands.CommandError, /) -> None:
         await super().on_command_error(context, exception)
-        if isinstance(exception, commands.MissingPermissions):
+        async def send(message: str):
             if isinstance(context, Interaction):
-                await context.response.send_message("You don't have the necessary permissions to use this command",
-                                                    ephemeral=True)
+                await respond(context, message, delete_after=8, ephemeral=True)
             else:
                 await asyncio.gather(
-                    context.message.delete(delay=5),
-                    context.send("You don't have the necessary permissions to use this command", delete_after=5)
+                    context.message.delete(delay=8),
+                    context.message.reply(message, delete_after=8, ephemeral=True)
                 )
-
-
+        if isinstance(exception, commands.MissingPermissions):
+            await send("You don't have the necessary permissions to use this command")
+        else:
+            await send(str(exception))
+            my_logger.error(f"Command Exception Encountered\n{exception}")
+            
     async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:
         await super().on_error(event_method, *args, **kwargs)
-        # await self.logToChannel(
-        #     message=f"**{event_method}** \n **args:**\n{args}\n **kwargs:**\n{kwargs}",
-        #     channel=self.get_channel(self.LOG_CHANNEL),
-        #     big_bold=False,
-        #     code_block=False)
-
+        my_logger.error(event_method)
 
     async def on_ready(self):
         login_message = f"Logged in as {self.user} (ID: {self.user.id})"
         print(login_message)
-        # await self.logToChannel(login_message)
+        my_logger.info(login_message)
 
-
-
-async def on_app_command_error(interaction: Interaction, error: AppCommandError):
-    if isinstance(error, CustomCheck):
-        og_response = await respond(interaction, f"**{error}**")
-    else:
-        og_response = await interaction.original_response()
-        await og_response.channel.send(content=f"**Command encountered an error:**\n"
-                                               f"{error}")
-        traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
+    async def on_app_command_error(self, interaction: Interaction, error: AppCommandError):
+        if isinstance(error, CustomCheck):
+            message = await respond(interaction, f"**{error}**")
+        else:
+            await respond(interaction, content=f"**Command encountered an error:**\n{error}")
+            my_logger.error(f"Command encountered an error:\n{error}")
+            # traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
