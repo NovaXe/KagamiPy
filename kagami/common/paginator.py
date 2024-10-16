@@ -2,8 +2,6 @@ import collections
 import dataclasses
 import traceback
 from typing import Any, Callable, Awaitable, Generator, Union
-from math import floor, ceil
-from copy import copy
 import sys
 
 import discord
@@ -12,13 +10,6 @@ import discord.ui as ui
 from discord.ui import Item
 
 from common.interactions import respond
-
-def create_button()
-
-# class OwnedView(ui.View)
-# class CustomView(ui.View)
-# class PublicView(ui.View)
-
 
 @dataclasses.dataclass
 class ScrollerState:
@@ -51,8 +42,6 @@ class Scroller(ui.View):
         self.initial_offset: int = initial_offset
         self.relative_offset: int = 0
         self.page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int]]] = page_callback
-        # for button in custom_buttons:
-        #     self.add_item()
 
     def __copy__(self):
         scroller = Scroller(
@@ -111,8 +100,6 @@ class Scroller(ui.View):
         return False
 
     async def on_timeout(self) -> None:
-        # for button in self.buttons:
-            # button.disabled = True
         if self.message:
             for child in self.children:
                 child.disabled = True
@@ -132,7 +119,6 @@ class Scroller(ui.View):
 
         self.first.disabled = self.offset == 0
         self.prev.disabled = self.offset == 0
-        # self.home.disabled = self.relative_offset == 0
         self.next.disabled = is_last 
         self.last.disabled = is_last
         if is_last:
@@ -173,7 +159,6 @@ class Scroller(ui.View):
 
     @ui.button(emoji="🗑", custom_id="Scroller:delete", row=4, style=ButtonStyle.red)
     async def delete(self, interaction: Interaction, button: ui.Button):
-        # await respond(interaction)
         await self.message.delete()
         self.stop()
-        # await respond(interaction, content="Deleted the message", ephemeral=True, delete_after=3)
+
