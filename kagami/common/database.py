@@ -290,8 +290,11 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
         """
         Depending on what has changed in the schema this may need an override
         """
-        await db.execute(f"INSERT INTO {cls.__tablename__} "
-                         f"SELECT * FROM temp_{cls.__tablename__}")
+        query = f"""
+        INSERT INTO {cls.__tablename__}
+        SELECT * FROM temp_{cls.__tablename__}
+        """
+        await db.execute(query)
 
     @classmethod
     async def drop_temp(cls, db: aiosqlite.Connection):
