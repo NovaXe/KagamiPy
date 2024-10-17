@@ -1,9 +1,7 @@
 import asyncio
 import logging
 import typing
-# import warnings
 from asyncio import Queue
-# import sqlglot
 import aiosqlite
 from aiosqlite.context import contextmanager
 from dataclasses import dataclass, asdict, astuple, fields
@@ -40,7 +38,6 @@ Gives some classes and methods for interfacing with an sqlite database in a stan
 #         yield cur
 #     finally:
 #         await cur.close()
-
 
 class TableRegistry:
     # __table_class__: type["Table"] # forward declaration resolved after class
@@ -213,39 +210,8 @@ class TableMeta(type):
             return len(cls.__dataclass_fields__)
         return 0
 
-    # @property
-    # def __schema_version(cls): 
-    #     return cls.__schema_version__
-    
-    # @property
-    # def __trigger_version(cls):
-    #     return cls.__trigger_version__
-
-    # @property
-    # def __name(cls):
-    #     return cls.__tablename__    
-
-    # def __init__(cls, name, bases, class_dict, *args, **kwargs):
-    #     super().__init__(name, bases, class_dict)
-    #     if hasattr(cls, "__dataclass_fields__"):
-    #         cls._field_count = fields(cls)
-    #         # cls._field_count = len(cls.__dataclass_fields__)
-    #         pass
-
 @dataclass
 class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_registry=None):
-    # @property
-    # def schema_version(self):
-    #     return self.__class__.__schema_version__
-
-    # @property
-    # def trigger_version(self):
-    #     return self.__class__.__trigger_version__
-
-    # @property
-    # def name(self):
-    #     return self.__class__.__tablename__ 
-
     @staticmethod
     def group(name: str):
         """
@@ -340,17 +306,12 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
             logger.debug(f"DBInterface: Renamed table: {cls.__old_tablename__} to {cls.__tablename__}")
         elif old_exists and new_exists:
             logger.debug(f"Didn't rename table: {cls.__old_tablename__} because table: {cls.__tablename__} already exists")
-            # raise RuntimeError(f"Could not rename old table: {cls.__old_tablename__} because there is already a table called")
 
     @classmethod
     async def update_schema(cls, db: aiosqlite.Connection):
         """
         Override if a custom set of steps is needed
         """
-        # if not cls.__schema_changed__ or not await cls._exists(db):
-        #     logger.debug(f"Schema update skipped for missing table: {cls.__tablename__}")
-        #     return
-        # else:
         try:
             await cls.create_temp_copy(db)
             await cls.drop_table(db)
@@ -596,7 +557,6 @@ class ManagerMeta(type):
 
 
 class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
-    # __registry_class__: type["TableRegistry"] = TableRegistry
     @property
     def registry(self) -> type["TableRegistry"]:
         return self.__class__.__table_registry__
@@ -605,11 +565,6 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
         self.file_path = db_path
         self.pool = ConnectionPool(db_path, pool_size)
         asyncio.run(self._initialize_resources())
-
-    # async def _setup_resources(self):
-    #     async with self.conn() as db:
-    #         await self.setup(table_group="database")
-    #         await db.commit()
 
     async def _initialize_resources(self):
         logger.debug(f"Initializing resources for Manager: {repr(self)}")
@@ -624,11 +579,9 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
             """
             Performs automated tables setup with the passed kwargs
             """
-
             # drop tables if config set
             # update table as long as it isn't forbidden
             # the registry then gets called to attemp to update schemas
-
             if drop_tables:
                 await DatabaseManager.registry.drop_tables(db, group_name=table_group)
             elif not ignore_schema_updates:
@@ -650,8 +603,6 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                     logger.error(message)
                     await db.rollback()
                     raise e
-
-
             await DatabaseManager.registry.create_tables(db, table_group)
             await DatabaseManager.registry.create_triggers(db, table_group)
             await db.commit()
