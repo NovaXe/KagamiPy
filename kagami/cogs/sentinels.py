@@ -44,12 +44,13 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
-        query = f"""
-            INSERT INTO {SentinelSettings}(guild_id)
-            SELECT guild_id
-            FROM temp_{SentinelSettings}
-        """
-        await db.execute(query)
+        await super().insert_from_temp(db)
+        # query = f"""
+        #     INSERT INTO {SentinelSettings}(guild_id)
+        #     SELECT *
+        #     FROM temp_{SentinelSettings}
+        # """
+        # await db.execute(query)
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -311,6 +312,7 @@ class SentinelInfo:
 	    LEFT JOIN {Sentinel} ON 
 		    {Sentinel}.name = {SentinelSuit}.sentinel_name
         WHERE {Sentinel}.guild_id = ?
+        GROUP BY {SentinelSuit}.sentinel_name
         LIMIT ? OFFSET ?
         """
         db.row_factory = aiosqlite.Row
