@@ -9,7 +9,10 @@ from discord import ButtonStyle, Interaction
 import discord.ui as ui
 from discord.ui import Item
 
+from common.logging import setup_logging
 from common.interactions import respond
+
+logger = setup_logging(__name__)
 
 @dataclasses.dataclass
 class ScrollerState:
@@ -111,6 +114,7 @@ class Scroller(ui.View):
     async def on_error(self, interaction: Interaction, error: Exception, item: Item[Any], /) -> None:
         tb = "".join(traceback.format_exception(type(error), error, error.__traceback__))
         message = f"An error occurred while processing the interaction for {str(item)}:\n```py\n{tb}\n```"
+        logger.error(message)
         await interaction.response.send_message(message)
 
     async def update(self, interaction: Interaction):

@@ -136,7 +136,7 @@ class Kagami(commands.Bot):
             
     async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:
         await super().on_error(event_method, *args, **kwargs)
-        my_logger.error(event_method)
+        my_logger.exception(event_method, *args, **kwargs)
 
     async def on_ready(self):
         login_message = f"Logged in as {self.user} (ID: {self.user.id})"

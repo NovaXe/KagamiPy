@@ -322,7 +322,8 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
             await cls.insert_from_temp(db)
             await cls.drop_temp(db)
         except aiosqlite.OperationalError as e:
-            logger.error(f"Issue updating schema for table: {cls.__tablename__} - \n{e}")
+            tb = traceback.format_exception(e.__traceback__)
+            logger.error(f"Issue updating schema for table: {cls.__tablename__} - \n{tb}")
             await db.rollback()
             raise e
         logger.debug(f"The schema for table: {cls} was updated and data migrated")
@@ -592,7 +593,8 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                     # await self.__table_registry__.alter_tables(db, group_name=table_group)
                     await DatabaseManager.registry.update_schemas(db, group_name=table_group)
                 except aiosqlite.Error as e:
-                    logger.error(f"Table Update error on group {table_group}:\n {e}")
+                    tb = traceback.format_exception(e.__traceback__)
+                    logger.error(f"Table Update error on group {table_group}:\n {tb}")
                     await db.rollback()
                     raise e
 
@@ -602,7 +604,8 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                 try:
                     await self.registry.update_triggers(db, table_group)
                 except aiosqlite.Error as e:
-                    message = f"Trigger Update error on group: {table_group}:\n {e}"
+                    tb = traceback.format_exception(e.__traceback__)
+                    message = f"Trigger Update error on group: {table_group}:\n {tb}"
                     logger.error(message)
                     await db.rollback()
                     raise e
@@ -659,7 +662,8 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                 await self.__table_registry__.update_schema(db)
                 await db.commit()
             except aiosqlite.Error as e:
-                logger.warning(f"Table Update error:\n {e}")
+                tb = traceback.format_exception(e.__traceback__)
+                logger.warning(f"Table Update error:\n {tb}")
                 raise e
 
     __AsyncFunctionType = typing.Callable[[aiosqlite.Connection], typing.Awaitable]
