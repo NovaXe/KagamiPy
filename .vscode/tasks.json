@@ -27,7 +27,7 @@
         },
         {
             "label": "Start Project",
-            "dependsOn": ["StartBot", "StartLavalink"]
+            "dependsOn": ["Start Bot", "Start Lavalink"]
         },
         {
             "label": "Docker Compose",
