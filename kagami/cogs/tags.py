@@ -834,7 +834,9 @@ class TagModal(discord.ui.Modal, title="Set Tag"):
                 break
         self.embed.default = default_embed_text
         # self.embeds.default = ",\n".join([json.dumps(embed.to_dict(), indent=2) for embed in message.embeds])
-        self.content.default = message.content
+        links = [a.url for a in message.attachments]
+        content = message.content + "\n" + "\n".join(links)
+        self.content.default = content
         self.location.default = "local"
 
     location = discord.ui.TextInput(label="Tag Location", placeholder="global/local")

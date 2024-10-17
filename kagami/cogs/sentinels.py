@@ -1798,6 +1798,8 @@ class Sentinels(GroupCog, name="s"):
         channel = channel or interaction.channel
         async with self.conn() as db:
             settings = await SentinelChannelSettings.selectWhere(db, channel.id)
+        if settings is None:
+            settings = SentinelChannelSettings(interaction.guild_id, channel.id)
         def rep(b):
             return "Disabled" if b else "Enabled"
         text = f"`{channel.name}` - globals: `{rep(bool(settings.global_disabled))}`  |  locals: `{rep(bool(settings.local_disabled))}`"

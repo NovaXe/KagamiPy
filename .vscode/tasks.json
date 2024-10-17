@@ -11,7 +11,7 @@
                 "command": "${workspaceFolder}/.venv/Scripts/activate.ps1; python main.py"
             },
             "linux": {
-                "command": "source ${workspaceFolder}/.venv/Scripts/activate; python main.py"
+                "command": "source ${workspaceFolder}/.venv/bin/activate; python main.py"
             },
             "options": {
                 "cwd": "${workspaceFolder}/kagami",
