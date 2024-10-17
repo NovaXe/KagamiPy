@@ -8,7 +8,7 @@
             "label": "Start Bot",
             "type": "shell",
             "windows": {
-                "command": "source ${workspaceFolder}/.venv/bin/activate.ps1; python main.py"
+                "command": "${workspaceFolder}/.venv/Scripts/activate.ps1; python main.py"
             },
             "linux": {
                 "command": "source ${workspaceFolder}/.venv/bin/activate; python main.py"
@@ -20,14 +20,14 @@
         {
             "label": "Start Lavalink",
             "type": "shell",
-            "command": "java -jar Lavalink.jar",
+            "command": "python lavalink.py",
             "options": {
                 "cwd": "${workspaceFolder}/lavalink",
             }
         },
         {
             "label": "Start Project",
-            "dependsOn": ["StartBot", "StartLavalink"]
+            "dependsOn": ["Start Bot", "Start Lavalink"]
         },
         {
             "label": "Docker Compose",

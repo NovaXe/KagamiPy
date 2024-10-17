@@ -40,12 +40,12 @@ class MessageReply(discord.ui.Modal, title="Message Reply"):
         super().__init__()
         self.message = message
 
-    response = discord.ui.TextInput(label="Reply Text")
+    response = discord.ui.TextInput(label="Reply Text", style=discord.TextStyle.long)
 
     async def on_submit(self, interaction: discord.Interaction):
         await self.message.reply(f"{self.response}")
         await respond(interaction, f"Replied to {self.message.author}", ephemeral=True, delete_after=3)
-        await interaction.response.send_message(ephemeral=True, )
+        # await interaction.response.send_message(ephemeral=True)
 
 
 class PlayerControls(CustomUIView):

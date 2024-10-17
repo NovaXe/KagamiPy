@@ -34,8 +34,8 @@ class Fun(commands.Cog):
                 callback=self.fish_react
             ),
             app_commands.ContextMenu(
-                name="Copy Reactions",
-                callback=self.msg_copy_reactions
+                name="Mirror Reactions",
+                callback=self.msg_mirror_reactions
             )
         ]
 
@@ -196,15 +196,12 @@ class Fun(commands.Cog):
     async def msg_reply(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.send_modal(MessageReply(message))
 
-    async def msg_copy_reactions(self, interaction: discord.Interaction, message: discord.Message):
-        await interaction.response.defer(ephemeral=True)
+    async def msg_mirror_reactions(self, interaction: discord.Interaction, message: discord.Message):
+        await respond(interaction, ephemeral=True)
         for reaction in message.reactions:
-            async for user in reaction.users():
-                if user.id == interaction.user.id:
-                    await message.add_reaction(reaction)
-                    await message.remove_reaction(reaction, interaction.user)
-
-        await interaction.edit_original_response(content="I have copied and removed your reactions")
+            if interaction.user.id in (u.id for u in reaction.users()):
+                await message.add_reaction(reaction)
+        await respond(interaction, content="I have mirrored your reactions on the message")
 
 
     async def fish_react(self, interaction: discord.Interaction, message: discord.Message):

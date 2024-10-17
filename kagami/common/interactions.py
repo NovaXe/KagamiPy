@@ -7,13 +7,13 @@ from discord.ui import View
 from discord.utils import MISSING
 
 async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
-                  embeds: list[Embed]=MISSING, attachments: list[Attachment] | list[File]=MISSING, view: View=MISSING,
+                  embed: list[Embed]=MISSING, attachments: list[Attachment] | list[File]=MISSING, view: View=MISSING,
                   ephemeral: bool=False, force_defer: bool=False, thinking: bool=False, send_followup: bool=False, delete_after: float=None,
                   **kwargs) -> InteractionMessage | WebhookMessage:
     """
     :param target: the Interaction or Webhook object to work with
     :param content: the text content of the message
-    :param embeds: list of embeds to send
+    :param embed: list of embed to send
     :param attachments: list of attachments to send
     :param view: the view to be attached to the message
     :param ephemeral: if the message should be client side
@@ -41,7 +41,7 @@ async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
             return await followupRespond(
                 followup,
                 content=content,
-                embeds=embeds,
+                embed=embed,
                 attachments=attachments,
                 view=view,
                 ephemeral=ephemeral,
@@ -54,7 +54,7 @@ async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
             return await interactionRespond(
                 interaction,
                 content=content,
-                embeds=embeds,
+                embed=embed,
                 attachments=attachments,
                 view=view,
                 ephemeral=ephemeral,
@@ -65,7 +65,7 @@ async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
     elif isinstance(target, WebhookMessage):
         await followupRespond(
             WebhookMessage,
-            embeds=embeds,
+            embed=embed,
             attachments=attachments,
             view=view,
             ephemeral=ephemeral,
@@ -79,7 +79,7 @@ async def respond(target: Interaction | WebhookMessage, content: str=MISSING, *,
 
 
 async def followupRespond(followup: Webhook | WebhookMessage, content: str=None, *,
-                          embeds: list[Embed]=MISSING, attachments: list[Attachment] | list[File]=MISSING, view: View=MISSING,
+                          embed: list[Embed]=MISSING, attachments: list[Attachment] | list[File]=MISSING, view: View=MISSING,
                           ephemeral: bool=False, thinking: bool=False, delete_after: float=None,
                           **kwargs) -> WebhookMessage:
     # do the same checks for this as with the interaction
@@ -89,12 +89,12 @@ async def followupRespond(followup: Webhook | WebhookMessage, content: str=None,
         if attachments is not MISSING and isinstance(attachments[0], Attachment):
             attachments = [await attachment.to_file() for attachment in attachments]
 
-        if not (content or embeds or attachments or view):
+        if not (content or embed or attachments or view):
             content = "No Content"
-            # raise ValueError("Missing at least 1 of the following arguments: 'content, embeds, attachments, view'")
+            # raise ValueError("Missing at least 1 of the following arguments: 'content, embed, attachments, view'")
         message = await followup.send(
             content=content,
-            embeds=embeds,
+            embed=embed,
             files=attachments,
             view=view,
             ephemeral=ephemeral,
@@ -105,7 +105,7 @@ async def followupRespond(followup: Webhook | WebhookMessage, content: str=None,
     elif isinstance(followup, WebhookMessage):
         message = await followup.edit(
             content=content,
-            embeds=embeds,
+            embed=embed,
             attachments=attachments,
             view=view,
             **kwargs
@@ -118,15 +118,15 @@ async def followupRespond(followup: Webhook | WebhookMessage, content: str=None,
 
 
 async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
-                             embeds: list[Embed]=MISSING, attachments: list[Attachment] | list[File]=MISSING, view=MISSING,
+                             embed: list[Embed]=MISSING, attachments: list[Attachment] | list[File]=MISSING, view=MISSING,
                              ephemeral=False, thinking=False, delete_after=None,
                              **kwargs) -> InteractionMessage:
-    # required_send_edit_params = ["content", "embeds", "attachments", "view"]MISSING
+    # required_send_edit_params = ["content", "embed", "attachments", "view"]MISSING
     # optional_send_params = ["ephemeral", "delete_after"]
-    # edit_parameters = ["content", "embeds", "attachments", "view"]
+    # edit_parameters = ["content", "embed", "attachments", "view"]
     # optional_edit_params = ["delete_after"]
     # defer_parameters = ["ephemeral", "thinking"]
-    # can_send = content or embeds or attachments or view
+    # can_send = content or embed or attachments or view
     # can_edit = True
     # print("inside interaction respond")
     # print(f"interaction type: {interaction.type}")
@@ -145,10 +145,10 @@ async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
             #       "Consider using followup after send_modal")
             raise e
 
-        if content or embeds or attachments or view:
+        if content or embed or attachments or view:
             await message.edit(
                 content=content,
-                embeds=embeds,
+                embed=embed,
                 attachments=attachments,
                 view=view,
                 delete_after=delete_after,
@@ -157,7 +157,7 @@ async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
         return message
     else:
         # print("interaction not done")
-        if not (content or embeds or attachments or view):
+        if not (content or embed or attachments or view):
             # print("no content")
             await interaction.response.defer(ephemeral=ephemeral, thinking=thinking)
             # print("deferred")
@@ -168,7 +168,7 @@ async def interactionRespond(interaction: Interaction, content: str=MISSING, *,
                 attachments = [await attachment.to_file() for attachment in attachments]
             await interaction.response.send_message(
                 content=content,
-                embeds=embeds,
+                embed=embed,
                 files=attachments,
                 view=view,
                 ephemeral=ephemeral,

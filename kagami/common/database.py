@@ -1,14 +1,43 @@
+import asyncio
 import logging
 import typing
-import warnings
 from asyncio import Queue
-
 import aiosqlite
+from aiosqlite.context import contextmanager
 from dataclasses import dataclass, asdict, astuple, fields
+from contextlib import asynccontextmanager
+
+from common.logging import setup_logging
+from typing import Generator, Iterable, Any
+
+logger = setup_logging(__name__)
 
 """
 Gives some classes and methods for interfacing with an sqlite database in a standard way across cogs
 """
+
+# def validate_syntax(query: str):
+#     try:
+#         parsed_query = sqlglot.parse_one(query, dialect="sqlite")
+#     except sqlglot.ParseError as e:
+#         logger.error(f"SQLite Syntax Error for query: {query} -\n{e)
+#         raise e
+#     return query
+
+# @contextmanager
+# async def exec_query(db: aiosqlite.Connection, query: str, *params: Iterable[Any]):
+#     """
+#     Executes a query after validating the syntax.
+#     If the syntax is invalid an error is thrown and the query is not executed. 
+#     """
+#     if params is None:
+#         params = ()
+#     # validate_syntax(query)
+#     cur: aiosqlite.Cursor = await db.execute(query, params)
+#     try: 
+#         yield cur
+#     finally:
+#         await cur.close()
 
 class TableRegistry:
     # __table_class__: type["Table"] # forward declaration resolved after class
@@ -16,7 +45,7 @@ class TableRegistry:
     tables: dict[str, TableType] = {}
 
     @classmethod
-    def tableiter(cls, group_name: str=None) -> tuple[str, TableType]:
+    def tableiter(cls, group_name: str=None) -> Generator[tuple[str, TableType], None, None]:
         for table_name, table_class in cls.tables.items():
             if table_class.__table_group__ == group_name or group_name is None:
                 yield table_name, table_class
@@ -31,6 +60,7 @@ class TableRegistry:
 
     @classmethod
     def register_table(cls, table: type["Table"]):
+        logger.debug(f"Registered new Table: {table.__name__}")
         cls.tables[table.__name__] = table
 
     @classmethod
@@ -39,39 +69,94 @@ class TableRegistry:
 
     @classmethod
     async def create_tables(cls, db: aiosqlite.Connection, group_name: str=None):
+        logger.debug(f"Creating tables for group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
-            await tableclass.create_table(db)
+            try:
+                await tableclass.create_table(db)
+            except aiosqlite.OperationalError as e:
+                logger.error(f"Issue creating table: {tablename} - {e}")
+                await db.rollback()
+                raise e
+            logger.debug(f"Created Table: {tablename}")
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection, group_name):
+        logger.debug(f"Creating triggers for group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
-            await tableclass.create_triggers(db)
+            try:
+                await tableclass.create_triggers(db)
+            except aiosqlite.OperationalError as e:
+                logger.error(f"Issue creating triggers for table: {tablename} - {e}")
+                await db.rollback()
+                raise e
+            logger.debug(f"Created triggers for Table: {tablename}")
 
     @classmethod
     async def drop_tables(cls, db: aiosqlite.Connection, group_name: str=None):
+        logger.debug(f"Dropping tables in group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.drop_table(db)
+            logger.debug(f"Dropped Table: {tablename}")
 
     @classmethod
     async def drop_triggers(cls, db: aiosqlite.Connection, group_name: str=None):
+        logger.debug(f"Dropping triggers in group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.drop_triggers(db)
-
+            logger.debug(f"Dropped triggers for Table: {tablename}")
+    
     @classmethod
-    async def update_schema(cls, db: aiosqlite.Connection, group_name: str=None):
+    async def update_schemas(cls, db: aiosqlite.Connection, group_name: str=None):
+        logger.debug(f"Updating schemas for group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
-            if tableclass.__schema_changed__:
-                logging.info(f"Began Update of Table: {tablename}")
+            if not await tableclass._exists(db):
+                logger.debug(f"Skipping schema update for missing table: {tablename}")
+                continue
+            metadata = await TableMetadata.selectWhere(db, table_name=tablename)
+            if not metadata:
+                metadata = TableMetadata(tablename)
+            # current_version = await TableMetadata.selectVersion(db, tablename)
+            table_version = tableclass.__schema_version__
+            if metadata.schema_version < table_version:
+                logger.debug(f"Updating out of date Table: {tablename}")
                 await tableclass.update_schema(db)
-                logging.info(f"Finished Update of Table: {tablename}")
+                logger.debug(f"Updated schema for Table: {tablename}")
+                metadata.schema_version = tableclass.__schema_version__
+                await metadata.upsert(db)
+                logger.debug(f"Updated schema version for Table: {tablename}")
+            else:
+                logger.debug(f"Schema for Table: {tablename} is already up to date")
+            # logger.debug(f"Updated schema version for Table: {tablename}")
+    
+    @classmethod
+    async def update_triggers(cls, db: aiosqlite.Connection, group_name: str=None):
+        logger.debug(f"Updating triggers for group: {group_name}")
+        for tablename, tableclass in cls.tableiter(group_name):
+            if not await tableclass._exists(db):
+                logger.debug(f"Skipping trigger update for missing table: {tablename}")
+                continue
+            metadata = await TableMetadata.selectWhere(db, table_name=tablename)
+            if not metadata:
+                metadata = TableMetadata(tablename)
+            
+            if metadata.trigger_version < tableclass.__trigger_version__:
+                logger.debug(f"Updating out od data triggers on Table: {tablename}")
+                await tableclass.drop_triggers(db)
+                await tableclass.create_triggers(db)
+                logger.debug(f"Updated triggers for Table: {tablename}")
+                metadata.trigger_version = tableclass.__trigger_version__
+                await metadata.upsert(db)
+                logger.debug(f"Updated trigger version for Table: {tablename}")
+            else:
+                logger.debug(f"Triggers for Table: {tablename} are up to date")
 
     @classmethod
     async def alter_tables(cls, db: aiosqlite.Connection, group_name: str=None):
         for tablename, tableclass in cls.tableiter(group_name):
             if tableclass.__schema_altered__:
-                logging.info(f"Began Alter of Table: {tablename}")
+                logger.info(f"Began Alter of Table: {tablename}")
                 await tableclass.alter_table(db)
-                logging.info(f"Finished Alter of Table: {tablename}")
+                logger.info(f"Finished Alter of Table: {tablename}")
 
     @classmethod
     async def drop_unregistered(cls, db: aiosqlite.Connection):
@@ -96,25 +181,28 @@ class TableSubclassMustImplement(NotImplementedError):
 class TableMeta(type):
     def __new__(mcs, name, bases, class_dict, *args,
                 table_registry: type["TableRegistry"]=TableRegistry,
-                table_group: str=None, schema_changed: bool=False,
-                schema_altered: bool=False, **kwargs):
+                schema_version: int,
+                trigger_version: int,
+                table_group: str=None, **kwargs):
         cls = super().__new__(mcs, name, bases, class_dict)
         cls.__table_registry__ = table_registry
         cls.__tablename__ = name
+        cls.__schema_version__ = schema_version
+        cls.__trigger_version__ = trigger_version
         cls.__table_group__ = table_group if table_group else "unassigned"
-        cls.__schema_changed__ = schema_changed
-        cls.__schema_altered__ = schema_altered
+        # cls.__schema_changed__ = schema_changed
+        # cls.__schema_altered__ = schema_altered
         cls.__old_tablename__ = None
         if table_registry is not None:
             table_registry.register_table(cls)
         else:
-            warnings.warn(f"The table class: {name} has it's registry set to None")
+            logger.warn(f"The table class: {name} has it's registry set to None")
         return cls
 
     def __str__(cls):
         return cls.__tablename__
 
-    def field_count(cls):
+    def __field_count(cls):
         """
         Gives the number of dataclass fields, will return 0 if not a dataclass
         """
@@ -122,18 +210,8 @@ class TableMeta(type):
             return len(cls.__dataclass_fields__)
         return 0
 
-    # def __init__(cls, name, bases, class_dict, *args, **kwargs):
-    #     super().__init__(name, bases, class_dict)
-    #     if hasattr(cls, "__dataclass_fields__"):
-    #         cls._field_count = fields(cls)
-    #         # cls._field_count = len(cls.__dataclass_fields__)
-    #         pass
-
 @dataclass
-class Table(metaclass=TableMeta, table_registry=None):
-    @classmethod
-    def is_altered(cls):
-        return cls.__schema_altered__
+class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_registry=None):
     @staticmethod
     def group(name: str):
         """
@@ -212,8 +290,11 @@ class Table(metaclass=TableMeta, table_registry=None):
         """
         Depending on what has changed in the schema this may need an override
         """
-        await db.execute(f"INSERT INTO {cls.__tablename__} "
-                         f"SELECT * FROM temp_{cls.__tablename__}")
+        query = f"""
+        INSERT INTO {cls.__tablename__}
+        SELECT * FROM temp_{cls.__tablename__}
+        """
+        await db.execute(query)
 
     @classmethod
     async def drop_temp(cls, db: aiosqlite.Connection):
@@ -225,25 +306,29 @@ class Table(metaclass=TableMeta, table_registry=None):
         new_exists = await cls._exists(db)
         if old_exists and not new_exists:
             await db.execute(f"ALTER TABLE {cls.__old_tablename__} RENAME TO {cls.__tablename__}")
-            logging.debug(f"DBInterface: Renamed table: {cls.__old_tablename__} to {cls.__tablename__}")
+            logger.debug(f"DBInterface: Renamed table: {cls.__old_tablename__} to {cls.__tablename__}")
         elif old_exists and new_exists:
-            logging.debug(f"Didn't rename table: {cls.__old_tablename__} because table: {cls.__tablename__} already exists")
-            # raise RuntimeError(f"Could not rename old table: {cls.__old_tablename__} because there is already a table called")
+            logger.debug(f"Didn't rename table: {cls.__old_tablename__} because table: {cls.__tablename__} already exists")
 
     @classmethod
     async def update_schema(cls, db: aiosqlite.Connection):
         """
         Override if a custom set of steps is needed
         """
-        if not cls.__schema_changed__:
-            return
-        else:
+        try:
             await cls.create_temp_copy(db)
             await cls.drop_table(db)
             await cls.create_table(db)
             await cls.insert_from_temp(db)
             await cls.drop_temp(db)
-            logging.info(f"The schema for table: {cls} was updated and data migrated")
+        except aiosqlite.OperationalError as e:
+            tb = traceback.format_exception(e.__traceback__)
+            logger.error(f"Issue updating schema for table: {cls.__tablename__} - \n{tb}")
+            await db.rollback()
+            raise e
+        logger.debug(f"The schema for table: {cls} was updated and data migrated")
+
+
 
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
@@ -276,7 +361,7 @@ class Table(metaclass=TableMeta, table_registry=None):
         """
         Inserts the instance into the table, ignores the row with no error on a conflict
         """
-        field_count = self.__class__.field_count()
+        field_count = self.__class__.__field_count()
         placeholders = ",".join('?' for _ in range(field_count))
         query = f"INSERT OR IGNORE INTO {self.__tablename__} VALUES ({placeholders})"
         await db.execute(query, self.astuple())
@@ -325,15 +410,79 @@ class Table(metaclass=TableMeta, table_registry=None):
         raise TableSubclassMustImplement
 
 
-class ManagerMeta(type):
-    def __new__(mcs, name, bases, class_dict, *args,
-                table_registry: type["TableRegistry"]=TableRegistry, **kwargs):
-        cls = super().__new__(mcs, name, bases, class_dict)
-        cls.__table_registry__ = table_registry
-        if table_registry is None:
-            raise ValueError(f"table_registry for class: {name} cannot be None")
-        return cls
+@dataclass
+class TableMetadata(Table, schema_version=1, trigger_version=1, table_group="database"):
+    table_name: str
+    schema_version: int=-1
+    trigger_version: int=-1
+    
+    @classmethod
+    def from_table(cls, table: type["Table"]) -> "TableMetadata":
+        return cls(
+            table_name=table.__tablename__, 
+            schema_version=table.__schema_version__, 
+            trigger_version=table.__schema_version__
+            )
 
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {TableMetadata}(
+            table_name TEXT,
+            schema_version INTEGER,
+            trigger_version INTEGER,
+            PRIMARY KEY (table_name)
+        )
+        """
+        await db.execute(query)
+    
+    async def insert(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {TableMetadata}(table_name, schema_version, trigger_version)
+        VALUES (:table_name, :schema_version, :trigger_version)
+        """
+        await db.execute(query, self.asdict())
+
+    async def upsert(self, db: aiosqlite.Connection) -> "Table":
+        query = f"""
+        INSERT INTO {TableMetadata}(table_name, schema_version, trigger_version)
+        VALUES(:table_name, :schema_version, :trigger_version)
+        ON CONFLICT(table_name) 
+        DO UPDATE SET schema_version = :schema_version, trigger_version = :trigger_version
+        returning *
+        """
+        db.row_factory = TableMetadata.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res
+
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, table_name: str) -> "TableMetadata":
+        query = f"""
+        SELECT * FROM {TableMetadata}
+        WHERE table_name = ?
+        """
+        db.row_factory = TableMetadata.row_factory
+        async with db.execute(query, (table_name,)) as cur:
+            res = await cur.fetchone()
+        return res
+
+    @classmethod
+    async def selectSchemaVersion(cls, db: aiosqlite.Connection, table_name: str) -> int:
+        query = f"""
+        SELECT schema_version FROM {TableMetadata}
+        WHERE table_name = ?
+        """
+        db.row_factory = aiosqlite.Row
+        try:
+            async with db.execute(query, (table_name,)) as cur:
+                res = await cur.fetchone()
+        except aiosqlite.OperationalError as e:
+            logger.error(f"Could not find version for Table: {table_name}")
+            res = None
+        ver = res["version"] if res is not None else -1
+        return ver
+    
 
 class ConnectionPool:
     def __init__(self, db_path: str, pool_size: int):
@@ -342,28 +491,39 @@ class ConnectionPool:
         self._init_pool(pool_size)
 
     def _init_pool(self, pool_size):
+        logger.debug(f"Initializing ConnectionPool: {repr(self)}")
         for _ in range(pool_size):
             self._pool.put_nowait(None) # placeholder for connection
+        logger.debug(f"Initialized ConnectionPool: {repr(self)} - Size: {pool_size}")
 
     async def close(self):
+        logger.debug(f"Closing ConnectionPool: {repr(self)}")
         while not self._pool.empty():
             conn = await self._pool.get()
             await conn.close()
+            logger.debug(f"Connection closed by pool: {repr(self)} - conn: {repr(conn)}")
+        logger.debug(f"Closed ConnectionPool: {repr(self)}")
 
     async def _create_connection(self) -> aiosqlite.Connection:
-        return await aiosqlite.connect(self.db_path)
+        logger.debug(f"Opening Connection")
+        conn = await aiosqlite.connect(self.db_path)
+        logger.debug(f"Opened Connection: {repr(conn)}")
+        return conn
 
     async def get(self):
         conn = await self._pool.get()
         if conn is None:
             conn = await self._create_connection()
+        logger.debug(f"Connection retrieved from pool: {repr(self)} - conn: {repr(conn)}")
         return conn
 
     async def release(self, conn: aiosqlite.Connection):
         if self._pool.qsize() < self._pool.maxsize:
             await self._pool.put(conn)
+            logger.debug(f"Connection released to pool: {repr(self)} - conn: {repr(conn)}")
         else:
             await conn.close()
+            logger.debug(f"Connection closed by pool: {repr(self)} - conn: {repr(conn)}")
 
 
 class ConnectionContext:
@@ -386,33 +546,73 @@ class ConnectionContext:
         return True
 
 
+class ManagerMeta(type):
+    def __new__(mcs, name, bases, class_dict, *args,
+                table_registry: type["TableRegistry"]=TableRegistry, **kwargs):
+        cls = super().__new__(mcs, name, bases, class_dict)
+        cls.__table_registry__ = table_registry
+        if table_registry is None:
+            raise ValueError(f"table_registry for class: {name} cannot be None")
+        return cls
+
+    @property
+    def registry(cls) -> type["TableRegistry"]:
+        return cls.__table_registry__
+
+
 class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
-    # __registry_class__: type["TableRegistry"] = TableRegistry
+    @property
+    def registry(self) -> type["TableRegistry"]:
+        return self.__class__.__table_registry__
+    
     def __init__(self, db_path: str, pool_size: int=5):
         self.file_path = db_path
         self.pool = ConnectionPool(db_path, pool_size)
+        asyncio.run(self._initialize_resources())
+
+    async def _initialize_resources(self):
+        logger.debug(f"Initializing resources for Manager: {repr(self)}")
+        await self.setup(table_group="database")
+        logger.debug(f"Initialized resources for Manager: {repr(self)}")
 
     async def setup(self, table_group: str=None,
-                    update_tables: bool=False, drop_tables=False, drop_triggers=False):
+                    ignore_schema_updates: bool=False, ignore_trigger_updates: bool=False,
+                    drop_tables=False, drop_triggers=False):
+        
         async with self.conn() as db:
             """
             Performs automated tables setup with the passed kwargs
             """
+            # drop tables if config set
+            # update table as long as it isn't forbidden
+            # the registry then gets called to attemp to update schemas
             if drop_tables:
-                await self.__table_registry__.drop_tables(db, group_name=table_group)
-            elif update_tables:
+                await DatabaseManager.registry.drop_tables(db, group_name=table_group)
+            elif not ignore_schema_updates:
                 try:
-                    await self.__table_registry__.alter_tables(db, group_name=table_group)
-                    await self.__table_registry__.update_schema(db, group_name=table_group)
+                    # await self.__table_registry__.alter_tables(db, group_name=table_group)
+                    await DatabaseManager.registry.update_schemas(db, group_name=table_group)
                 except aiosqlite.Error as e:
-                    logging.warning(f"Table Update error on group {table_group}:\n {e}")
+                    tb = traceback.format_exception(e.__traceback__)
+                    logger.error(f"Table Update error on group {table_group}:\n {tb}")
+                    await db.rollback()
+                    raise e
 
             if drop_triggers:
-                await self.__table_registry__.drop_triggers(db, group_name=table_group)
-
-            await self.__table_registry__.create_tables(db, table_group)
-            await self.__table_registry__.create_triggers(db, table_group)
+                await DatabaseManager.registry.drop_triggers(db, group_name=table_group)
+            elif not ignore_trigger_updates:
+                try:
+                    await self.registry.update_triggers(db, table_group)
+                except aiosqlite.Error as e:
+                    tb = traceback.format_exception(e.__traceback__)
+                    message = f"Trigger Update error on group: {table_group}:\n {tb}"
+                    logger.error(message)
+                    await db.rollback()
+                    raise e
+            await DatabaseManager.registry.create_tables(db, table_group)
+            await DatabaseManager.registry.create_triggers(db, table_group)
             await db.commit()
+        logger.debug(f"Setup Table Group: {table_group}")
 
     def conn(self, autocommit=False):
         """
@@ -462,7 +662,8 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                 await self.__table_registry__.update_schema(db)
                 await db.commit()
             except aiosqlite.Error as e:
-                logging.warning(f"Table Update error:\n {e}")
+                tb = traceback.format_exception(e.__traceback__)
+                logger.warning(f"Table Update error:\n {tb}")
                 raise e
 
     __AsyncFunctionType = typing.Callable[[aiosqlite.Connection], typing.Awaitable]
