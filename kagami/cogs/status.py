@@ -6,10 +6,10 @@ from typing import (
 
 import aiosqlite
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands, Interaction
 from discord.ext.commands import GroupCog
-from discord.app_commands import Transform, Transformer, Group, Choice
+from discord.app_commands import Transform, Transformer, Group, Choice, Range
 
 from bot import Kagami
 from common import errors
@@ -46,7 +46,7 @@ class Status(Table, table_group="status", schema_version=1, trigger_version=1):
         )
         """
         await db.execute(query)
-        
+
     async def insert(self, db: aiosqlite.Connection) -> "Status":
         query = f"""
         INSERT OR IGNORE INTO {Status}(name, emoji)
@@ -69,7 +69,7 @@ class Status(Table, table_group="status", schema_version=1, trigger_version=1):
         return res[0] if res else 0
     
     @classmethod
-    async def selectFromId(cls, db: aiosqlite.Connection, id: int):
+    async def selectFromId(cls, db: aiosqlite.Connection, id: int) -> "Status":
         query = f"""
         SELECT * FROM {Status}
         WHERE id = ?
@@ -79,6 +79,41 @@ class Status(Table, table_group="status", schema_version=1, trigger_version=1):
             res = await cur.fetchone()
         return res
     
+    @classmethod
+    async def selectRandom(cls, db: aiosqlite.Connection) -> "Status":
+        query = f"""
+        SELECT * FROM {Status}
+        WHERE id IN (SELECT id FROM {Status} ORDER BY RANDOM() LIMIT 1)
+        """
+        db.row_factory = Status.row_factory
+        async with db.execute(query) as cur:
+            res = await cur.fetchone()
+        return res
+    
+    async def delete(self, db: aiosqlite.Connection) -> "Status":
+        query = f"""
+        DELETE FROM {Status}
+        WHERE id = :id
+        RETURNING *
+        """
+        db.row_factory = Status.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res
+        
+    
+    @classmethod
+    async def deleteFromId(cls, db: aiosqlite.Connection, id: int) -> "Status":
+        query = f"""
+        DELETE FROM {Status}
+        WHERE id = ?
+        RETURNING *
+        """
+        db.row_factory = Status.row_factory
+        async with db.execute(query, (id,)) as cur:
+            res = await cur.fetchone()
+        return res
+
     @classmethod
     async def selectWhere(cls, db: aiosqlite.Connection, limit: int=10, offset: int=0) -> list["Status"]:
         query = f"""
@@ -151,7 +186,16 @@ class StatusCog(GroupCog, name="status"):
         await self.bot.change_presence(activity=status_data.toDiscordActivity())
         await respond(interaction, "Updated status", delete_after=3)
 
-    @app_commands.command(name="set-temp", description="sets the bot's status ")
+    @app_commands.command(name="delete", description="Sets the current status from an existing id")
+    async def delete_from_id(self, interaction: Interaction, id: int):
+        await respond(interaction, ephemeral=True)
+        async with self.bot.dbman.conn() as db:
+            status_data = await Status.deleteFromId(db, id=id)
+        if status_data is None:
+            raise errors.CustomCheck("There is no status with that id")
+        await respond(interaction, "Updated status", delete_after=3)
+
+    @temp_group.command(name="custom", description="sets the bot's custom status without saving it")
     async def temp_custom(self, interaction: Interaction, status: str=None, emoji: str=None):
         await respond(interaction, ephemeral=True) 
         if not (status or emoji):
@@ -159,7 +203,17 @@ class StatusCog(GroupCog, name="status"):
         data = Status(name=status, emoji=emoji)
         await self.bot.change_presence(activity=data.toDiscordActivity())
         await respond(interaction, "Updated status", delete_after=3)
-    
+        
+    @app_commands.command(name="refresh", description="Sets the status to the last save status")
+    async def refresh(self, interaction: Interaction):
+        await respond(interaction, ephemeral=True)
+        async with self.bot.dbman.conn() as db:
+            id = (await PersistentSettings.selectWhere(db, key="status_id")).value or 0
+            status = await Status.selectFromId(db, id=id)
+        if status is not None:
+            await self.bot.change_presence(activity=status.toDiscordActivity())
+
+        
     @app_commands.command(name="view-all", description="See a list of all saved statuses")
     async def view_all(self, interaction: Interaction):
         message = await respond(interaction)
@@ -184,8 +238,33 @@ class StatusCog(GroupCog, name="status"):
         scroller = Scroller(message=message, user=interaction.user, page_callback=callback)
         await scroller.update(interaction)
 
+    @tasks.loop()
+    async def status_cycle(self):
+        async with self.bot.dbman.conn() as db:
+            status = await Status.selectRandom(db)
+        if status is None:
+            await self.status_cycle.stop()
+        else:
+            await self.bot.change_presence(activity=status.toDiscordActivity())
 
+    @app_commands.command(name="cycle", description="Toggles cycling of the current status")
+    @app_commands.describe(interval=f"How long between status updates in minutes, max = {24 * 60} (24 Hours)")
+    async def cycle(self, interaction: Interaction, interval: Range[30, 24 * 60]):
+        await respond(interaction, ephemeral=True)
+        if self.status_cycle.is_running():
+            await self.status_cycle.stop()
+            await respond(interaction, "Stopped cycling statuses")
+        else:
+            async with self.bot.dbman.conn() as db:
+                count = await Status.selectCount(db)
+            if count > 1:
+                self.status_cycle.change_interval(minutes=interval)
+                self.status_cycle.start()
+                await respond(interaction, "Started cycling statuses")
+            else:
+                await respond(interaction, "There are not enough statuses to cycle")
 
+        
 
 async def setup(bot: Kagami):
     await bot.add_cog(StatusCog(bot))
