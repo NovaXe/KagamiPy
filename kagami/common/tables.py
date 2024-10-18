@@ -198,12 +198,12 @@ class PersistentSettings(Table, schema_version=1, trigger_version=1, table_group
         await db.execute(query, self.asdict())
     
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, key: str):
+    async def selectWhere(cls, db: aiosqlite.Connection, key: str, default_value=None):
         query = f"""
         SELECT * FROM {PersistentSettings}
         WHERE key = ?
         """
-        db.row_factory = PersistentSettings.row_factory
+        db.row_factory = aiosqlite.Row
         async with db.execute(query, (key,)) as cur:
             res = await cur.fetchone()
-        return res
+        return res[0] if res else default_value
