@@ -451,6 +451,8 @@ class SentinelChannelSettings(Table, schema_version=2, trigger_version=1, table_
         db.row_factory = SentinelChannelSettings.row_factory
         async with db.execute(query, (channel_id,)) as cur:
             res: SentinelChannelSettings = await cur.fetchone()
+        if res is None:
+            return False
         if guild_id == 0:
             return bool(res.global_disabled)
         else:
@@ -873,7 +875,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
             FROM {SentinelSuit}
             LEFT JOIN {SentinelTrigger} ON 
                 {SentinelTrigger}.id = {SentinelSuit}.trigger_id 
-            LEFT JOIN Sentinel ON 
+            LEFT JOIN {Sentinel} ON 
                 {Sentinel}.name = {SentinelSuit}.sentinel_name
             WHERE 
                 (
