@@ -34,7 +34,7 @@ class GuildSettings(Table, schema_version=1, trigger_version=1, group_name="comm
         return result
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "GuildSettings":
+    async def selectValue(cls, db: aiosqlite.Connection, guild_id: int) -> "GuildSettings":
         query = f"""
         SELECT * FROM {GuildSettings}
         WHERE guild_id = ? 
@@ -100,7 +100,7 @@ class Guild(Table, schema_version=2, trigger_version=2, table_group="common"):
         await db.execute(query, self.asdict())
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "Guild":
+    async def selectValue(cls, db: aiosqlite.Connection, guild_id: int) -> "Guild":
         query = f"""
         SELECT * FROM {Guild}
         WHERE id = ?
@@ -151,7 +151,7 @@ class User(Table, schema_version=1, trigger_version=1, table_group="common"):
         return result
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, id: int) -> "User":
+    async def selectValue(cls, db: aiosqlite.Connection, id: int) -> "User":
         query = f"""
         SELECT * FROM {User}
         WHERE id ?
@@ -198,7 +198,7 @@ class PersistentSettings(Table, schema_version=1, trigger_version=1, table_group
         await db.execute(query, self.asdict())
     
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, key: str, default_value=None):
+    async def selectValue(cls, db: aiosqlite.Connection, key: str, default_value=None):
         query = f"""
         SELECT value FROM {PersistentSettings}
         WHERE key = ?

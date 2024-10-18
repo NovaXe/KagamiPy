@@ -118,7 +118,7 @@ class Status(Table, table_group="status", schema_version=1, trigger_version=1):
         return res
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, limit: int=10, offset: int=0) -> list["Status"]:
+    async def selectValue(cls, db: aiosqlite.Connection, limit: int=10, offset: int=0) -> list["Status"]:
         query = f"""
         SELECT * FROM {Status}
         ORDER BY id
@@ -146,10 +146,10 @@ class StatusCog(GroupCog, name="status"):
     @commands.Cog.listener()
     async def on_ready(self):
         async with self.bot.dbman.conn() as db:
-            status_id = await PersistentSettings.selectWhere(db, key="status_id", default_value=0)
+            status_id = await PersistentSettings.selectValue(db, key="status_id", default_value=0)
             status_data = await Status.selectFromId(db, id=status_id)
-            cycle_status = await PersistentSettings.selectWhere(db, key="cycle_status", default_value=0)
-            cycle_status_interval = await PersistentSettings.selectWhere(db, key="cycle_status_interval", default_value=60)
+            cycle_status = await PersistentSettings.selectValue(db, key="cycle_status", default_value=0)
+            cycle_status_interval = await PersistentSettings.selectValue(db, key="cycle_status_interval", default_value=60)
         if status_data is not None:
             await self.bot.change_presence(activity=status_data.toDiscordActivity())
         if cycle_status == 1:
@@ -243,7 +243,7 @@ class StatusCog(GroupCog, name="status"):
     async def refresh(self, interaction: Interaction):
         await respond(interaction, ephemeral=True)
         async with self.bot.dbman.conn() as db:
-            id = (await PersistentSettings.selectWhere(db, key="status_id")).value or 0
+            id = (await PersistentSettings.selectValue(db, key="status_id")).value or 0
             status = await Status.selectFromId(db, id=id)
         if status is not None:
             await self.bot.change_presence(activity=status.toDiscordActivity())
@@ -260,7 +260,7 @@ class StatusCog(GroupCog, name="status"):
                 count = await Status.selectCount(db)
                 if offset * 10 > count:
                     offset = count // 10
-                items: list[Status] = await Status.selectWhere(db, limit=10, offset=offset*10)
+                items: list[Status] = await Status.selectValue(db, limit=10, offset=offset*10)
             
             reps = []
             for i, status in enumerate(items):

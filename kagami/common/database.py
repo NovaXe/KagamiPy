@@ -113,7 +113,7 @@ class TableRegistry:
             if not await tableclass._exists(db):
                 logger.debug(f"Skipping schema update for missing table: {tablename}")
                 continue
-            metadata = await TableMetadata.selectWhere(db, table_name=tablename)
+            metadata = await TableMetadata.selectValue(db, table_name=tablename)
             if not metadata:
                 metadata = TableMetadata(tablename)
             # current_version = await TableMetadata.selectVersion(db, tablename)
@@ -136,7 +136,7 @@ class TableRegistry:
             if not await tableclass._exists(db):
                 logger.debug(f"Skipping trigger update for missing table: {tablename}")
                 continue
-            metadata = await TableMetadata.selectWhere(db, table_name=tablename)
+            metadata = await TableMetadata.selectValue(db, table_name=tablename)
             if not metadata:
                 metadata = TableMetadata(tablename)
             
@@ -384,7 +384,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
 
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, *args, **kwargs) -> "Table":
+    async def selectValue(cls, db: aiosqlite.Connection, *args, **kwargs) -> "Table":
         """
         Override to select a row from the table, returning an instance of the Table as the row
         """
@@ -461,7 +461,7 @@ class TableMetadata(Table, schema_version=1, trigger_version=1, table_group="dat
         return res
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, table_name: str) -> "TableMetadata":
+    async def selectValue(cls, db: aiosqlite.Connection, table_name: str) -> "TableMetadata":
         query = f"""
         SELECT * FROM {TableMetadata}
         WHERE table_name = ?
