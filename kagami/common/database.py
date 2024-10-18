@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 import logging
 import typing
 from asyncio import Queue
@@ -74,9 +75,9 @@ class TableRegistry:
             try:
                 await tableclass.create_table(db)
             except aiosqlite.OperationalError as e:
-                logger.error(f"Issue creating table: {tablename} - {e}")
+                logger.error(f"Issue creating table: {tablename} - {e}", exc_info=True)
                 await db.rollback()
-                raise e
+                raise
             logger.debug(f"Created Table: {tablename}")
 
     @classmethod
@@ -86,9 +87,9 @@ class TableRegistry:
             try:
                 await tableclass.create_triggers(db)
             except aiosqlite.OperationalError as e:
-                logger.error(f"Issue creating triggers for table: {tablename} - {e}")
+                logger.error(f"Issue creating triggers for table: {tablename} - {e}", exc_info=True)
                 await db.rollback()
-                raise e
+                raise
             logger.debug(f"Created triggers for Table: {tablename}")
 
     @classmethod
@@ -282,8 +283,11 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
 
     @classmethod
     async def create_temp_copy(cls, db: aiosqlite.Connection):
-        await db.execute(f"CREATE TABLE temp_{cls.__tablename__} "
-                         f"AS SELECT * FROM {cls.__tablename__}")
+        query = f"""
+        CREATE TABLE temp_{cls.__tablename__}
+        AS SELECT * FROM {cls.__tablename__}
+        """
+        await db.execute(query)
 
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
@@ -316,16 +320,16 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
         Override if a custom set of steps is needed
         """
         try:
+            await cls.drop_temp(db)
             await cls.create_temp_copy(db)
             await cls.drop_table(db)
             await cls.create_table(db)
             await cls.insert_from_temp(db)
             await cls.drop_temp(db)
         except aiosqlite.OperationalError as e:
-            tb = traceback.format_exception(e.__traceback__)
-            logger.error(f"Issue updating schema for table: {cls.__tablename__} - \n{tb}")
+            logger.error(f"Issue updating schema for table: {cls.__tablename__}", exc_info=True)
             await db.rollback()
-            raise e
+            raise
         logger.debug(f"The schema for table: {cls} was updated and data migrated")
 
 
@@ -478,7 +482,7 @@ class TableMetadata(Table, schema_version=1, trigger_version=1, table_group="dat
             async with db.execute(query, (table_name,)) as cur:
                 res = await cur.fetchone()
         except aiosqlite.OperationalError as e:
-            logger.error(f"Could not find version for Table: {table_name}")
+            logger.warn(f"Could not find version for Table: {table_name}")
             res = None
         ver = res["version"] if res is not None else -1
         return ver
@@ -593,10 +597,9 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                     # await self.__table_registry__.alter_tables(db, group_name=table_group)
                     await DatabaseManager.registry.update_schemas(db, group_name=table_group)
                 except aiosqlite.Error as e:
-                    tb = traceback.format_exception(e.__traceback__)
-                    logger.error(f"Table Update error on group {table_group}:\n {tb}")
+                    logger.error(f"Table Update error on group {table_group}", exc_info=True)
                     await db.rollback()
-                    raise e
+                    raise
 
             if drop_triggers:
                 await DatabaseManager.registry.drop_triggers(db, group_name=table_group)
@@ -604,11 +607,10 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                 try:
                     await self.registry.update_triggers(db, table_group)
                 except aiosqlite.Error as e:
-                    tb = traceback.format_exception(e.__traceback__)
-                    message = f"Trigger Update error on group: {table_group}:\n {tb}"
-                    logger.error(message)
+                    message = f"Trigger Update error on group: {table_group}"
+                    logger.error(message, exc_info=True)
                     await db.rollback()
-                    raise e
+                    raise
             await DatabaseManager.registry.create_tables(db, table_group)
             await DatabaseManager.registry.create_triggers(db, table_group)
             await db.commit()
@@ -662,9 +664,9 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
                 await self.__table_registry__.update_schema(db)
                 await db.commit()
             except aiosqlite.Error as e:
-                tb = traceback.format_exception(e.__traceback__)
-                logger.warning(f"Table Update error:\n {tb}")
-                raise e
+                logger.error(f"Table Update error:\n {e}", exc_info=True)
+                await db.rollback()
+                raise
 
     __AsyncFunctionType = typing.Callable[[aiosqlite.Connection], typing.Awaitable]
     async def handle(self, functions: tuple[__AsyncFunctionType]) -> list[typing.Any]:

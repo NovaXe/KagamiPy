@@ -5,12 +5,12 @@ import os
 import sys
 import traceback
 
-from discord.app_commands import AppCommandError
-from discord.ext.commands import Context
-
 import discord
 import discord.utils
 from discord import Interaction
+from discord.app_commands import AppCommandError
+from discord.ext.commands import Context
+
 from discord.ext import commands
 from typing import (
     Any, )
@@ -132,7 +132,7 @@ class Kagami(commands.Bot):
             await send("You don't have the necessary permissions to use this command")
         else:
             await send(str(exception))
-            my_logger.error(f"Command Exception Encountered\n{exception}")
+            my_logger.error(f"Command Exception Encountered\n{exception}", exc_info=True)
             
     async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:
         await super().on_error(event_method, *args, **kwargs)
@@ -148,5 +148,5 @@ class Kagami(commands.Bot):
             message = await respond(interaction, f"**{error}**")
         else:
             await respond(interaction, content=f"**Command encountered an error:**\n{error}")
-            my_logger.error(f"Command encountered an error:\n{error}")
+            my_logger.error(f"Command encountered an error:\n{error}", exc_info=True)
             # traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
