@@ -200,7 +200,7 @@ class PersistentSettings(Table, schema_version=1, trigger_version=1, table_group
     @classmethod
     async def selectWhere(cls, db: aiosqlite.Connection, key: str, default_value=None):
         query = f"""
-        SELECT * FROM {PersistentSettings}
+        SELECT value FROM {PersistentSettings}
         WHERE key = ?
         """
         db.row_factory = aiosqlite.Row

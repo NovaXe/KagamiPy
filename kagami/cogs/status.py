@@ -156,6 +156,14 @@ class StatusCog(GroupCog, name="status"):
             self.cycle_status.change_interval(minutes=cycle_status_interval)
             self.cycle_status.start()
         
+    # async def change_activity(self, status: Status, persist: bool=True):
+    #     await logger.info(f"Changing Activity")
+    #     await self.bot.change_presence(activity=status.toDiscordActivity())
+    #     if persist:
+    #         async with self.bot.dbman.conn() as db:
+    #             await PersistentSettings("status_id", value=status.id).upsert(db)
+    #             await db.commit()
+    #     await logger.info(f"Changed Activity to: {status}")
 
     set_group = Group(name="set", description="Sets a custom status and saves it to the list of statuses")
     save_group = Group(name="save", description="Saves a status to the list of statuses")
@@ -190,9 +198,25 @@ class StatusCog(GroupCog, name="status"):
         await respond(interaction, ephemeral=True)
         async with self.bot.dbman.conn() as db:
             status_data = await Status.selectFromId(db, id=id)
-        if status_data is None:
-            raise errors.CustomCheck("There is no status with that id")
+            if status_data is None:
+                raise errors.CustomCheck("There is no status with that id")
+            await PersistentSettings(key="status_id", value=status_data.id).upsert(db)
+            await db.commit()
         await self.bot.change_presence(activity=status_data.toDiscordActivity())
+        logger.info(f"Changed Actvity to: {status_data}")
+        await respond(interaction, "Updated status", delete_after=3)
+    
+    @set_group.command(name="random", description="Sets the current status from an existing id")
+    async def set_random(self, interaction: Interaction):
+        await respond(interaction, ephemeral=True)
+        async with self.bot.dbman.conn() as db:
+            status_data = await Status.selectRandom(db)
+            if status_data is None:
+                raise errors.CustomCheck("There are no statuses to switch to")
+            await PersistentSettings(key="status_id", value=status_data.id).upsert(db)
+            await db.commit()
+        await self.bot.change_presence(activity=status_data.toDiscordActivity())
+        logger.info(f"Changed Actvity to: {status_data}")
         await respond(interaction, "Updated status", delete_after=3)
 
     @app_commands.command(name="delete", description="Sets the current status from an existing id")
@@ -210,8 +234,9 @@ class StatusCog(GroupCog, name="status"):
         await respond(interaction, ephemeral=True) 
         if not (status or emoji):
             raise errors.CustomCheck("You need to pass either a status or emoji")
-        data = Status(name=status, emoji=emoji)
-        await self.bot.change_presence(activity=data.toDiscordActivity())
+        status_data = Status(name=status, emoji=emoji)
+        await self.bot.change_presence(activity=status_data.toDiscordActivity())
+        logger.info(f"Changed Actvity to: {status_data}")
         await respond(interaction, "Updated status", delete_after=3)
         
     @app_commands.command(name="refresh", description="Sets the status to the last save status")
@@ -222,6 +247,7 @@ class StatusCog(GroupCog, name="status"):
             status = await Status.selectFromId(db, id=id)
         if status is not None:
             await self.bot.change_presence(activity=status.toDiscordActivity())
+            logger.info(f"Changed Actvity to default: {status}")
 
         
     @app_commands.command(name="view-all", description="See a list of all saved statuses")
@@ -249,49 +275,49 @@ class StatusCog(GroupCog, name="status"):
         scroller = Scroller(message=message, user=interaction.user, page_callback=callback)
         await scroller.update(interaction)
 
-    @tasks.loop(minutes=60)
+    @tasks.loop()
     async def cycle_status(self):
         async with self.bot.dbman.conn() as db:
             status = await Status.selectRandom(db)
         if status is None:
             await self.cycle_status.stop()
         else:
-            await logger.info(f"Changing Activity")
             await self.bot.change_presence(activity=status.toDiscordActivity())
             await PersistentSettings("status_id", value=status.id).upsert(db)
-            await logger.info(f"Changed Activity to: {status}")
+            await db.commit()
+            logger.info(f"Changed Activity to: {status}")
 
-    @cycle_status.before_loop()
+    @cycle_status.before_loop
     async def before(self):
         async with self.bot.dbman.conn() as db:
             await PersistentSettings(key="cycle_status", value=1).upsert(db)
             await PersistentSettings(key="cycle_status_interval", value=self.cycle_status.minutes).upsert(db)
             await db.commit()
+        logger.info("Started cycling status")
 
-    @cycle_status.after_loop()
+    @cycle_status.after_loop
     async def after(self):
         async with self.bot.dbman.conn() as db:
             await PersistentSettings(key="cycle_status", value=0).upsert(db)
             await db.commit()
+        logger.info(f"Stopped cycling status")
     
     @app_commands.command(name="cycle", description="Toggles cycling of the current status")
-    @app_commands.describe(interval=f"How long between status updates in minutes, max = {24 * 60} (24 Hours)")
-    async def cycle(self, interaction: Interaction, interval: Range[int, 5, 24 * 60]):
+    @app_commands.describe(minutes=f"How long between status updates in minutes, max = {24 * 60} (24 Hours)")
+    async def cycle(self, interaction: Interaction, minutes: Range[int, 15, 24 * 60]=60):
         await respond(interaction, ephemeral=True)
         if self.cycle_status.is_running():
-            self.cycle_status.stop()
+            self.cycle_status.cancel()
             await respond(interaction, "Stopped cycling statuses")
         else:
             async with self.bot.dbman.conn() as db:
                 count = await Status.selectCount(db)
             if count > 1:
-                self.cycle_status.change_interval(minutes=1)
+                self.cycle_status.change_interval(minutes=minutes)
                 self.cycle_status.start()
                 await respond(interaction, "Started cycling statuses")
             else:
                 await respond(interaction, "There are not enough statuses to cycle")
-
-        
 
 async def setup(bot: Kagami):
     await bot.add_cog(StatusCog(bot))
