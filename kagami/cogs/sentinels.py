@@ -24,7 +24,7 @@ from typing import (
 )
 
 @dataclass
-class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
+class SentinelSettings(Table, schema_version=1, trigger_version=1):
     guild_id: int
     local_enabled: bool = True
     global_enabled: bool = False
@@ -117,7 +117,7 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="
         return result
 
 @dataclass
-class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
+class Sentinel(Table, schema_version=1, trigger_version=1):
     guild_id: int
     name: str
     uses: int
@@ -322,7 +322,7 @@ class SentinelInfo:
         return infos
 
 @dataclass
-class SentinelChannelSettings(Table, schema_version=2, trigger_version=1, table_group="sentinel"):
+class SentinelChannelSettings(Table, schema_version=2, trigger_version=1):
     guild_id: int
     channel_id: int
     global_disabled: bool = False
@@ -480,7 +480,7 @@ class SentinelChannelSettings(Table, schema_version=2, trigger_version=1, table_
 
 
 @dataclass
-class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
+class SentinelTrigger(Table, schema_version=1, trigger_version=1):
     class TriggerType(IntEnum):
         word = 1  # in message split by spaces
         phrase = 2  # in message as string
@@ -558,7 +558,7 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="s
         return result
 
 @dataclass
-class SentinelResponse(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
+class SentinelResponse(Table, schema_version=1, trigger_version=1):
     class ResponseType(IntEnum):
         message = 1
         reply = 2
@@ -623,7 +623,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1, table_group="
         return result
 
 @dataclass
-class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
+class SentinelSuit(Table, schema_version=1, trigger_version=1):
     guild_id: int
     sentinel_name: str
     name: str
@@ -1295,7 +1295,7 @@ class Sentinels(GroupCog, name="s"):
         self.config = bot.config
 
     async def cog_load(self) -> None:
-        await self.bot.dbman.setup(table_group="sentinel",
+        await self.bot.dbman.setup(table_group=__name__,
                                    drop_tables=self.bot.config.drop_tables,
                                    drop_triggers=self.bot.config.drop_triggers,
                                    ignore_schema_updates=self.bot.config.ignore_schema_updates,

@@ -72,7 +72,7 @@ class Fun(commands.Cog):
         await respond(interaction, f"Changed status to: `{new_activity}`", ephemeral=True, delete_after=3)
 
 
-    @app_commands.command(name="color", description="lets you select any color from the server")
+    @app_commands.command(name="color-old", description="lets you select any color from the server")
     async def color_role(self, interaction: discord.Interaction, color: str):
         await respond(interaction)
         role = discord.utils.get(interaction.guild.roles, name=color)
