@@ -184,13 +184,17 @@ class TableMeta(type):
                 table_registry: type["TableRegistry"]=TableRegistry,
                 schema_version: int,
                 trigger_version: int,
-                table_group: str=None, **kwargs):
+                table_group: str=..., **kwargs):
         cls = super().__new__(mcs, name, bases, class_dict)
         cls.__table_registry__ = table_registry
         cls.__tablename__ = name
         cls.__schema_version__ = schema_version
         cls.__trigger_version__ = trigger_version
-        cls.__table_group__ = table_group if table_group else "unassigned"
+        if table_group is ...:
+            cls.__table_group__ = cls.__module__
+        elif table_group is None:
+            cls.__table_group__ = "unassigned"
+            
         # cls.__schema_changed__ = schema_changed
         # cls.__schema_altered__ = schema_altered
         cls.__old_tablename__ = None
