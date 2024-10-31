@@ -113,7 +113,7 @@ class TableRegistry:
             if not await tableclass._exists(db):
                 logger.debug(f"Skipping schema update for missing table: {tablename}")
                 continue
-            metadata = await TableMetadata.selectWhere(db, table_name=tablename)
+            metadata = await TableMetadata.selectValue(db, table_name=tablename)
             if not metadata:
                 metadata = TableMetadata(tablename)
             # current_version = await TableMetadata.selectVersion(db, tablename)
@@ -136,7 +136,7 @@ class TableRegistry:
             if not await tableclass._exists(db):
                 logger.debug(f"Skipping trigger update for missing table: {tablename}")
                 continue
-            metadata = await TableMetadata.selectWhere(db, table_name=tablename)
+            metadata = await TableMetadata.selectValue(db, table_name=tablename)
             if not metadata:
                 metadata = TableMetadata(tablename)
             
@@ -184,13 +184,17 @@ class TableMeta(type):
                 table_registry: type["TableRegistry"]=TableRegistry,
                 schema_version: int,
                 trigger_version: int,
-                table_group: str=None, **kwargs):
+                table_group: str=..., **kwargs):
         cls = super().__new__(mcs, name, bases, class_dict)
         cls.__table_registry__ = table_registry
         cls.__tablename__ = name
         cls.__schema_version__ = schema_version
         cls.__trigger_version__ = trigger_version
-        cls.__table_group__ = table_group if table_group else "unassigned"
+        if table_group is ...:
+            cls.__table_group__ = cls.__module__
+        elif table_group is None:
+            cls.__table_group__ = "unassigned"
+            
         # cls.__schema_changed__ = schema_changed
         # cls.__schema_altered__ = schema_altered
         cls.__old_tablename__ = None
@@ -384,7 +388,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
 
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, *args, **kwargs) -> "Table":
+    async def selectValue(cls, db: aiosqlite.Connection, *args, **kwargs) -> "Table":
         """
         Override to select a row from the table, returning an instance of the Table as the row
         """
@@ -461,7 +465,7 @@ class TableMetadata(Table, schema_version=1, trigger_version=1, table_group="dat
         return res
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, table_name: str) -> "TableMetadata":
+    async def selectValue(cls, db: aiosqlite.Connection, table_name: str) -> "TableMetadata":
         query = f"""
         SELECT * FROM {TableMetadata}
         WHERE table_name = ?

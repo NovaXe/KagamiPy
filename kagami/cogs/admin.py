@@ -71,7 +71,25 @@ class Admin(commands.Cog):
         else:
             await ctx.send(f"No cog with that name could be found")
             return
-        await ctx.send(f"Reloaded cog: '{cog_name}'")
+        await ctx.send(f"Reloaded cog: `{cog_name}`")
+    
+    @commands.command(name="load")
+    async def load_cog(self, ctx, cog_name):
+        for file in os.listdir("cogs"):
+            if file.endswith(".py"):
+                name = file[:-3]
+                if name.lower() == cog_name.lower():
+                    await self.bot.load_extension(f"cogs.{name}")
+                    break
+        else:
+            await ctx.send(f"No cog with that name could be found")
+            return
+        await ctx.send(f"Loaded cog: `{cog_name}`")
+        
+    @commands.command(name="unload")
+    async def unload_cog(self, ctx, cog_name):
+        await self.bot.unload_extension(f"cogs.{cog_name}")
+        await ctx.send(f"Unloaded cog: `{cog_name}`")
     
     @commands.command(name="drop-unregisterd")
     @commands.is_owner()
