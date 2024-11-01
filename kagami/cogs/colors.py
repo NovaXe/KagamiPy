@@ -46,7 +46,7 @@ class ColorGroup(Table, schema_version=1, trigger_version=1):
         await db.execute(query)
         
     @classmethod
-    async def selectWherePrefix(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> str:
+    async def selectPrefixMatch(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> str:
         query = f"""
         SELECT prefix FROM {ColorGroup}
         WHERE guild_id = ?
@@ -68,10 +68,10 @@ class ColorGroup(Table, schema_version=1, trigger_version=1):
         return res
     
     @classmethod
-    async def selectWherePrefix(cls, db: aiosqlite.Connection, guild_id: int, role_name):
+    async def selectPrefixMatch(cls, db: aiosqlite.Connection, guild_id: int, role_name):
         query = f"""
         SELECT * FROM {ColorGroup}
-        WHERE guild_id = ? and ? LIKE 'prefix%'
+        WHERE guild_id = ? AND ? LIKE prefix || '%'
         """
         db.row_factory = ColorGroup.row_factory
         async with db.execute(query, (guild_id, role_name)) as cur:
@@ -130,7 +130,7 @@ class ColorGroup(Table, schema_version=1, trigger_version=1):
         SELECT COUNT(*) as count FROM {ColorGroup} WHERE guild_id = ?
         """
         db.row_factory = aiosqlite.Row
-        async with db.execute(query) as cur:
+        async with db.execute(query, (guild_id,)) as cur:
             res = await cur.fetchone()
         return res["count"] if res else 0
 
@@ -138,7 +138,7 @@ class ColorGroup(Table, schema_version=1, trigger_version=1):
         query = f"""
         INSERT INTO {ColorGroup}(guild_id, name, prefix, permitted_role_id)
         VALUES (:guild_id, :name, :prefix, :permitted_role_id)
-        ON CONFLICT (guild_id)
+        ON CONFLICT (guild_id, name)
         DO UPDATE SET
             prefix = :prefix,
             permitted_role_id = :permitted_role_id
@@ -164,7 +164,7 @@ class ColorRole(Table, schema_version=1, trigger_version=1):
             group_name TEXT NOT NULL,
             role_id INTEGER NOT NULL,
             PRIMARY KEY (guild_id, group_name, role_id),
-            FOREIGN KEY (guild_id, group_name) REFERENCES {ColorGroup}(guild_id, group_name),
+            FOREIGN KEY (guild_id, group_name) REFERENCES {ColorGroup}(guild_id, group_name)
         )
         """
         await db.execute(query)
@@ -176,29 +176,45 @@ class ColorRole(Table, schema_version=1, trigger_version=1):
             SELECT * FROM {ColorRole}
             WHERE guild_id = ? AND group_name = ?
             """
+            params = (guild_id, group_name)
         else:
             query = f"""
             SELECT * FROM {ColorRole}
             WHERE guild_id = ? AND group_name = ?
             limit ? offset ?
             """
+            params = (guild_id, group_name, limit, offset)
         db.row_factory = ColorRole.row_factory
-        async with db.execute(query, (guild_id, group_name, limit, offset)) as cur:
+        async with db.execute(query, params) as cur:
             roles = await cur.fetchall()
         return roles
+    
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, group_name: str, role_id: int) -> "ColorRole":
+        query = f"""
+        SELECT * FROM {ColorRole}
+        WHERE guild_id = ? AND group_name = ? AND role_id = ?
+        """
+        db.row_factory = ColorRole.row_factory
+        async with db.execute(query, (guild_id, group_name, role_id)) as cur:
+            res = await cur.fetchone()
+        return res
+
 
     @classmethod
     async def selectExists(cls, db: aiosqlite.Connection, guild_id: int, role_id: int) -> bool:
         query = f"""
-        SELECT 1 as exists FROM {ColorRole}
-        WHERE guild_id = ? AND role_id = ?
+        SELECT EXISTS(
+            SELECT 1 FROM {ColorRole}
+            WHERE guild_id = ? AND role_id = ?
+        )
         """
-        db.row_factory = aiosqlite.Row
+        db.row_factory = None
         async with db.execute(query, (guild_id, role_id)) as cur:
             res = await cur.fetchone()
-        return res is not None
+        return bool(res[0])
         
-    async def upsert(self, db: aiosqlite.Connection, guild_id: int, group_name: str, role_id: int) -> "ColorRole":
+    async def upsert(self, db: aiosqlite.Connection) -> "ColorRole":
         query = f"""
         INSERT INTO {ColorRole}(guild_id, group_name, role_id)
         VALUES (:guild_id, :group_name, :role_id)
@@ -206,7 +222,7 @@ class ColorRole(Table, schema_version=1, trigger_version=1):
         DO NOTHING
         """
         db.row_factory = ColorRole.row_factory
-        async with db.execute(query, (guild_id, group_name, role_id)) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
         return res
 
@@ -222,36 +238,49 @@ class ColorRole(Table, schema_version=1, trigger_version=1):
         return res
 
 class GroupTransformer(Transformer):
-    async def autocomplete(self, interaction: Interaction[Kagami], value: str) -> List[Choice[str]]:
+    async def autocomplete(self, interaction: Interaction[Kagami], value: str) -> list[Choice[str]]:
         async with interaction.client.dbman.conn() as db:
             role_ids = [role.id for role in interaction.user.roles]
+            role_ids += [0]
             names = await ColorGroup.selectNamesWhere(db, interaction.guild_id, role_ids=role_ids)
-        return [Choice(g, g) for g in names if g.lower() in value.lower()]
+        groups = [Choice(name=g, value=g) for g in names if value.lower() in g.lower()]
+        return groups
     
-    async def transform(self, interaction: Interaction[Kagami], value: str) -> str:
+    async def transform(self, interaction: Interaction[Kagami], value: str) -> ColorGroup:
         async with interaction.client.dbman.conn() as db:
             group = await ColorGroup.selectWhere(db, interaction.guild_id, value)
-        if group.permitted_role_id not in [role.id for role in interaction.user.roles]:
+        role_ids = [role.id for role in interaction.user.roles] + [0]
+        if group is not None and group.permitted_role_id not in role_ids:
             group = None
         return group
     
 class ColorTransformer(Transformer):
-    async def autocomplete(self, interaction: Interaction[Kagami], value: str) -> List[Choice[int]]:
+    async def autocomplete(self, interaction: Interaction[Kagami], value: str) -> list[Choice[str]]:
         async with interaction.client.dbman.conn() as db:
-            group = interaction.namespace.group
-            if not group:
-                colors = []
+            group_name: str = interaction.namespace.group
+            group = None
+            colors = []
+            if group_name is not None:
+                colors: list[ColorRole] = await ColorRole.selectAllWhere(db, interaction.guild_id, group_name)
+                group = await ColorGroup.selectWhere(db, interaction.guild_id, group_name)
             else:
-                colors: list[ColorRole] = await ColorRole.selectAllWhere(db, interaction.guild_id, interaction.group.name)
+                return [] # ensures that the group is valid
         roles = [interaction.guild.get_role(color.role_id) for color in colors]
-        return [Choice(role.name, role.id) for role in roles]
+        if group is not None and group.prefix is not None:
+            roles += [role for role in interaction.guild.roles if role.name.startswith(group.prefix)]
+        choices = [Choice(name=role.name.removeprefix(group.prefix).lstrip(), value=str(role.id)) for role in roles if value.lower() in role.name.lower()][:25]
+        return choices
 
-    async def transform(self, interaction: Interaction[Kagami], value: int) -> ColorRole:
-        group = interaction.namespace.group
+    async def transform(self, interaction: Interaction[Kagami], value: str) -> ColorRole:
+        group_name = interaction.namespace.group
         color = None
-        if group is not None:
+        if group_name is not None:
             async with interaction.client.dbman.conn() as db:
-                color = await ColorRole.selectWhere(db, interaction.guild_id, group.name, value)
+                group = await ColorGroup.selectWhere(db, interaction.guild_id, group_name)
+                color = await ColorRole.selectWhere(db, interaction.guild_id, group.name, int(value))
+            if color is None and group.prefix is not None:
+                role: discord.Role = discord.utils.find(lambda r: r.name.startswith(group.prefix) and r.id == int(value), interaction.guild.roles)
+                color = ColorRole(interaction.guild_id, group_name, role.id)
         return color
         
         # return [Choice[c, c] for c]
@@ -259,24 +288,35 @@ class ColorTransformer(Transformer):
 Group_Transform = Transform[ColorGroup, GroupTransformer]
 Color_Transform = Transform[ColorRole, ColorTransformer]
 
-def color_setup_check(interaction: Interaction[Kagami]):
-    async def predicate():
+def color_setup_check():
+    async def predicate(interaction: Interaction[Kagami]):
         async with interaction.client.dbman.conn() as db:
             count = await ColorGroup.selectCountWhere(db, interaction.guild_id)
-            if count == 0:
-                raise errors.CustomCheck("An administrator must run register a color group before you can use these commands")
-            else:
-                return True
+        if count == 0:
+            # await respond(interaction,"An administrator must run register a color group before you can use these commands", ephemeral=True)
+            # TODO figure out why this error doesn't work right
+            raise app_commands.CheckFailure("An administrator must register a color group before you can use these commands")
+            # raise errors.CustomCheck("An administrator must run register a color group before you can use these commands")
+            return False
+        else:
+            return True
     return app_commands.check(predicate)
+
+# async def check_color_setup(interaction: Interaction[Kagami]):
+#     async with interaction.client.dbman.conn() as db:
+#         count = await ColorGroup.selectCountWhere(db, interaction.guild_id)
+#     if count == 0:
+#         raise errors.CustomCheck("An administrator must register a color group before you can use these commands")
 
 async def remove_roles(db: aiosqlite.Connection, user: discord.Member):
     existing_roles = []
     for role in user.roles:
         if await ColorRole.selectExists(db, user.guild.id, role.id):
-            existing_roles.append(role.id)
-        elif await ColorGroup.selectWherePrefix(db, user.guild.id, role.name):
-            existing_roles.append(role.id)
-    await user.remove_roles(existing_roles, reason="Switched color role")
+            existing_roles.append(role)
+        elif await ColorGroup.selectPrefixMatch(db, user.guild.id, role.name):
+            existing_roles.append(role)
+    # existing_roles = tuple(existing_roles)
+    await user.remove_roles(*existing_roles, reason="Switched color role")
 
 
 @dataclass
@@ -285,28 +325,31 @@ class RoleData:
     rgb: tuple[int]
 
 
-def create_preview(colors: list[RoleData]):
-    WIDTH = 512
-    MARGINAL_HEIGHT = 40
+def create_preview(colors: list[RoleData], group: ColorGroup):
+    WIDTH = 64 * 10
+    MARGINAL_HEIGHT = 64
+    LEFT_MARGIN = 16
     HEIGHT = MARGINAL_HEIGHT * len(colors)
 
     image = Image.new("RGB", (WIDTH, HEIGHT))
     draw = ImageDraw.Draw(image, "RGB")
-    fnt = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 40)
+    # fnt = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 40)
+    fnt = ImageFont.load_default(size=40)
     for i, data in enumerate(colors):
-        name = data.name
+        name = data.name.removeprefix(group.prefix).lstrip()
         # draw color
         y = i * MARGINAL_HEIGHT
         draw.rectangle(((0, y), (WIDTH, y + MARGINAL_HEIGHT)), fill=data.rgb)
         r, g, b = data.rgb
-        br, bg, bb = int(r*.2 + 0xff*.8), int(g*.2 + 0xff*.8), int(b*.2 + 0xff*.8)
-
-        text = f"{name}- #{r:02X}{g:02X}{b:02X}"
-        text_width, text_height = draw.textlength(text), fnt.size
-        half_width = (WIDTH - text_width) // 2
-        draw.rectangle(((half_width, y), (WIDTH - half_width, y + MARGINAL_HEIGHT)), fill=(br, bg, bb))
+        br, bg, bb = int(r*.8 + 0xff*.2), int(g*.8 + 0xff*.2), int(b*.8 + 0xff*.2)
         
-        draw.text((WIDTH//2 - 1, y + MARGINAL_HEIGHT // 2), text, anchor="mm", fill="black", font=fnt)
+        text = f"{name}- #{r:02X}{g:02X}{b:02X}"
+        text_width, text_height = draw.textlength(text, font=fnt, font_size=fnt.size), fnt.size
+        # half_width = (WIDTH - text_width) // 2
+        offest = (MARGINAL_HEIGHT - text_height) // 2
+        draw.rectangle(((LEFT_MARGIN, y+offest), (LEFT_MARGIN + text_width, y + text_height + offest)), fill=(br, bg, bb))
+        
+        draw.text((LEFT_MARGIN, y + MARGINAL_HEIGHT//2), text, anchor="lm", fill="black", font=fnt)
     buffer = BytesIO()
     image.save(buffer, "png")
     buffer.seek(0)
@@ -338,7 +381,7 @@ class ColorCogAdmin(GroupCog, name="color-admin"):
         async with self.bot.dbman.conn() as db:
             await new_group.upsert(db)
             await db.commit()
-        await respond(interaction, "Registered new color group")
+        await respond(interaction, "Registered new color group", delete_after=5)
 
     @app_commands.command(name="remove-group", description="Registeres a color group with the bot")
     async def remove_group(self, interaction: Interaction, group: Group_Transform):
@@ -348,7 +391,7 @@ class ColorCogAdmin(GroupCog, name="color-admin"):
         async with self.bot.dbman.conn() as db:
             await ColorGroup.deleteWhere(db, interaction.guild_id, group.name)
             await db.commit()
-        await respond(interaction, f"Deleted the group: {group.name}")
+        await respond(interaction, f"Deleted the group: {group.name}", delete_after=5)
     
     @app_commands.command(name="add-color", description="Register an arbitrary color role to a group")
     async def add_color(self, interaction: Interaction, group: Group_Transform, role: discord.Role):
@@ -360,7 +403,7 @@ class ColorCogAdmin(GroupCog, name="color-admin"):
         async with self.bot.dbman.conn() as db:
             await new_color.upsert(db)
             await db.commit()
-        await respond(interaction, f"Added the role: {role.name} to the group: {group.name}")
+        await respond(interaction, f"Added the role: {role.name} to the group: {group.name}", delete_after=5)
         
     @app_commands.command(name="remove-color", description="Removes an arbitrary color from a group")
     async def remove_color(self, interaction: Interaction, group: Group_Transform, color: Color_Transform):
@@ -373,7 +416,7 @@ class ColorCogAdmin(GroupCog, name="color-admin"):
         async with self.bot.dbman.conn() as db:
             await color.delete(db)
             await db.commit()
-        await respond(interaction, f"Deregistered the color role: {interaction.guild.get_role(color.role_id).name}")
+        await respond(interaction, f"Deregistered the color role: {interaction.guild.get_role(color.role_id).name}", delete_after=5)
         
 
 class ColorCog(GroupCog, name="color"):
@@ -395,10 +438,11 @@ class ColorCog(GroupCog, name="color"):
     async def on_ready(self):
         pass
     
+    @app_commands.command(name="list", description="Generates an image preview of all colors on the server")
     @color_setup_check()
-    @app_commands.command(name="preview", description="Generates an image preview of all colors on the server")
-    async def preview(self, interaction: Interaction, group: Group_Transform=None): 
-        await respond(interaction, ephemeral=True)
+    async def preview(self, interaction: Interaction, group: Group_Transform): 
+        await respond(interaction, ephemeral=False)
+        # await check_color_setup(interaction)
         if group is None:
             raise NoGroup            
         async with self.bot.dbman.conn() as db:
@@ -406,14 +450,15 @@ class ColorCog(GroupCog, name="color"):
         roles: list[discord.Role] = [interaction.guild.get_role(kr.id) for kr in known_roles]
         roles += list(reversed([role for role in interaction.guild.roles if role.name.startswith(group.prefix)]))
         data = [RoleData(name=role.name, rgb = role.color.to_rgb()) for role in roles]
-        image_buffer = create_preview(data)
+        image_buffer = create_preview(data, group)
         
         await respond(interaction, attachments=[discord.File(fp=image_buffer, filename="color_image.png")])
     
-    @color_setup_check()
     @app_commands.command(name="get", description="Changes your color to the selected color")
+    @color_setup_check()
     async def get(self, interaction: Interaction, group: Group_Transform, color: Color_Transform):
         await respond(interaction, ephemeral=True)
+        # await check_color_setup(interaction)
         if group is None:
             raise NoGroup
         if color is None:
@@ -421,49 +466,9 @@ class ColorCog(GroupCog, name="color"):
         async with self.bot.dbman.conn() as db:
             await remove_roles(db, interaction.user)
             role = interaction.guild.get_role(color.role_id)
-            await interaction.user.add_roles([color.role_id])
-        await respond(interaction, f"Switched your color to {role.name}")
+            await interaction.user.add_roles(role)
+            await respond(interaction, f"Switched your color to {role.name}", delete_after=5)
  
-    # @app_commands.command(name="colorpreview", description="gives an image preview of the colors available")
-    # async def color_preview(self, interaction: discord.Interaction):
-    #     await respond(interaction)
-    #     color_roles = list(reversed([role for role in interaction.guild.roles if "C:" in role.name]))
-
-    #     image = Image.new("RGB", (512, len(color_roles) * 40))
-    #     active_draw = ImageDraw.Draw(image, "RGB")
-    #     for i in range(len(color_roles)):
-    #         test_name = color_roles[i].name[2:]
-    #         offset: int = len(test_name) - len(test_name.lstrip(' ')) + 2
-
-    #         color = "#%02x%02x%02x" % color_roles[i].color.to_rgb()
-    #         name = color_roles[i].name[+offset:]
-    #         active_draw.rectangle(((0, i * 40), (512, i * 40 + 40)), fill=color)
-
-    #         r, g, b = color_roles[i].color.to_rgb()
-    #         r, g, b = int(r*0.8), int(g*0.8), int(b*0.8)
-    #         ri, gi, bi = int(0xff * 0.2), int(0xff * 0.2), int(0xff * 0.2)
-    #         bounding_color = "#%02x%02x%02x" % ((r+ri, g+gi, b+bi)
-    #                                             if (r+ri <= 0xff and g+gi <= 0xff and b+bi <= 0xff) else (r, g, b))
-
-    #         # font = ImageFont.truetype("arialbd.ttf", 30)
-    #         font = ImageFont.truetype("bot/fonts/arialbd.ttf", 30)
-    #         text = f"{name}- {color}"
-    #         bb_left, bb_top, bb_right, bb_bottom = active_draw.textbbox((0, 0), text, font=font)
-    #         bb_left, bb_top, bb_right, bb_bottom = active_draw.textbbox((255 - bb_right/2, i * 40 + 20 - (bb_bottom / 2)), text, font=font)
-    #         active_draw.rectangle((bb_left-5, bb_top-5, bb_right+5, bb_bottom+5), fill=bounding_color)
-
-    #         try:
-    #             active_draw.text((255, i * 40 + 20), text, anchor="mm", fill="black", font=font)
-    #         except Exception as e:
-    #             print(e)
-    #     output_buffer = BytesIO()
-    #     image.save(output_buffer, "png")
-    #     output_buffer.seek(0)
-
-    #     await respond(interaction, attachments=[discord.File(fp=output_buffer, filename="color_image.png")])
-    
-    
-
 
 async def setup(bot: Kagami):
     await bot.add_cog(ColorCog(bot))

@@ -8,6 +8,7 @@ import traceback
 import discord
 import discord.utils
 from discord import Interaction
+from discord import app_commands
 from discord.app_commands import AppCommandError
 from discord.ext.commands import Context
 
@@ -15,7 +16,7 @@ from discord.ext import commands
 from typing import (
     Any, )
 
-from common.errors import CustomCheck
+from common import errors
 from common.interactions import respond
 
 from .config import Configuration, config
@@ -144,9 +145,14 @@ class Kagami(commands.Bot):
         my_logger.info(login_message)
 
     async def on_app_command_error(self, interaction: Interaction, error: AppCommandError):
-        if isinstance(error, CustomCheck):
-            message = await respond(interaction, f"**{error}**")
-        else:
-            await respond(interaction, content=f"**Command encountered an error:**\n{error}")
-            my_logger.error(f"Command encountered an error:\n{error}", exc_info=True)
-            # traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
+        match type(error):
+            case errors.CustomCheck:
+                await respond(interaction, f"**{error.args[0]}**")
+                # my_logger.error(f"CustomCheck Error:\n{error}", exc_info=True)
+            case app_commands.CheckFailure:
+                await respond(interaction, f"**{error.args[0]}**")
+                # my_logger.error(f"CheckFailure Error:\n{error}", exc_info=True)
+            case _:
+                await respond(interaction, content=f"**Command encountered an error:**\n{error}")
+                my_logger.error(f"Command encountered an error:\n{error}", exc_info=True)
+                # traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
