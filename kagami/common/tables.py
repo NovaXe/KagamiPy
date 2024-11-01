@@ -34,7 +34,7 @@ class GuildSettings(Table, schema_version=1, trigger_version=1, group_name="comm
         return result
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "GuildSettings":
+    async def selectValue(cls, db: aiosqlite.Connection, guild_id: int) -> "GuildSettings":
         query = f"""
         SELECT * FROM {GuildSettings}
         WHERE guild_id = ? 
@@ -58,7 +58,7 @@ class GuildSettings(Table, schema_version=1, trigger_version=1, group_name="comm
         return result
 
 @dataclass
-class Guild(Table, schema_version=1, trigger_version=1, table_group="common"):
+class Guild(Table, schema_version=2, trigger_version=2, table_group="common"):
     id: int
     name: str
 
@@ -83,9 +83,9 @@ class Guild(Table, schema_version=1, trigger_version=1, table_group="common"):
         CREATE TRIGGER IF NOT EXISTS {Guild}_insert_settings_before_insert
         BEFORE INSERT ON {Guild}
         BEGIN
-            INSERT INTO {GuildSettings}(guild_id)
-            VALUES (NEW.id)
-            ON CONFLICT (guild_id) DO NOTHING
+            INSERT OR IGNORE INTO {GuildSettings}(guild_id)
+            VALUES (NEW.id);
+        END;
         """
         await db.execute(trigger)
 
@@ -100,7 +100,7 @@ class Guild(Table, schema_version=1, trigger_version=1, table_group="common"):
         await db.execute(query, self.asdict())
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "Guild":
+    async def selectValue(cls, db: aiosqlite.Connection, guild_id: int) -> "Guild":
         query = f"""
         SELECT * FROM {Guild}
         WHERE id = ?
@@ -151,7 +151,7 @@ class User(Table, schema_version=1, trigger_version=1, table_group="common"):
         return result
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, id: int) -> "User":
+    async def selectValue(cls, db: aiosqlite.Connection, id: int) -> "User":
         query = f"""
         SELECT * FROM {User}
         WHERE id ?
@@ -172,3 +172,38 @@ class User(Table, schema_version=1, trigger_version=1, table_group="common"):
         async with db.execute(query, (id,)) as cur:
             res = await cur.fetchone()
         return res
+
+@dataclass
+class PersistentSettings(Table, schema_version=1, trigger_version=1, table_group="common"):
+    key: str
+    value: str | int | float
+    
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {PersistentSettings}(
+            key TEXT PRIMARY KEY,
+            value
+        )
+        """
+        await db.execute(query)
+    
+    async def upsert(self, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {PersistentSettings}(key, value)
+        VALUES (:key, :value)
+        ON CONFLICT (key)
+        DO UPDATE SET value = :value
+        """
+        await db.execute(query, self.asdict())
+    
+    @classmethod
+    async def selectValue(cls, db: aiosqlite.Connection, key: str, default_value=None):
+        query = f"""
+        SELECT value FROM {PersistentSettings}
+        WHERE key = ?
+        """
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, (key,)) as cur:
+            res = await cur.fetchone()
+        return res[0] if res else default_value

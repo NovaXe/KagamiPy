@@ -72,7 +72,7 @@ class Fun(commands.Cog):
         await respond(interaction, f"Changed status to: `{new_activity}`", ephemeral=True, delete_after=3)
 
 
-    @app_commands.command(name="color", description="lets you select any color from the server")
+    @app_commands.command(name="color-old", description="lets you select any color from the server")
     async def color_role(self, interaction: discord.Interaction, color: str):
         await respond(interaction)
         role = discord.utils.get(interaction.guild.roles, name=color)
@@ -112,7 +112,8 @@ class Fun(commands.Cog):
                                                 if (r+ri <= 0xff and g+gi <= 0xff and b+bi <= 0xff) else (r, g, b))
 
             # font = ImageFont.truetype("arialbd.ttf", 30)
-            font = ImageFont.truetype("bot/fonts/arialbd.ttf", 30)
+            # font = ImageFont.truetype("bot/fonts/arialbd.ttf", 30)
+            font = ImageFont.load_default(30)
             text = f"{name}- {color}"
             bb_left, bb_top, bb_right, bb_bottom = active_draw.textbbox((0, 0), text, font=font)
             bb_left, bb_top, bb_right, bb_bottom = active_draw.textbbox((255 - bb_right/2, i * 40 + 20 - (bb_bottom / 2)), text, font=font)
