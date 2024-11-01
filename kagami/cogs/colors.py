@@ -268,10 +268,14 @@ class ColorTransformer(Transformer):
         roles = [interaction.guild.get_role(color.role_id) for color in colors]
         if group is not None and group.prefix is not None:
             roles += [role for role in interaction.guild.roles if role.name.startswith(group.prefix)]
+        if group.prefix is None: 
+            group.prefix = ''
         choices = [Choice(name=role.name.removeprefix(group.prefix).lstrip(), value=str(role.id)) for role in roles if value.lower() in role.name.lower()][:25]
         return choices
 
     async def transform(self, interaction: Interaction[Kagami], value: str) -> ColorRole:
+        if not value.isdigit():
+            value = discord.utils.get(interaction.guild.roles, name=value).id
         group_name = interaction.namespace.group
         color = None
         if group_name is not None:
@@ -336,7 +340,7 @@ def create_preview(colors: list[RoleData], group: ColorGroup):
     # fnt = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 40)
     fnt = ImageFont.load_default(size=40)
     for i, data in enumerate(colors):
-        name = data.name.removeprefix(group.prefix).lstrip()
+        name = data.name.removeprefix(group.prefix if group.prefix is not None else '').lstrip()
         # draw color
         y = i * MARGINAL_HEIGHT
         draw.rectangle(((0, y), (WIDTH, y + MARGINAL_HEIGHT)), fill=data.rgb)
@@ -448,6 +452,8 @@ class ColorCog(GroupCog, name="color"):
         async with self.bot.dbman.conn() as db:
             known_roles = await ColorRole.selectAllWhere(db, interaction.guild_id, group.name)
         roles: list[discord.Role] = [interaction.guild.get_role(kr.id) for kr in known_roles]
+        if group.prefix is None:
+            group.prefix = ''
         roles += list(reversed([role for role in interaction.guild.roles if role.name.startswith(group.prefix)]))
         data = [RoleData(name=role.name, rgb = role.color.to_rgb()) for role in roles]
         image_buffer = create_preview(data, group)
