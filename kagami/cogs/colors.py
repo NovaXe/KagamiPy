@@ -286,8 +286,6 @@ class ColorTransformer(Transformer):
                 role: discord.Role = discord.utils.find(lambda r: r.name.startswith(group.prefix) and r.id == int(value), interaction.guild.roles)
                 color = ColorRole(interaction.guild_id, group_name, role.id)
         return color
-        
-        # return [Choice[c, c] for c]
 
 Group_Transform = Transform[ColorGroup, GroupTransformer]
 Color_Transform = Transform[ColorRole, ColorTransformer]
@@ -297,20 +295,11 @@ def color_setup_check():
         async with interaction.client.dbman.conn() as db:
             count = await ColorGroup.selectCountWhere(db, interaction.guild_id)
         if count == 0:
-            # await respond(interaction,"An administrator must run register a color group before you can use these commands", ephemeral=True)
-            # TODO figure out why this error doesn't work right
             raise app_commands.CheckFailure("An administrator must register a color group before you can use these commands")
-            # raise errors.CustomCheck("An administrator must run register a color group before you can use these commands")
             return False
         else:
             return True
     return app_commands.check(predicate)
-
-# async def check_color_setup(interaction: Interaction[Kagami]):
-#     async with interaction.client.dbman.conn() as db:
-#         count = await ColorGroup.selectCountWhere(db, interaction.guild_id)
-#     if count == 0:
-#         raise errors.CustomCheck("An administrator must register a color group before you can use these commands")
 
 async def remove_roles(db: aiosqlite.Connection, user: discord.Member):
     existing_roles = []
@@ -319,7 +308,6 @@ async def remove_roles(db: aiosqlite.Connection, user: discord.Member):
             existing_roles.append(role)
         elif await ColorGroup.selectPrefixMatch(db, user.guild.id, role.name):
             existing_roles.append(role)
-    # existing_roles = tuple(existing_roles)
     await user.remove_roles(*existing_roles, reason="Switched color role")
 
 
@@ -337,7 +325,6 @@ def create_preview(colors: list[RoleData], group: ColorGroup):
 
     image = Image.new("RGB", (WIDTH, HEIGHT))
     draw = ImageDraw.Draw(image, "RGB")
-    # fnt = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 40)
     fnt = ImageFont.load_default(size=40)
     for i, data in enumerate(colors):
         name = data.name.removeprefix(group.prefix if group.prefix is not None else '').lstrip()
@@ -349,7 +336,6 @@ def create_preview(colors: list[RoleData], group: ColorGroup):
         
         text = f"{name}- #{r:02X}{g:02X}{b:02X}"
         text_width, text_height = draw.textlength(text, font=fnt, font_size=fnt.size), fnt.size
-        # half_width = (WIDTH - text_width) // 2
         offest = (MARGINAL_HEIGHT - text_height) // 2
         draw.rectangle(((LEFT_MARGIN, y+offest), (LEFT_MARGIN + text_width, y + text_height + offest)), fill=(br, bg, bb))
         
@@ -446,7 +432,6 @@ class ColorCog(GroupCog, name="color"):
     @color_setup_check()
     async def preview(self, interaction: Interaction, group: Group_Transform): 
         await respond(interaction, ephemeral=False)
-        # await check_color_setup(interaction)
         if group is None:
             raise NoGroup            
         async with self.bot.dbman.conn() as db:
@@ -464,7 +449,6 @@ class ColorCog(GroupCog, name="color"):
     @color_setup_check()
     async def get(self, interaction: Interaction, group: Group_Transform, color: Color_Transform):
         await respond(interaction, ephemeral=True)
-        # await check_color_setup(interaction)
         if group is None:
             raise NoGroup
         if color is None:
