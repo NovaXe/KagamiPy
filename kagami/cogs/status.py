@@ -30,7 +30,7 @@ def StatusType(IntEnum):
 
 
 @dataclass
-class Status(Table, table_group="status", schema_version=1, trigger_version=1):
+class Status(Table, schema_version=1, trigger_version=1):
     name: str
     emoji: str
     id: int=None
@@ -136,7 +136,7 @@ class StatusCog(GroupCog, name="status"):
         self.config = bot.config
 
     async def cog_load(self):
-        await self.bot.dbman.setup(table_group="status", 
+        await self.bot.dbman.setup(table_group=__name__, 
                                    ignore_schema_updates=self.config.ignore_schema_updates,
                                    ignore_trigger_updates=self.config.ignore_trigger_updates,
                                    drop_tables=self.config.drop_tables)

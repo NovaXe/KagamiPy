@@ -6,7 +6,7 @@ import aiosqlite
 
 
 @dataclass
-class GuildSettings(Table, schema_version=1, trigger_version=1, group_name="common"):
+class GuildSettings(Table, schema_version=1, trigger_version=1):
     guild_id: int
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
@@ -58,7 +58,7 @@ class GuildSettings(Table, schema_version=1, trigger_version=1, group_name="comm
         return result
 
 @dataclass
-class Guild(Table, schema_version=2, trigger_version=2, table_group="common"):
+class Guild(Table, schema_version=2, trigger_version=2):
     id: int
     name: str
 
@@ -123,7 +123,7 @@ class Guild(Table, schema_version=2, trigger_version=2, table_group="common"):
         return result
 
 @dataclass
-class User(Table, schema_version=1, trigger_version=1, table_group="common"):
+class User(Table, schema_version=1, trigger_version=1):
     id: int
     nickname: str   
     
@@ -174,7 +174,7 @@ class User(Table, schema_version=1, trigger_version=1, table_group="common"):
         return res
 
 @dataclass
-class PersistentSettings(Table, schema_version=1, trigger_version=1, table_group="common"):
+class PersistentSettings(Table, schema_version=1, trigger_version=1):
     key: str
     value: str | int | float
     

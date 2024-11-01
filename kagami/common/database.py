@@ -419,7 +419,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
 
 
 @dataclass
-class TableMetadata(Table, schema_version=1, trigger_version=1, table_group="database"):
+class TableMetadata(Table, schema_version=1, trigger_version=1):
     table_name: str
     schema_version: int=-1
     trigger_version: int=-1
@@ -580,7 +580,7 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
 
     async def _initialize_resources(self):
         logger.debug(f"Initializing resources for Manager: {repr(self)}")
-        await self.setup(table_group="database")
+        await self.setup(table_group=__name__)
         logger.debug(f"Initialized resources for Manager: {repr(self)}")
 
     async def setup(self, table_group: str=None,

@@ -58,8 +58,9 @@ class Kagami(commands.Bot):
         tree.on_error = self.on_app_command_error
 
     async def setup_hook(self):
-        await self.dbman.setup(table_group="database")
-        await self.dbman.setup(table_group="common",
+        # await self.dbman.setup(table_group="common.database")
+        # This the common database group is instead setup by the DatabaseManager instance as part of its initializer
+        await self.dbman.setup(table_group="common.tables",
                                drop_tables=self.config.drop_tables,
                                drop_triggers=self.config.drop_triggers,
                                ignore_schema_updates=self.config.ignore_schema_updates,
