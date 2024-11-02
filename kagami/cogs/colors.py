@@ -355,7 +355,7 @@ class NoColor(errors.CustomCheck):
     MESSAGE = "That color is not registered in that group"
 
 @app_commands.default_permissions(manage_roles=True)
-class ColorCogAdmin(GroupCog, name="color-admin"):
+class ColorCogAdmin(GroupCog, name="admin-color"):
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.config = bot.config
@@ -372,6 +372,24 @@ class ColorCogAdmin(GroupCog, name="color-admin"):
             await new_group.upsert(db)
             await db.commit()
         await respond(interaction, "Registered new color group", delete_after=5)
+    
+    @app_commands.command(name="edit-group", description="Edit the details of a color group")
+    async def edit_group(self, interaction: Interaction, group: Group_Transform, prefix: str=None, required_role: discord.Role=None):
+        await respond(interaction, ephemeral=True)
+        if group is None:
+            raise NoGroup
+        role_id = required_role.id if required_role is not None else 0
+        group.prefix = prefix
+        group.permitted_role_id = role_id
+        async with self.bot.dbman.conn() as db:
+            await group.upsert(db)
+            await db.commit()
+        await respond(interaction, f"Updated the details of the group: {group.name}")
+    
+    # @app_commands.command(name="rename-group", description="Renames an existing color group")
+    # TODO Think about a way to allow this since currently the name is a primary key and changing the name is not a good idea
+    # I may be able to introduce an integer primary key and then just bind the name and guild columns to be unique and switch around how the references work for that
+    # This would be annoying to have to rewrite but would allow for renaming of groups if that is important
 
     @app_commands.command(name="remove-group", description="Registeres a color group with the bot")
     async def remove_group(self, interaction: Interaction, group: Group_Transform):
