@@ -26,7 +26,7 @@ class ScrollerState:
 
 T_Callback = Callable[[Interaction, ScrollerState], list[str]]
 class Scroller(ui.View):
-    def __init__(self, message: discord.Message, user: discord.User,
+    def __init__(self, message: discord.Message, user: discord.User | discord.Member,
                  page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int]]],
                 #  count_callback: Callable[[Interaction, ScrollerState], list[str]],
                 #  margin_callback: Callable[[Interaction, ScrollerState], list[str]],

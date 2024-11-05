@@ -1848,8 +1848,8 @@ class Sentinels(GroupCog, name="s"):
             item_reps = []
             edges = ("'", "'")
             for index, info in enumerate(infos):
-                t_type = SentinelTrigger.TriggerType(info.trigger_type)
-                r_type = SentinelResponse.ResponseType(info.response_type) 
+                t_type = SentinelTrigger.TriggerType(info.trigger_type) if info.trigger_type else None
+                r_type = SentinelResponse.ResponseType(info.response_type) if info.response_type else None
                 temp = f"{acstr(index, 6)} {acstr(info.name, 12)} - {acstr(info.weight, 6, 'r')} : {acstr(bool(info.enabled), 9, 'r')}"
                 temp += f"\n{acstr('', 6)} > {acstr(str(t_type), 14)} {acstr(info.trigger_object, 18, edges=edges)}"
                 temp += f"\n{acstr('', 6)} > {acstr(str(r_type), 14)} {acstr(info.response_content, 18, edges=edges)} {acstr(info.response_reactions, 20, edges=('(', ')'))}"
@@ -1870,6 +1870,7 @@ class Sentinels(GroupCog, name="s"):
     async def view_all(self, interaction: Interaction, scope: SentinelScope):
         message = await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        assert guild_id is not None
         scope_str = "local" if scope != 0 else "global"
         callback = self.get_view_all_callback(self.bot.dbman, scope_str, guild_id)
         scroller = Scroller(message, interaction.user, page_callback=callback)
@@ -1881,6 +1882,7 @@ class Sentinels(GroupCog, name="s"):
         if sentinel is None:
             raise SentinelDoesNotExist
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        assert guild_id is not None
         scope_str = "local" if scope != 0 else "global"
         callback = self.get_sentinel_view_callback(self.bot.dbman, scope_str, guild_id, sentinel.name)
         scroller = Scroller(message, interaction.user, callback)
@@ -1894,19 +1896,26 @@ class Sentinels(GroupCog, name="s"):
         if suit is None:
             raise SuitDoesNotExist
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
-        scope_str = "local" if scope != 0 else "global"
+        assert guild_id is not None
+        # scope_str = "local" if scope != 0 else "global"
         async with self.conn() as db:
             info = await SuitInfo.selectWhere(db, guild_id, sentinel.name)
         header = f"Here is the full info for the suit: {suit.name}"
-        body = f"Trigger - " + \
-               f"\n    > Type : {SentinelTrigger.TriggerType(info.trigger_type)}" + \
-               f"\n    > Object : " + \
-               f"'{info.trigger_object}'" + \
-               f"\nResponse - " + \
-               f"\n    > Type : {SentinelResponse.ResponseType(info.response_type)}" + \
-               f"\n    > Reactions : ({info.response_reactions})" + \
-               f"\n    > Content : " + \
-               f"'{info.response_content}'"
+        body = f"Trigger - "
+        if info.trigger_type is not None:
+            body +=f"\n    > Type : {SentinelTrigger.TriggerType(info.trigger_type)}" + \
+                   f"\n    > Object : " + \
+                   f"'{info.trigger_object}'" + \
+                   f"\nResponse - "
+        else:
+            body += f"\n   No Trigger"
+        if info.response_type is not None:
+            body +=f"\n    > Type : {SentinelResponse.ResponseType(info.response_type)}" + \
+                   f"\n    > Reactions : ({info.response_reactions})" + \
+                   f"\n    > Content : " + \
+                   f"'{info.response_content}'"
+        else:
+            body += f"\n    No Response"
         content = f"```swift\n{header}\n---\n{body}\n---\n```"
         await respond(interaction, content=content, delete_after=30)
 
