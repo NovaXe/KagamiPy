@@ -24,7 +24,7 @@ from typing import (
 )
 
 @dataclass
-class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
+class SentinelSettings(Table, schema_version=1, trigger_version=1):
     guild_id: int
     local_enabled: bool = True
     global_enabled: bool = False
@@ -94,7 +94,7 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="
         return result
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "SentinelSettings":
+    async def selectValue(cls, db: aiosqlite.Connection, guild_id: int) -> "SentinelSettings":
         query = f"""
         SELECT * FROM {SentinelSettings}
         WHERE guild_id = ?
@@ -117,7 +117,7 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1, table_group="
         return result
 
 @dataclass
-class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
+class Sentinel(Table, schema_version=1, trigger_version=1):
     guild_id: int
     name: str
     uses: int
@@ -192,7 +192,7 @@ class Sentinel(Table, schema_version=1, trigger_version=1, table_group="sentinel
         return result
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Sentinel":
+    async def selectValue(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "Sentinel":
         query = f"""
         SELECT * FROM {Sentinel}
         WHERE guild_id = ? AND name = ?
@@ -322,7 +322,7 @@ class SentinelInfo:
         return infos
 
 @dataclass
-class SentinelChannelSettings(Table, schema_version=2, trigger_version=1, table_group="sentinel"):
+class SentinelChannelSettings(Table, schema_version=2, trigger_version=1):
     guild_id: int
     channel_id: int
     global_disabled: bool = False
@@ -414,7 +414,7 @@ class SentinelChannelSettings(Table, schema_version=2, trigger_version=1, table_
         return result
     
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, channel_id: int) -> "SentinelChannelSettings":
+    async def selectValue(cls, db: aiosqlite.Connection, channel_id: int) -> "SentinelChannelSettings":
         query = f"SELECT * FROM {SentinelChannelSettings} WHERE channel_id = ?"
         db.row_factory = SentinelChannelSettings.row_factory
         async with db.execute(query, (channel_id,)) as cur:
@@ -451,6 +451,8 @@ class SentinelChannelSettings(Table, schema_version=2, trigger_version=1, table_
         db.row_factory = SentinelChannelSettings.row_factory
         async with db.execute(query, (channel_id,)) as cur:
             res: SentinelChannelSettings = await cur.fetchone()
+        if res is None:
+            return False
         if guild_id == 0:
             return bool(res.global_disabled)
         else:
@@ -478,7 +480,7 @@ class SentinelChannelSettings(Table, schema_version=2, trigger_version=1, table_
 
 
 @dataclass
-class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
+class SentinelTrigger(Table, schema_version=1, trigger_version=1):
     class TriggerType(IntEnum):
         word = 1  # in message split by spaces
         phrase = 2  # in message as string
@@ -545,7 +547,7 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="s
         return result
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, id: int) -> "SentinelTrigger":
+    async def selectValue(cls, db: aiosqlite.Connection, id: int) -> "SentinelTrigger":
         query = f"""
             SELECT * FROM {SentinelTrigger}
             WHERE id = ?
@@ -556,7 +558,7 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1, table_group="s
         return result
 
 @dataclass
-class SentinelResponse(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
+class SentinelResponse(Table, schema_version=1, trigger_version=1):
     class ResponseType(IntEnum):
         message = 1
         reply = 2
@@ -610,7 +612,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1, table_group="
         return result[0]
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, id: int) -> "SentinelResponse":
+    async def selectValue(cls, db: aiosqlite.Connection, id: int) -> "SentinelResponse":
         query = f"""
         SELECT * FROM {SentinelResponse}
         WHERE id = ?
@@ -621,7 +623,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1, table_group="
         return result
 
 @dataclass
-class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sentinel"):
+class SentinelSuit(Table, schema_version=1, trigger_version=1):
     guild_id: int
     sentinel_name: str
     name: str
@@ -762,7 +764,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
         await db.execute(query, self.asdict())
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit":
+    async def selectValue(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit":
         query = f"""
         SELECT * FROM {SentinelSuit}
         WHERE guild_id = ? AND sentinel_name = ? AND name = ?
@@ -873,7 +875,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1, table_group="sent
             FROM {SentinelSuit}
             LEFT JOIN {SentinelTrigger} ON 
                 {SentinelTrigger}.id = {SentinelSuit}.trigger_id 
-            LEFT JOIN Sentinel ON 
+            LEFT JOIN {Sentinel} ON 
                 {Sentinel}.name = {SentinelSuit}.sentinel_name
             WHERE 
                 (
@@ -1197,7 +1199,7 @@ class SentinelTransformer(Transformer):
         if guild_id == 1: guild_id = interaction.guild_id
         bot: Kagami = interaction.client
         async with bot.dbman.conn() as db:
-            sentinel = await Sentinel.selectWhere(db, guild_id, value)
+            sentinel = await Sentinel.selectValue(db, guild_id, value)
         return sentinel
 
 
@@ -1235,7 +1237,7 @@ class SentinelSuitTransformer(Transformer):
         bot: Kagami = interaction.client
         sentinel_name = interaction.namespace.sentinel
         async with bot.dbman.conn() as db:
-            result = await SentinelSuit.selectWhere(db, guild_id, sentinel_name, value)
+            result = await SentinelSuit.selectValue(db, guild_id, sentinel_name, value)
 
         if result:
             if self.empty_field == "trigger_id" and result.trigger_id is not None:
@@ -1293,7 +1295,7 @@ class Sentinels(GroupCog, name="s"):
         self.config = bot.config
 
     async def cog_load(self) -> None:
-        await self.bot.dbman.setup(table_group="sentinel",
+        await self.bot.dbman.setup(table_group=__name__,
                                    drop_tables=self.bot.config.drop_tables,
                                    drop_triggers=self.bot.config.drop_triggers,
                                    ignore_schema_updates=self.bot.config.ignore_schema_updates,
@@ -1338,7 +1340,7 @@ class Sentinels(GroupCog, name="s"):
                     response_suit = await SentinelSuit.selectWeightedRandomResponse(db, guild_id, suit.sentinel_name)
                     if not response_suit: continue
                     response_id = response_suit.response_id
-                response = await SentinelResponse.selectWhere(db, response_id)
+                response = await SentinelResponse.selectValue(db, response_id)
                 responses += [response]
         return responses
 
@@ -1353,7 +1355,7 @@ class Sentinels(GroupCog, name="s"):
                     response_suit = await SentinelSuit.selectWeightedRandomResponse(db, guild_id, suit.sentinel_name)
                     if not response_suit: continue
                     response_id = response_suit.response_id
-                response = await SentinelResponse.selectWhere(db, response_id)
+                response = await SentinelResponse.selectValue(db, response_id)
                 responses += [response]
         return responses
 
@@ -1382,8 +1384,8 @@ class Sentinels(GroupCog, name="s"):
             return
 
         async with self.conn() as db:
-            global_settings = await SentinelSettings.selectWhere(db, 0)
-            guild_settings = await SentinelSettings.selectWhere(db, guild_id)
+            global_settings = await SentinelSettings.selectValue(db, 0)
+            guild_settings = await SentinelSettings.selectValue(db, guild_id)
             if not guild_settings:
                 guild_settings = SentinelSettings(guild_id)
                 await guild_settings.upsert(db)
@@ -1436,8 +1438,8 @@ class Sentinels(GroupCog, name="s"):
             if await SentinelChannelSettings.selectDisabledStatus(db, event.guild_id, event.channel_id):
                 return
 
-            global_settings = await SentinelSettings.selectWhere(db, 0)
-            guild_settings = await SentinelSettings.selectWhere(db, guild_id)
+            global_settings = await SentinelSettings.selectValue(db, 0)
+            guild_settings = await SentinelSettings.selectValue(db, guild_id)
             if not guild_settings:
                 guild_settings = SentinelSettings(guild_id)
                 await guild_settings.upsert(db)
@@ -1491,7 +1493,7 @@ class Sentinels(GroupCog, name="s"):
                                    state: Literal["on", "off"]):
         await respond(interaction, ephemeral=True)
         async with self.conn() as db:
-            settings = await SentinelSettings.selectWhere(db, interaction.guild_id)
+            settings = await SentinelSettings.selectValue(db, interaction.guild_id)
             if settings is None:
                 settings = SentinelSettings(interaction.guild_id)
             settings.local_enabled = state == "on" if extent in ["local", "both"] else settings.local_enabled
@@ -1748,7 +1750,7 @@ class Sentinels(GroupCog, name="s"):
         # state_str = "enabled" if state else "disabled"
         response = ""
         async with self.conn() as db:
-            settings = await SentinelChannelSettings.selectWhere(db, channel_id=channel.id)
+            settings = await SentinelChannelSettings.selectValue(db, channel_id=channel.id)
             if settings is None:
                 settings = SentinelChannelSettings(interaction.guild_id, channel.id)
             match extent:
@@ -1799,7 +1801,7 @@ class Sentinels(GroupCog, name="s"):
         await respond(interaction, ephemeral=True) 
         channel = channel or interaction.channel
         async with self.conn() as db:
-            settings = await SentinelChannelSettings.selectWhere(db, channel.id)
+            settings = await SentinelChannelSettings.selectValue(db, channel.id)
         if settings is None:
             settings = SentinelChannelSettings(interaction.guild_id, channel.id)
         def rep(b):
@@ -1846,8 +1848,8 @@ class Sentinels(GroupCog, name="s"):
             item_reps = []
             edges = ("'", "'")
             for index, info in enumerate(infos):
-                t_type = SentinelTrigger.TriggerType(info.trigger_type)
-                r_type = SentinelResponse.ResponseType(info.response_type) 
+                t_type = SentinelTrigger.TriggerType(info.trigger_type) if info.trigger_type else None
+                r_type = SentinelResponse.ResponseType(info.response_type) if info.response_type else None
                 temp = f"{acstr(index, 6)} {acstr(info.name, 12)} - {acstr(info.weight, 6, 'r')} : {acstr(bool(info.enabled), 9, 'r')}"
                 temp += f"\n{acstr('', 6)} > {acstr(str(t_type), 14)} {acstr(info.trigger_object, 18, edges=edges)}"
                 temp += f"\n{acstr('', 6)} > {acstr(str(r_type), 14)} {acstr(info.response_content, 18, edges=edges)} {acstr(info.response_reactions, 20, edges=('(', ')'))}"
@@ -1868,6 +1870,7 @@ class Sentinels(GroupCog, name="s"):
     async def view_all(self, interaction: Interaction, scope: SentinelScope):
         message = await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        assert guild_id is not None
         scope_str = "local" if scope != 0 else "global"
         callback = self.get_view_all_callback(self.bot.dbman, scope_str, guild_id)
         scroller = Scroller(message, interaction.user, page_callback=callback)
@@ -1879,6 +1882,7 @@ class Sentinels(GroupCog, name="s"):
         if sentinel is None:
             raise SentinelDoesNotExist
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
+        assert guild_id is not None
         scope_str = "local" if scope != 0 else "global"
         callback = self.get_sentinel_view_callback(self.bot.dbman, scope_str, guild_id, sentinel.name)
         scroller = Scroller(message, interaction.user, callback)
@@ -1892,19 +1896,26 @@ class Sentinels(GroupCog, name="s"):
         if suit is None:
             raise SuitDoesNotExist
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
-        scope_str = "local" if scope != 0 else "global"
+        assert guild_id is not None
+        # scope_str = "local" if scope != 0 else "global"
         async with self.conn() as db:
             info = await SuitInfo.selectWhere(db, guild_id, sentinel.name)
         header = f"Here is the full info for the suit: {suit.name}"
-        body = f"Trigger - " + \
-               f"\n    > Type : {SentinelTrigger.TriggerType(info.trigger_type)}" + \
-               f"\n    > Object : " + \
-               f"'{info.trigger_object}'" + \
-               f"\nResponse - " + \
-               f"\n    > Type : {SentinelResponse.ResponseType(info.response_type)}" + \
-               f"\n    > Reactions : ({info.response_reactions})" + \
-               f"\n    > Content : " + \
-               f"'{info.response_content}'"
+        body = f"Trigger - "
+        if info.trigger_type is not None:
+            body +=f"\n    > Type : {SentinelTrigger.TriggerType(info.trigger_type)}" + \
+                   f"\n    > Object : " + \
+                   f"'{info.trigger_object}'" + \
+                   f"\nResponse - "
+        else:
+            body += f"\n   No Trigger"
+        if info.response_type is not None:
+            body +=f"\n    > Type : {SentinelResponse.ResponseType(info.response_type)}" + \
+                   f"\n    > Reactions : ({info.response_reactions})" + \
+                   f"\n    > Content : " + \
+                   f"'{info.response_content}'"
+        else:
+            body += f"\n    No Response"
         content = f"```swift\n{header}\n---\n{body}\n---\n```"
         await respond(interaction, content=content, delete_after=30)
 

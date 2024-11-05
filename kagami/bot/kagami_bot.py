@@ -5,17 +5,18 @@ import os
 import sys
 import traceback
 
-from discord.app_commands import AppCommandError
-from discord.ext.commands import Context
-
 import discord
 import discord.utils
 from discord import Interaction
+from discord import app_commands
+from discord.app_commands import AppCommandError
+from discord.ext.commands import Context
+
 from discord.ext import commands
 from typing import (
     Any, )
 
-from common.errors import CustomCheck
+from common import errors
 from common.interactions import respond
 
 from .config import Configuration, config
@@ -57,8 +58,9 @@ class Kagami(commands.Bot):
         tree.on_error = self.on_app_command_error
 
     async def setup_hook(self):
-        await self.dbman.setup(table_group="database")
-        await self.dbman.setup(table_group="common",
+        # await self.dbman.setup(table_group="common.database")
+        # This the common database group is instead setup by the DatabaseManager instance as part of its initializer
+        await self.dbman.setup(table_group="common.tables",
                                drop_tables=self.config.drop_tables,
                                drop_triggers=self.config.drop_triggers,
                                ignore_schema_updates=self.config.ignore_schema_updates,
@@ -132,7 +134,7 @@ class Kagami(commands.Bot):
             await send("You don't have the necessary permissions to use this command")
         else:
             await send(str(exception))
-            my_logger.error(f"Command Exception Encountered\n{exception}")
+            my_logger.error(f"Command Exception Encountered\n{exception}", exc_info=True)
             
     async def on_error(self, event_method: str, /, *args: Any, **kwargs: Any) -> None:
         await super().on_error(event_method, *args, **kwargs)
@@ -144,9 +146,14 @@ class Kagami(commands.Bot):
         my_logger.info(login_message)
 
     async def on_app_command_error(self, interaction: Interaction, error: AppCommandError):
-        if isinstance(error, CustomCheck):
-            message = await respond(interaction, f"**{error}**")
-        else:
-            await respond(interaction, content=f"**Command encountered an error:**\n{error}")
-            my_logger.error(f"Command encountered an error:\n{error}")
-            # traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)
+        match type(error):
+            case errors.CustomCheck:
+                await respond(interaction, f"**{error.args[0]}**")
+                # my_logger.error(f"CustomCheck Error:\n{error}", exc_info=True)
+            case app_commands.CheckFailure:
+                await respond(interaction, f"**{error.args[0]}**")
+                # my_logger.error(f"CheckFailure Error:\n{error}", exc_info=True)
+            case _:
+                await respond(interaction, content=f"**Command encountered an error:**\n{error}")
+                my_logger.error(f"Command encountered an error:\n{error}", exc_info=True)
+                # traceback.print_exception(error, error, error.__traceback__, file=sys.stderr)

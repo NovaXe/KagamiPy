@@ -22,7 +22,7 @@ from common.tables import Guild, GuildSettings, User
 from common.paginator import Scroller, ScrollerState
 
 @dataclass
-class TagSettings(Table, schema_version=1, trigger_version=1, table_group="tags"):
+class TagSettings(Table, schema_version=1, trigger_version=1):
     guild_id: int
     enforce_ownership = True
 
@@ -75,7 +75,7 @@ class TagSettings(Table, schema_version=1, trigger_version=1, table_group="tags"
         return result
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int) -> "TagSettings":
+    async def selectValue(cls, db: aiosqlite.Connection, guild_id: int) -> "TagSettings":
         query = f"""
         SELECT * FROM {TagSettings}
         WHERE guild_id = ?
@@ -100,7 +100,7 @@ class TagSettings(Table, schema_version=1, trigger_version=1, table_group="tags"
         return await TagSettings.deleteWhere(db, guild_id=self.guild_id)
 
 @dataclass
-class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema_altered=True):
+class Tag(Table, schema_version=1, trigger_version=1):
     guild_id: int
     name: str
     content: str
@@ -222,7 +222,7 @@ class Tag(Table, schema_version=1, trigger_version=1, table_group="tags", schema
         return res
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str, author_id: int=None) -> "Tag":
+    async def selectValue(cls, db: aiosqlite.Connection, guild_id: int, name: str, author_id: int=None) -> "Tag":
         if author_id is None:
             query = f"""
             SELECT * FROM {Tag}
@@ -396,7 +396,7 @@ class LocalTagTransformer(Transformer):
     async def transform(self, interaction: Interaction, value: Any, /) -> Tag:
         bot: Kagami = interaction.client
         async with bot.dbman.conn() as db:
-            tag = await Tag.selectWhere(db,
+            tag = await Tag.selectValue(db,
                                         guild_id=interaction.guild_id,
                                         name=value)
         return tag
@@ -414,7 +414,7 @@ class GlobalTagTransformer(Transformer):
                         value: Any, /) -> Tag:
         bot: Kagami = interaction.client
         async with bot.dbman.conn() as db:
-            tag = await Tag.selectWhere(db, guild_id=0, name=value)
+            tag = await Tag.selectValue(db, guild_id=0, name=value)
         return tag
 
 
@@ -432,7 +432,7 @@ class GuildTagTransformer(Transformer):
         guild_id = int(interaction.namespace.guild)
         bot: Kagami = interaction.client
         async with bot.dbman.conn() as db:
-            tag = await Tag.selectWhere(db, guild_id=guild_id, name=value)
+            tag = await Tag.selectValue(db, guild_id=guild_id, name=value)
         return tag
 
 
@@ -517,7 +517,7 @@ class Tags(GroupCog, group_name="t"):
             self.bot.tree.remove_command(ctx_menu.name, type=ctx_menu.type)
 
     async def cog_load(self) -> None:
-        await self.bot.dbman.setup(table_group="tags",
+        await self.bot.dbman.setup(table_group=__name__,
                                    drop_tables=self.bot.config.drop_tables,
                                    drop_triggers=self.bot.config.drop_triggers,
                                    ignore_schema_updates=self.bot.config.ignore_schema_updates,
@@ -877,7 +877,7 @@ class TagModal(discord.ui.Modal, title="Set Tag"):
                   content=self.content.value, embed=self.embed.value)
 
         async with bot.dbman.conn() as db:
-            existing = await Tag.selectWhere(db, guild_id=tag.guild_id, name=tag.name)
+            existing = await Tag.selectValue(db, guild_id=tag.guild_id, name=tag.name)
             if existing is not None:
                 raise TagAlreadyExists
             await tag.insert(db)
