@@ -631,7 +631,7 @@ class MusicDB(Database):
 
 
 class Music(GroupCog,
-            group_name="m",
+            group_name="old_music",
             description="commands relating to music playback"):
     def __init__(self, bot: Kagami):
         self.bot: Kagami = bot
