@@ -1,0 +1,5 @@
+{
+  "reportMissingImports": "error",
+  "reportMissingTypeStubs": false,
+  "reportUnusedCallResult": false
+}
