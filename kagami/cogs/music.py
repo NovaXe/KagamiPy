@@ -28,7 +28,7 @@ from common.utils import acstr
 
 type VocalGuildChannel = VoiceChannel | discord.StageChannel
 
-class MusicCog(GroupCog, name="m"): 
+class MusicCog(GroupCog, group_name="m"): 
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.config = bot.config

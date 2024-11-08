@@ -1,5 +1,9 @@
 {
-  "reportMissingImports": "error",
-  "reportMissingTypeStubs": false,
-  "reportUnusedCallResult": false
+    "venvPath" : "./",
+    "venv" : ".venv",
+    "include" : ["./"],
+    "exclude" : [".venv", "lavalink", ".idea", ".git", ".vscode"],
+    "reportMissingImports" : "error",
+    "reportMissingTypeStubs" : true,
+    "reportUnusedCallResult" : false
 }
