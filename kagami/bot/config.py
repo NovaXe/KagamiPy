@@ -39,6 +39,7 @@ class Configuration:
     connection_pool_size: int
     lavalink: dict[str, str]=None
     spotify: dict[str, str]=None
+    youtube: dict[str, str] | None=None
     ignore_schema_updates: bool=False
     ignore_trigger_updates: bool=False
     drop_tables: bool=False
@@ -85,6 +86,10 @@ class Configuration:
             lavalink={
                 "uri": get("LAVALINK_URI"),
                 "password": get("LAVALINK_PASSWORD")
+            },
+            youtube={
+                "email": get("YOUTUBE_EMAIL"),
+                "password": get("YOUTUBE_PASSWORD")
             },
             spotify={
                 "client_id": get("SPOTIFY_CLIENT_ID"),

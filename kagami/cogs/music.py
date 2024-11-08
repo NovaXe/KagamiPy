@@ -9,9 +9,11 @@ from io import BytesIO
 import aiosqlite
 import discord
 from discord.ext import commands, tasks
-from discord import app_commands, Interaction
+from discord import VoiceState, app_commands, Interaction, Member
 from discord.ext.commands import GroupCog
 from discord.app_commands import Transform, Transformer, Group, Choice, Range
+import wavelink
+from wavelink.player import VoiceChannel
 
 from bot import Kagami
 from common import errors
@@ -20,9 +22,11 @@ from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
+from common.voice import PlayerSession
 from utils.depr_db_interface import Database
 from common.utils import acstr
 
+type VocalGuildChannel = VoiceChannel | discord.StageChannel
 
 class MusicCog(GroupCog, name="m"): 
     def __init__(self, bot: Kagami):
@@ -40,17 +44,36 @@ class MusicCog(GroupCog, name="m"):
 
 
     @app_commands.command(name="join", description="Starts a music session in the voice channel")
-    async def join(self, interaction: Interaction) -> None:
-        raise NotImplementedError
-
+    # @app_commands.guild_only()
+    async def join(self, interaction: Interaction[Kagami], channel: VoiceChannel | None=None) -> None:
+        _ = await respond(interaction)
+        assert isinstance(interaction.user, Member) and interaction.guild is not None
+        voice_state: VoiceState | None = interaction.user.voice
+        existing_session: PlayerSession | None = interaction.guild.voice_client
+        if channel is None:
+            if existing_session is not None: 
+                raise errors.CustomCheck(f"Sorry, there is already an active voice session")
+            elif voice_state is None or voice_state.channel is None:
+                raise errors.CustomCheck("Join or specify a channel to start a session")
+            else:
+                new_channel = voice_state.channel
+        else:
+            new_channel = channel
+        
+        if existing_session:
+            await existing_session.move_to(new_channel)
+        else
+            await new_channel.connect(cls=PlayerSession, self_deaf=True)
+        await respond(interaction, f"Started a new session in {new_channel.name}", delete_after=5)
+        
     @app_commands.command(name="leave", description="Ends the current session")
     async def leave(self, interaction: Interaction) -> None:
-        raise NotImplementedError
+        await respond(interaction)
+
 
     @app_commands.command(name="play", description="Queue a track to be played in the voice channel")
     @app_commands.describe(track="search query / song link / playlist link")
     async def play(self, interaction: Interaction, track: str) -> None:
-        raise NotImplementedError
 
 
     @app_commands.command(name="skip", description="Skip to the next track in the queue")
