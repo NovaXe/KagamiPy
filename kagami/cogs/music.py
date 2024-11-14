@@ -9,11 +9,11 @@ from io import BytesIO
 import aiosqlite
 import discord
 from discord.ext import commands, tasks
-from discord import VoiceState, app_commands, Interaction, Member
+from discord import VoiceClient, VoiceState, app_commands, Interaction, Member, VoiceChannel
 from discord.ext.commands import GroupCog
 from discord.app_commands import Transform, Transformer, Group, Choice, Range
 import wavelink
-from wavelink.player import VoiceChannel
+from wavelink.player import VocalGuildChannel
 
 from bot import Kagami
 from common import errors
@@ -27,6 +27,42 @@ from utils.depr_db_interface import Database
 from common.utils import acstr
 
 type VocalGuildChannel = VoiceChannel | discord.StageChannel
+
+async def joinChannel(voice_channel: VocalGuildChannel) -> PlayerSession:
+    voice_client = voice_channel.guild.voice_client
+
+    if voice_client is None:
+        voice_client = await voice_channel.connect(cls=PlayerSession)
+    else:
+        assert isinstance(voice_client, PlayerSession)
+        await voice_client.move_to(voice_channel)
+    return voice_client
+
+
+def requireVoiceclient(begin_session=False, defer_response=True, ephemeral=False):
+    async def predicate(interaction: Interaction):
+        if defer_response: await respond(interaction, ephemeral=ephemeral)
+        voice_client = interaction.guild.voice_client
+
+        if voice_client is None:
+            if begin_session:
+                await attemptToJoin(interaction, send_response=False, ephemeral=ephemeral)
+                return True
+            else:
+                raise errors.NoVoiceClient
+        else:
+            return True
+
+    return app_commands.check(predicate)
+
+def requireVoiceSession(start_session: bool=False, defer_response: bool=True, ephemeral_response: bool=False)
+    async def predicate(interaction: Interaction):
+        if defer_response:
+            await respond(interaction, ephemeral=ephemeral_response)
+        voice_client = interaction.guild.voice_client
+        if voice_client is None:
+            if start_session:
+                await 
 
 class MusicCog(GroupCog, group_name="m"): 
     def __init__(self, bot: Kagami):
@@ -74,6 +110,7 @@ class MusicCog(GroupCog, group_name="m"):
     @app_commands.command(name="play", description="Queue a track to be played in the voice channel")
     @app_commands.describe(track="search query / song link / playlist link")
     async def play(self, interaction: Interaction, track: str) -> None:
+
 
 
     @app_commands.command(name="skip", description="Skip to the next track in the queue")
