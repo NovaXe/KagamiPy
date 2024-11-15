@@ -121,7 +121,7 @@ class MusicCog(GroupCog, group_name="m"):
             await existing_session.move_to(new_channel)
         else:
             await new_channel.connect(cls=PlayerSession, self_deaf=True)
-        await respond(interaction, f"Started a new session in {new_channel.name}", delete_after=5)
+        await respond(interaction, f"let the playa be playin in {new_channel.name}", delete_after=5)
         
     @app_commands.command(name="leave", description="Ends the current session")
     @is_existing_session()
@@ -131,13 +131,13 @@ class MusicCog(GroupCog, group_name="m"):
         guild = cast(discord.Guild, interaction.guild)
         session = guild.voice_client
         await session.disconnect()
-        await respond(interaction, "the playa is done playin")
+        await respond(interaction, "the playa done playin", delete_after=5)
     
     @app_commands.command(name="play", description="Queue a track to be played in the voice channel")
     @app_commands.describe(query="search query / song link / playlist link")
     @is_not_outsider()
     @is_in_voice()
-    async def play(self, interaction: Interaction, query: str) -> None:
+    async def play(self, interaction: Interaction, query: str | None=None) -> None:
         await respond(interaction)
         guild = cast(discord.Guild, interaction.guild)
         user = cast(Member, interaction.user)
@@ -146,13 +146,21 @@ class MusicCog(GroupCog, group_name="m"):
         if not session:
             session = await joinChannel(user.voice.channel)
             await respond(interaction, "let the playa be playin", delete_after=5)
+            if query is None:
+                return
+        if query is None:
+            session = cast(PlayerSession, session)
+            await session.pause(False)
+            await respond(interaction, "let the playa beforth playin", delete_after=5)
 
         results: Search = await Playable.search(query)
         if not results:
-            await respond(interaction, "I couldn't find any tracks that matched", delete_after=5)
+            await respond(interaction, "I couldn't find any tracks that matched",
+                          send_followup=True, delete_after=5)
         else:
             await session.play(results[0])
-            await respond(interaction, f"Added {results[0]} to the queue", delete_after=5)
+            await respond(interaction, f"Added {results[0]} to the queue", 
+                          send_followup=True, delete_after=5)
         
 
 
