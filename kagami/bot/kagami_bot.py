@@ -146,9 +146,9 @@ class Kagami(commands.Bot):
         my_logger.info(login_message)
 
     async def on_app_command_error(self, interaction: Interaction, error: AppCommandError):
-        match type(error):
+        match error_type:=type(error):
             case errors.CustomCheck:
-                await respond(interaction, f"**{error.args[0]}**")
+                await respond(interaction, f"**{error.args[0]}**", ephemeral=error_type.EPHEMERAL)
                 # my_logger.error(f"CustomCheck Error:\n{error}", exc_info=True)
             case app_commands.CheckFailure:
                 await respond(interaction, f"**{error.args[0]}**")

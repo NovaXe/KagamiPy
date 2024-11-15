@@ -2,12 +2,12 @@ from discord.app_commands import CheckFailure
 
 
 class CustomCheck(CheckFailure):
-    MESSAGE = "Failed Custom Check"
+    MESSAGE: str = "Failed Custom Check"
     def __init__(self, message: str | None=None, *args) -> None:
         message = message or self.MESSAGE
         super().__init__(message, *args)
 
-class NotImplementedYet(CheckFailure):
+class NotImplementedYet(CustomCheck):
     MESSAGE = "Command not implemented yet, check back later"
 
 class NoVoiceChannel(CustomCheck):
