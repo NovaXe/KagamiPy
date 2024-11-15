@@ -35,18 +35,6 @@ class CustomUIView(discord.ui.View):
 
 
 
-class MessageReply(discord.ui.Modal, title="Message Reply"):
-    def __init__(self, message: discord.Message):
-        super().__init__()
-        self.message = message
-
-    response = discord.ui.TextInput(label="Reply Text", style=discord.TextStyle.long)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await self.message.reply(f"{self.response}")
-        await respond(interaction, f"Replied to {self.message.author}", ephemeral=True, delete_after=3)
-        # await interaction.response.send_message(ephemeral=True)
-
 
 class PlayerControls(CustomUIView):
     def __init__(self, *args, player, message, **kwargs):
