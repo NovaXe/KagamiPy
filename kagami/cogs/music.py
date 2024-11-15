@@ -148,20 +148,36 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, "let the playa be playin", delete_after=5)
             if query is None:
                 return
+        session = cast(PlayerSession, session)
         if query is None:
-            session = cast(PlayerSession, session)
             await session.pause(False)
             await respond(interaction, "let the playa beforth playin", delete_after=5)
-
+            return
+        assert query is not None
         results: Search = await Playable.search(query)
         if not results:
             await respond(interaction, "I couldn't find any tracks that matched",
                           send_followup=True, delete_after=5)
         else:
-            await session.play(results[0])
+            await session.queue.put_wait(results[0])
+            if session.current is None:
+                await session.play(await session.queue.get_wait())
             await respond(interaction, f"Added {results[0]} to the queue", 
                           send_followup=True, delete_after=5)
         
+
+    @app_commands.command(name="pause", description="Pauses the player")
+    @is_existing_session()
+    @is_not_outsider()
+    async def pause(self, interaction: Interaction) -> None:
+        await respond(interaction)
+        guild = cast(discord.Guild, interaction.guild)
+        session = cast(PlayerSession, guild.voice_client)
+        await session.pause(not session.paused)
+        if session.paused:
+            await respond(interaction, f"temporary stopage of the playa's playin", delete_after=5)
+        else:
+            await respond(interaction, f"let the playa be playin", delete_after=5)
 
 
     @app_commands.command(name="skip", description="Skip to the next track in the queue")
@@ -180,11 +196,11 @@ class MusicCog(GroupCog, group_name="m"):
             tracks.append(track)
         skipped_count = len(tracks)
         if skipped_count == 1:
-            await respond(interaction, f"Skipped {tracks[0]}")
+            await respond(interaction, f"Skipped {tracks[0]}", delete_after=5)
         elif skipped_count > 1:
-            await respond(interaction, f"Skiped {skipped_count}")
+            await respond(interaction, f"Skiped {skipped_count}", delete_after=5)
         else:
-            await respond(interaction, f"There are no tracks to skip")
+            await respond(interaction, f"There are no tracks to skip", delete_after=5)
         await session.pause(False)
 
     @app_commands.command(name="back", description="Skip to the previous track in the queue")
