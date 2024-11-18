@@ -6,6 +6,7 @@ from typing import (
 import PIL as pillow
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
+from urllib.parse import urlparse, parse_qs
 import aiosqlite
 import discord
 from discord.ext import commands, tasks
@@ -51,7 +52,10 @@ async def joinChannel(voice_channel: VocalGuildChannel) -> PlayerSession:
         voice_client = await voice_channel.connect(cls=PlayerSession)
     else:
         assert isinstance(voice_client, PlayerSession)
-        await voice_client.move_to(voice_channel)
+        if voice_channel != voice_client.channel:
+            await voice_client.move_to(voice_channel)
+        else: # if same channel silently do nothing
+            pass
     return voice_client
 
 # async def ensure_session(interaction: Interaction) -> None:
@@ -101,27 +105,24 @@ class MusicCog(GroupCog, group_name="m"):
         await wavelink.Pool.connect(nodes=[node])
 
     @app_commands.command(name="join", description="Starts a music session in the voice channel")
+    @is_not_outsider()
     # @app_commands.guild_only()
-    async def join(self, interaction: Interaction[Kagami], channel: VoiceChannel | None=None) -> None:
-        _ = await respond(interaction)
-        assert isinstance(interaction.user, Member) and interaction.guild is not None
-        voice_state: VoiceState | None = interaction.user.voice
-        existing_session: PlayerSession | None = interaction.guild.voice_client
-        if channel is None:
-            if existing_session is not None: 
-                raise errors.CustomCheck(f"Sorry, there is already an active voice session")
-            elif voice_state is None or voice_state.channel is None:
-                raise errors.CustomCheck("Join or specify a channel to start a session")
-            else:
-                new_channel = voice_state.channel
+    async def join(self, interaction: Interaction, channel: VoiceChannel | None=None) -> None:
+        await respond(interaction)
+        guild = cast(discord.Guild, interaction.guild)
+        user = cast(Member, interaction.user)
+        session = guild.voice_client
+        voice_state = user.voice
+
+        if channel is not None:
+            session = await joinChannel(channel)
+        elif voice_state is not None:
+            assert voice_state.channel is not None
+            session = await joinChannel(voice_state.channel)
         else:
-            new_channel = channel
-        
-        if existing_session:
-            await existing_session.move_to(new_channel)
-        else:
-            await new_channel.connect(cls=PlayerSession, self_deaf=True)
-        await respond(interaction, f"let the playa be playin in {new_channel.name}", delete_after=5)
+            raise errors.CustomCheck("Join or specify a channel to start a session")
+
+        await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
         
     @app_commands.command(name="leave", description="Ends the current session")
     @is_existing_session()
@@ -129,7 +130,7 @@ class MusicCog(GroupCog, group_name="m"):
     async def leave(self, interaction: Interaction) -> None:
         await respond(interaction)
         guild = cast(discord.Guild, interaction.guild)
-        session = guild.voice_client
+        session = cast(PlayerSession, guild.voice_client)
         await session.disconnect()
         await respond(interaction, "the playa done playin", delete_after=5)
     
@@ -155,6 +156,18 @@ class MusicCog(GroupCog, group_name="m"):
             return
         assert query is not None
         results: Search = await Playable.search(query)
+        if isinstance(results, wavelink.Playlist):
+            parsed_query = cast(str, urlparse(results.url).query)
+            params = parse_qs(parsed_query)
+            if "v" in params.items():
+                await session.queue.put_wait(results[results.selected])
+            else:
+                await session.queue.put_wait(results)
+        else:
+            await session.queue.put_wait(results[0])
+            
+            
+
         if not results:
             await respond(interaction, "I couldn't find any tracks that matched",
                           send_followup=True, delete_after=5)
