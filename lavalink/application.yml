@@ -38,8 +38,8 @@ plugins: # Plugin configurations
       yandexmusic: false # Enable Yandex Music lyrics source
       vkmusic: true # Enable Vk Music lyrics source
     spotify:
-      clientId: ${SPOTIFY_CLIENT_ID}
-      clientSecret: ${SPOTIFY_CLIENT_SECRET}
+      clientId: "" # Specified in the .env file
+      clientSecret: "" # Specified in the .env file
       # spDc: "your sp dc cookie" # the sp dc cookie used for accessing the spotify lyrics api
       countryCode: "US" # the country code you want to use for filtering the artists top tracks. See https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
       playlistLoadLimit: 6 # The number of pages at 100 tracks each
@@ -135,8 +135,8 @@ lavalink: # Plugin requirements
       #searchTriggersFail: true # Whether a search 429 should trigger marking the ip as failing
       #retryLimit: -1 # -1 = use default lavaplayer value | 0 = infinity | >0 = retry will happen this numbers times
     youtubeConfig: # Required for avoiding all age restrictions by YouTube, some restricted videos still can be played without.
-      email: ${YOUTUBE_EMAIL} # Email of Google account
-      password: ${YOUTUBE_PASSWORD} # Password of Google account
+      email: "" # Email of Google account - within the .env file
+      password: "" # Password of Google account - within the .env file
     #httpConfig: # Useful for blocking bad-actors from ip-grabbing your music node and attacking it, this way only the http proxy will be attacked
       #proxyHost: "localhost" # Hostname of the proxy, (ip or domain)
       #proxyPort: 3128 # Proxy port, 3128 is the default for squidProxy

@@ -241,6 +241,33 @@ class MusicCog(GroupCog, group_name="m"):
         else:
             await respond(interaction, f"There are no tracks to skip")
 
+
+    async def view_callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+        # TODO ADJUST THIS TO WORK WITH THE MUSIC QUEUE
+        ITEM_COUNT = 10
+        offset = state.initial_offset + state.relative_offset
+        async with self.bot.dbman.conn() as db:
+            tag_count = await Tag.selectCountWhere(db, group_id=group_id, author_id=user.id)
+            results = await Tag.selectAllWhere(db, guild_id=group_id, author_id=user.id, limit=ITEM_COUNT, offset=offset * ITEM_COUNT)
+
+        if offset * ITEM_COUNT > tag_count:
+            offset = tag_count // 10
+        
+        reps = []
+        for i, tag in enumerate(results):
+            index = (offset * ITEM_COUNT) + i + 1
+            temp = f"{acstr(index, 6)} {acstr(tag.name, 16)} - {acstr(self.bot.get_user(tag.author_id).name, 16)} : {acstr(tag.creation_date, 14)}"
+            reps.append(temp)
+        
+        group_name = "global" if group_id == 0 else "local"
+        body = '\n'.join(reps)
+        header = f"{acstr('Index', 6)} {acstr('Tag Name', 16)} - {acstr('Tag Author', 16)} : {acstr('Creation Date', 14)}"
+        content = f"```swift\nThere are {tag_count} tags in the {group_name} group\n{header}\n---\n{body}\n---\n```"
+        # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
+        last_index = tag_count // ITEM_COUNT 
+        return content, last_index
+
+
     @app_commands.command(name="view-queue", description="View all the tracks in the queue")
     async def view_queue(self, interaction: Interaction) -> None:
         raise NotImplementedError
