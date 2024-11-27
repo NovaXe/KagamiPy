@@ -756,7 +756,7 @@ class Tags(GroupCog, group_name="t"):
         if group_id is None:
             raise errors.CustomCheck(f"There are no tags in that group")
 
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
             ITEM_COUNT = 10
             offset = state.initial_offset + state.relative_offset
             async with self.bot.dbman.conn() as db:
@@ -776,8 +776,8 @@ class Tags(GroupCog, group_name="t"):
             body = '\n'.join(reps)
             content = f"```swift\nThere are {tag_count} tags in the {group_name} group, belonging to {user.name}\n---\n{body}\n---\n```"
             # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
-            last_index = tag_count // ITEM_COUNT
-            return content, last_index
+            last_index = (tag_count - 1) // ITEM_COUNT
+            return content, 0, last_index
 
         scroller = Scroller(message, interaction.user, page_callback=callback, initial_offset=0)
         await scroller.update(interaction)
@@ -790,7 +790,7 @@ class Tags(GroupCog, group_name="t"):
             raise errors.CustomCheck("There are no tags in that group")
         user = interaction.user
 
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
             ITEM_COUNT = 10
             offset = state.initial_offset + state.relative_offset
             async with self.bot.dbman.conn() as db:
@@ -811,8 +811,8 @@ class Tags(GroupCog, group_name="t"):
             header = f"{acstr('Index', 6)} {acstr('Tag Name', 16)} - {acstr('Tag Author', 16)} : {acstr('Creation Date', 14)}"
             content = f"```swift\nThere are {tag_count} tags in the {group_name} group\n{header}\n---\n{body}\n---\n```"
             # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
-            last_index = tag_count // ITEM_COUNT 
-            return content, last_index
+            last_index = (tag_count - 1) // ITEM_COUNT 
+            return content, 0, last_index
 
         # page, count = self.get_callbacks(self.bot.dbman, group_id)
         # scroller = Scroller(message, interaction.user, page_callback=page, count_callback=count, initial_offset=0)

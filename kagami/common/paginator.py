@@ -27,7 +27,7 @@ class ScrollerState:
 T_Callback = Callable[[Interaction, ScrollerState], list[str]]
 class Scroller(ui.View):
     def __init__(self, message: discord.Message, user: discord.User | discord.Member,
-                 page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int]]],
+                 page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]],
                 #  count_callback: Callable[[Interaction, ScrollerState], list[str]],
                 #  margin_callback: Callable[[Interaction, ScrollerState], list[str]],
                  initial_offset=0,
@@ -44,7 +44,7 @@ class Scroller(ui.View):
         self.user: discord.User = user
         self.initial_offset: int = initial_offset
         self.relative_offset: int = 0
-        self.page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int]]] = page_callback
+        self.page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]] = page_callback
 
     def __copy__(self):
         scroller = Scroller(
@@ -92,9 +92,9 @@ class Scroller(ui.View):
                 await self.view.update() 
         self.add_button(CustomButtom())
 
-    async def getPage(self, interaction: Interaction) -> tuple[str, int]:
-        content, last_index = await self.page_callback(interaction, self.state)
-        return content, last_index
+    async def getPage(self, interaction: Interaction) -> tuple[str, int, int]:
+        content, first_index, last_index = await self.page_callback(interaction, self.state)
+        return content, first_index, last_index
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         if interaction.user == self.user:
@@ -118,15 +118,20 @@ class Scroller(ui.View):
         await interaction.response.send_message(message)
 
     async def update(self, interaction: Interaction):
-        content, last_index = await self.getPage(interaction)
+        content, first_index, last_index = await self.getPage(interaction)
         is_last = self.offset >= last_index
+        is_first = self.offset <= first_index
 
-        self.first.disabled = self.offset == 0
-        self.prev.disabled = self.offset == 0
+        self.first.disabled = is_first
+        self.prev.disabled = is_first
+        # TODO add an is_first return value that the callbacks must handle
+        # this will allow for a queue with history to work properly as well
         self.next.disabled = is_last 
         self.last.disabled = is_last
         if is_last:
             self.relative_offset = last_index - self.initial_offset
+        if is_first:
+            self.relative_offset = first_index + self.initial_offset
         self.home.style = ButtonStyle.blurple 
 
         await self.message.edit(content=content, view=self) 

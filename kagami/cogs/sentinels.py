@@ -1775,7 +1775,7 @@ class Sentinels(GroupCog, name="s"):
         message = await respond(interaction, ephemeral=False)
         def rep(b):
             return "Disabled" if b else "Enabled"
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
             offset = state.offset
             async with self.bot.dbman.conn() as db:
                 count = await SentinelChannelSettings.selectCountWhere(db, interaction.guild_id)
@@ -1792,7 +1792,7 @@ class Sentinels(GroupCog, name="s"):
             body = "\n".join(reps)
             header = f"{acstr('Index', 6)} {acstr('Channel Name', 24)} - {acstr('Globals', 8)} | {acstr('Locals', 8)}"
             content = f"```swift\n{header}\n---\n{body}\n---\n```"
-            return content, floor(count / 10)
+            return content, 0, floor((count-1) / 10)
         scroller = Scroller(message, interaction.user, callback)
         await scroller.update(interaction)
 
@@ -1812,7 +1812,7 @@ class Sentinels(GroupCog, name="s"):
     @staticmethod 
     def get_view_all_callback(dbman: DatabaseManager, scope: str, guild_id: int):
         
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
             offset = state.initial_offset + state.relative_offset
             async with dbman.conn() as db:
                 count = await Sentinel.selectCountWhere(db, guild_id=guild_id)
@@ -1830,14 +1830,14 @@ class Sentinels(GroupCog, name="s"):
             header += f"{acstr('Index', 6)} {acstr('Name', 16)} - {acstr('Suits', 5, 'm')} / ({acstr('Triggers', 8, 'm')}, {acstr('Responses', 9, 'm')}) : {acstr('Enabled', 7, 'r')}"
             content = f"```swift\n{header}\n---\n{body}\n---\n```"
             # is_last = (count - offset * 10) < 10
-            last_index = count // 10
-            return content, last_index
+            last_index = (count-1) // 10
+            return content, 0, last_index
         return callback
     
     @staticmethod
     def get_sentinel_view_callback(dbman: DatabaseManager, scope: str, guild_id: int, sentinel_name: str):
         ITEM_COUNT = 5
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
             offset = state.initial_offset + state.relative_offset
             async with dbman.conn() as db:
                 count = await SentinelSuit.selectCountWhere(db, guild_id=guild_id, sentinel_name=sentinel_name)
@@ -1862,8 +1862,8 @@ class Sentinels(GroupCog, name="s"):
             body = '\n'.join(item_reps)
             content = f"```swift\n{header}\n---\n{body}\n---\n```"
 
-            last_index = floor(count / 10)
-            return content, last_index
+            last_index = floor((count-1) / 10)
+            return content, 0, last_index
         return callback
 
     @view_group.command(name="all", description="view all sentinels on a guild")

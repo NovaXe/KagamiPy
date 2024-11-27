@@ -253,7 +253,7 @@ class StatusCog(GroupCog, name="status"):
     @app_commands.command(name="view-all", description="See a list of all saved statuses")
     async def view_all(self, interaction: Interaction):
         message = await respond(interaction)
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
             dbman = self.bot.dbman
             offset = state.offset
             async with dbman.conn() as db:
@@ -271,7 +271,7 @@ class StatusCog(GroupCog, name="status"):
             header = f"{acstr('ID', 6)} {acstr('Status', 32)} {acstr('Emoji', 8)}"
             body = "\n".join(reps)
             content = f"```swift\n{header}\n---\n{body}\n---\n```"
-            return content, count // 10
+            return content, 0, (count -1 ) // 10
         scroller = Scroller(message=message, user=interaction.user, page_callback=callback)
         await scroller.update(interaction)
 

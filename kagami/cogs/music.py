@@ -172,7 +172,7 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, "I couldn't find any tracks that matched",
                           send_followup=True, delete_after=5)
         else:
-            await session.queue.put_wait(results[0])
+            # await session.queue.put_wait(results[0])
             if session.current is None:
                 await session.play(await session.queue.get_wait())
             await respond(interaction, f"Added {results[0]} to the queue", 
@@ -242,37 +242,88 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, f"There are no tracks to skip")
 
 
-    async def view_callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+    async def view_callback(self, interaction: Interaction, state: ScrollerState) -> tuple[str, int, int]:
         # TODO ADJUST THIS TO WORK WITH THE MUSIC QUEUE
         ITEM_COUNT = 10
         offset = state.initial_offset + state.relative_offset
-        async with self.bot.dbman.conn() as db:
-            tag_count = await Tag.selectCountWhere(db, group_id=group_id, author_id=user.id)
-            results = await Tag.selectAllWhere(db, guild_id=group_id, author_id=user.id, limit=ITEM_COUNT, offset=offset * ITEM_COUNT)
+        guild = cast(discord.Guild, interaction.guild)
+        voice_client = guild.voice_client
+        if voice_client is None:
+            return """```swift\nThe voice session has ended.\n```""", 0, 0
+        session = cast(PlayerSession, guild.voice_client)
+        assert session.queue.history is not None
+        queue_tracks = session.queue._items
+        history_tracks = session.queue.history._items
+        queue_length = len(queue_tracks)
+        history_length = len(history_tracks)
 
-        if offset * ITEM_COUNT > tag_count:
-            offset = tag_count // 10
+        if offset * ITEM_COUNT < history_length * -1:
+            offset = history_length * -1 // ITEM_COUNT
+        elif offset * ITEM_COUNT > queue_length:
+            offset = queue_length // ITEM_COUNT
+        currently_playing = session.current
+        if currently_playing is not None:
+            currently_playing_rep = f"<playing / paused / stopped> ➤ {acstr(currently_playing.title, 40)} - {acstr(currently_playing.length, 8, just="r")}"
+        else:
+            currently_playing_rep = f"Nothing is currently playing"
+
+        reps: list[str] = []
+        if offset == 0:
+            # Show 5 history tracks, 5 queue tracks and now playing in the middle
+            # Because this page contains the first 5 tracks of both the history and the queue
+            # the history and queue pages must be shift by 5 to account for it
+            history_slice = history_tracks[-5:]
+            for i, track in enumerate(history_slice):
+                index = len(history_slice) * -1 + i
+                temp = f"{acstr(index, 6)} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                reps.append(temp)
+            reps.append("---")
+            reps.append(currently_playing_rep)
+            reps.append("---")
+            queue_slice = queue_tracks[:5]
+            for i, track in enumerate(queue_slice):
+                index = i + 1
+                temp = f"{acstr(index, 6)} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                reps.append(temp)
+        elif offset < 0:
+            # 10 history tracks, now playing at the bottom
+            history_slice = history_tracks[offset * ITEM_COUNT - 5:offset * ITEM_COUNT + 5]
+            for i, track in enumerate(history_slice):
+                index = len(history_slice) * -1 + i
+                temp = f"{acstr(index, 6)} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                reps.append(temp)
+            reps.append(currently_playing_rep)
+        else:
+            # 10 queue tracks, now playing at the top
+            reps.append(currently_playing_rep)
+            reps.append("---")
+            queue_slice = queue_tracks[offset * ITEM_COUNT + 5:offset * ITEM_COUNT + 15]
+            for i, track in enumerate(queue_slice):
+                index = i + 1
+                temp = f"{acstr(index, 6)} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                reps.append(temp)
         
-        reps = []
-        for i, tag in enumerate(results):
-            index = (offset * ITEM_COUNT) + i + 1
-            temp = f"{acstr(index, 6)} {acstr(tag.name, 16)} - {acstr(self.bot.get_user(tag.author_id).name, 16)} : {acstr(tag.creation_date, 14)}"
-            reps.append(temp)
-        
-        group_name = "global" if group_id == 0 else "local"
         body = '\n'.join(reps)
-        header = f"{acstr('Index', 6)} {acstr('Tag Name', 16)} - {acstr('Tag Author', 16)} : {acstr('Creation Date', 14)}"
-        content = f"```swift\nThere are {tag_count} tags in the {group_name} group\n{header}\n---\n{body}\n---\n```"
+        header = f"{acstr('Index', 6)} {acstr('Title', 40)} - {acstr('Length', 8, just="r")}"
+        content = f"```swift\n{header}\n---\n{body}\n---\n```"
         # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
-        last_index = tag_count // ITEM_COUNT 
-        return content, last_index
+        last_index = (queue_length + 4 // ITEM_COUNT 
+        first_index = -1 * (max(history_length - 5, 0)) // ITEM_COUNT 
+        return content, first_index, last_index
 
 
-    @app_commands.command(name="view-queue", description="View all the tracks in the queue")
+    @app_commands.command(name="queue", description="View all the tracks in the queue")
+    @is_existing_session()
     async def view_queue(self, interaction: Interaction) -> None:
-        raise NotImplementedError
+        message = await respond(interaction)
+        guild = cast(discord.Guild, interaction.guild)
+        session = cast(PlayerSession, guild.voice_client)
+        user = cast(Member, interaction.user)
 
-    @app_commands.command(name="view-history", description="View all track in the history")
+        scroller = Scroller(message, user, self.view_callback)
+        await scroller.update(interaction)
+
+    # @app_commands.command(name="view-history", description="View all track in the history")
     async def view_history(self, interaction: Interaction) -> None:
         raise NotImplementedError
 
