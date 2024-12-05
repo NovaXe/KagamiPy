@@ -209,14 +209,14 @@ class MusicCog(GroupCog, group_name="m"):
         await session.pause(True)
         if new_index == 1:
             await respond(interaction, f"Skipped `{current_title}`", delete_after=5)
-        elif new_index == 0 or new_index == -1:
+        elif new_index == 0: # or new_index == -1
             await respond(interaction, f"Restarting `{current_title}`", delete_after=5)
         else:
             await respond(interaction, f"Skipped {new_index} tracks to `{new_title}`", delete_after=5)
         await session.pause(False)
 
     @app_commands.command(name="back", description="Skip to the previous track in the queue")
-    async def back(self, interaction: Interaction, count: int=2) -> None:
+    async def back(self, interaction: Interaction, count: int=1) -> None:
         await respond(interaction)
         guild = cast(discord.Guild, interaction.guild)
         session = cast(PlayerSession, guild.voice_client)
@@ -225,9 +225,9 @@ class MusicCog(GroupCog, group_name="m"):
         new_title = session.current.title if session.current else "Nothing"
 
         await session.pause(True)
-        if new_index == -2:
+        if new_index == -1:
             await respond(interaction, f"Skipped back to `{new_title}`", delete_after=5)
-        elif new_index == 0 or new_index == -1:
+        elif new_index == 0: # new_index == -1:
             await respond(interaction, f"Restarting `{current_title}`", delete_after=5)
         else:
             await respond(interaction, f"Skipped back {-1 * new_index} tracks to `{new_title}`", delete_after=5)
@@ -256,8 +256,9 @@ class MusicCog(GroupCog, group_name="m"):
 
         currently_playing = session.current
         if currently_playing is not None:
-            status = "Playing" if session.playing else ("Paused" if session.paused else "Stopped")
-            currently_playing_rep = f"{status} ➤ {acstr(currently_playing.title, 40)} - {acstr(currently_playing.length, 8, just="r")}"
+            status = "Playing" if session.playing and not session.paused else ("Paused" if session.paused else "Stopped")
+            # ➤
+            currently_playing_rep = f"{acstr(status, 7)} {acstr(currently_playing.title, 40)} - {acstr(currently_playing.length, 8, just="r")}"
         else:
             currently_playing_rep = f"Nothing is currently playing"
 
@@ -268,16 +269,16 @@ class MusicCog(GroupCog, group_name="m"):
             # the history and queue pages must be shift by 5 to account for it
             history_slice = history_tracks[-5:]
             for i, track in enumerate(history_slice):
-                index = len(history_slice) * -1 + i
-                temp = f"{acstr(index, 6, edges=("(", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                index = len(history_slice) * -1 + i + 1
+                temp = f"{acstr(index, 7, edges=("(", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
                 reps.append(temp)
-            reps.append("---")
+            reps.append("-------")
             reps.append(currently_playing_rep)
-            reps.append("---")
+            reps.append("-------")
             queue_slice = queue_tracks[:5]
             for i, track in enumerate(queue_slice):
                 index = i + 1
-                temp = f"{acstr(index, 6, edges=("( ", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                temp = f"{acstr(index, 7, edges=("( ", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
                 reps.append(temp)
         elif offset < 0:
             # 10 history tracks, now playing at the bottom
@@ -285,25 +286,26 @@ class MusicCog(GroupCog, group_name="m"):
             first, last = (offset * ITEM_COUNT - 5), (offset * ITEM_COUNT + 5)
             history_slice = history_tracks[first:last]
             for i, track in enumerate(history_slice):
-                index = len(history_slice) * -1 + i + last
-                temp = f"{acstr(index, 6, edges=("(", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                index = len(history_slice) * -1 + i + last + 1
+                temp = f"{acstr(index, 7, edges=("(", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
                 reps.append(temp)
+            reps.append("-------")
             reps.append(currently_playing_rep)
         else:
             # 10 queue tracks, now playing at the top
             reps.append(currently_playing_rep)
-            reps.append("---")
+            reps.append("-------")
             # Offset will be >=1 
             first, last = (offset * ITEM_COUNT - 5), (offset * ITEM_COUNT + 5)
             queue_slice = queue_tracks[first:last]
             for i, track in enumerate(queue_slice):
                 index = i + 1 + first
-                temp = f"{acstr(index, 6, edges=("( ", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                temp = f"{acstr(index, 7, edges=("( ", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
                 reps.append(temp)
 
         body = '\n'.join(reps)
-        header = f"{acstr('Index', 6)} {acstr('Title', 40)} - {acstr('Length', 8, just="r")}"
-        content = f"```swift\n{header}\n---\n{body}\n---({first_index} : {offset} : {last_index})\n```"
+        header = f"{acstr('Index', 7)} {acstr('Title', 40)} - {acstr('Length', 8, just="r")}"
+        content = f"```swift\n{header}\n-------\n{body}\n------- ({first_index} : {offset} : {last_index})\n```"
         # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
         return content, first_index, last_index
 

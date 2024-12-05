@@ -140,7 +140,7 @@ class Scroller(ui.View):
     @ui.button(emoji="⬆", custom_id="Scroller:first", row=0)
     async def first(self, interaction: Interaction, button: ui.Button):
         await respond(interaction)
-        self.relative_offset = 0 - self.initial_offset
+        self.relative_offset = -sys.maxsize
         await self.update(interaction)
 
     @ui.button(emoji="🔼", custom_id="Scroller:prev", row=0)

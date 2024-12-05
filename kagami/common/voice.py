@@ -10,7 +10,7 @@ class PlayerSession(Player):
         super().__init__(*args, **kwargs)
         self.autoplay = AutoPlayMode.partial
     
-    def shift_queue(self, shift) -> int:
+    def shift_queue(self, shift: int) -> int:
         assert self.queue.history is not None
         count: int = 0
         if shift > 0:
@@ -19,16 +19,25 @@ class PlayerSession(Player):
             del self.queue[:shift]
             self.queue.history.put(tracks)
         elif shift < 0:
-            tracks = self.queue.history[-shift:]
-            count = len(tracks)
-            del self.queue.history[-shift:]
+            shift = max(shift, -len(self.queue.history))
+            tracks = self.queue.history[shift:]
+            count = -len(tracks)
+            del self.queue.history[shift:]
             self.queue._items = tracks + self.queue._items
         return count
 
     async def skipto(self, index: int) -> int:
         assert self.queue.history is not None
         new_index = self.shift_queue(index)
-        await self.play(self.queue.history[-1], add_history=False)
+        if len(self.queue.history) > 0:
+            await self.play(self.queue.history[-1], add_history=False)
+        else:
+            self.autoplay = AutoPlayMode.disabled
+            await self.pause(True)
+            # self._current = None
+            await self.skip()
+            self.autoplay = AutoPlayMode.partial
+            # await self.pause(True)
         return new_index
     
 
