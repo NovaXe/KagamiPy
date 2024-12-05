@@ -119,8 +119,9 @@ class Scroller(ui.View):
 
     async def update(self, interaction: Interaction):
         content, first_index, last_index = await self.getPage(interaction)
-        is_last = self.offset >= last_index
         is_first = self.offset <= first_index
+        is_last = self.offset >= last_index
+        # print(f"{is_first=}, {is_last=}, {self.offset=}")
 
         self.first.disabled = is_first
         self.prev.disabled = is_first
@@ -131,7 +132,7 @@ class Scroller(ui.View):
         if is_last:
             self.relative_offset = last_index - self.initial_offset
         if is_first:
-            self.relative_offset = first_index + self.initial_offset
+            self.relative_offset = first_index - self.initial_offset
         self.home.style = ButtonStyle.blurple 
 
         await self.message.edit(content=content, view=self) 

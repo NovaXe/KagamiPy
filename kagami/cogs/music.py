@@ -3,6 +3,8 @@ from enum import IntEnum
 from typing import (
     Literal, List, Callable, Any, cast
 )
+import math
+from math import ceil, floor
 import PIL as pillow
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
@@ -246,6 +248,7 @@ class MusicCog(GroupCog, group_name="m"):
         # TODO ADJUST THIS TO WORK WITH THE MUSIC QUEUE
         ITEM_COUNT = 10
         offset = state.initial_offset + state.relative_offset
+        print(f"a.{offset=}")
         guild = cast(discord.Guild, interaction.guild)
         voice_client = guild.voice_client
         if voice_client is None:
@@ -257,13 +260,16 @@ class MusicCog(GroupCog, group_name="m"):
         queue_length = len(queue_tracks)
         history_length = len(history_tracks)
 
-        if offset * ITEM_COUNT < history_length * -1:
-            offset = history_length * -1 // ITEM_COUNT
-        elif offset * ITEM_COUNT > queue_length:
-            offset = queue_length // ITEM_COUNT
+        first_index = -1 * (history_length + 4) // ITEM_COUNT
+        last_index = (queue_length + 4) // ITEM_COUNT
+        
+        offset = max(min(offset, last_index), first_index)
+
+        print(f"b.{offset=}")
         currently_playing = session.current
         if currently_playing is not None:
-            currently_playing_rep = f"<playing / paused / stopped> ➤ {acstr(currently_playing.title, 40)} - {acstr(currently_playing.length, 8, just="r")}"
+            status = "Playing" if session.playing else ("Paused" if session.paused else "Stopped")
+            currently_playing_rep = f"{status} ➤ {acstr(currently_playing.title, 40)} - {acstr(currently_playing.length, 8, just="r")}"
         else:
             currently_playing_rep = f"Nothing is currently playing"
 
@@ -275,7 +281,7 @@ class MusicCog(GroupCog, group_name="m"):
             history_slice = history_tracks[-5:]
             for i, track in enumerate(history_slice):
                 index = len(history_slice) * -1 + i
-                temp = f"{acstr(index, 6)} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                temp = f"{acstr(index, 6, edges=("(", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
                 reps.append(temp)
             reps.append("---")
             reps.append(currently_playing_rep)
@@ -283,32 +289,34 @@ class MusicCog(GroupCog, group_name="m"):
             queue_slice = queue_tracks[:5]
             for i, track in enumerate(queue_slice):
                 index = i + 1
-                temp = f"{acstr(index, 6)} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                temp = f"{acstr(index, 6, edges=("( ", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
                 reps.append(temp)
         elif offset < 0:
             # 10 history tracks, now playing at the bottom
-            history_slice = history_tracks[offset * ITEM_COUNT - 5:offset * ITEM_COUNT + 5]
+            # Offset will be <= -1
+            first, last = (offset * ITEM_COUNT - 5), (offset * ITEM_COUNT + 5)
+            history_slice = history_tracks[first:last]
             for i, track in enumerate(history_slice):
-                index = len(history_slice) * -1 + i
-                temp = f"{acstr(index, 6)} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                index = len(history_slice) * -1 + i + last
+                temp = f"{acstr(index, 6, edges=("(", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
                 reps.append(temp)
             reps.append(currently_playing_rep)
         else:
             # 10 queue tracks, now playing at the top
             reps.append(currently_playing_rep)
             reps.append("---")
-            queue_slice = queue_tracks[offset * ITEM_COUNT + 5:offset * ITEM_COUNT + 15]
+            # Offset will be >=1 
+            first, last = (offset * ITEM_COUNT - 5), (offset * ITEM_COUNT + 5)
+            queue_slice = queue_tracks[first:last]
             for i, track in enumerate(queue_slice):
-                index = i + 1
-                temp = f"{acstr(index, 6)} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                index = i + 1 + first
+                temp = f"{acstr(index, 6, edges=("( ", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
                 reps.append(temp)
-        
+
         body = '\n'.join(reps)
         header = f"{acstr('Index', 6)} {acstr('Title', 40)} - {acstr('Length', 8, just="r")}"
-        content = f"```swift\n{header}\n---\n{body}\n---\n```"
+        content = f"```swift\n{header}\n---\n{body}\n---({first_index} : {offset} : {last_index})\n```"
         # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
-        last_index = (queue_length + 4 // ITEM_COUNT 
-        first_index = -1 * (max(history_length - 5, 0)) // ITEM_COUNT 
         return content, first_index, last_index
 
 
