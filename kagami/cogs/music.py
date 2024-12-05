@@ -202,53 +202,42 @@ class MusicCog(GroupCog, group_name="m"):
         await respond(interaction)
         guild = cast(discord.Guild, interaction.guild)
         session = cast(PlayerSession, guild.voice_client)
-        tracks: list[Playable] = []
+        current_title = session.current.title if session.current else "Nothing"
+        new_index = await session.skipto(count)
+        new_title = session.current.title if session.current else "Nothing"
+
         await session.pause(True)
-        for i in range(count):
-            track = await session.skip()
-            if track is None:
-                break
-            tracks.append(track)
-        skipped_count = len(tracks)
-        if skipped_count == 1:
-            await respond(interaction, f"Skipped {tracks[0]}", delete_after=5)
-        elif skipped_count > 1:
-            await respond(interaction, f"Skiped {skipped_count}", delete_after=5)
+        if new_index == 1:
+            await respond(interaction, f"Skipped `{current_title}`", delete_after=5)
+        elif new_index == 0 or new_index == -1:
+            await respond(interaction, f"Restarting `{current_title}`", delete_after=5)
         else:
-            await respond(interaction, f"There are no tracks to skip", delete_after=5)
+            await respond(interaction, f"Skipped {new_index} tracks to `{new_title}`", delete_after=5)
         await session.pause(False)
 
     @app_commands.command(name="back", description="Skip to the previous track in the queue")
-    async def back(self, interaction: Interaction, count: int=1) -> None:
-        raise NotImplemented
+    async def back(self, interaction: Interaction, count: int=2) -> None:
         await respond(interaction)
         guild = cast(discord.Guild, interaction.guild)
         session = cast(PlayerSession, guild.voice_client)
-        tracks: list[Playable] = []
-        if len(session.queue.history) > 0:
-            pass
+        current_title = session.current.title if session.current else "Nothing"
+        new_index = await session.skipto(count*-1)
+        new_title = session.current.title if session.current else "Nothing"
 
-        for i in range(count):
-
-            track = await session.queue.history[-1]
-            track = await session.skip()
-            if track is None:
-                break
-            tracks.append(track)
-        skipped_count = len(tracks)
-        if skipped_count == 1:
-            await respond(interaction, f"Skipped {tracks[0]}")
-        elif skipped_count > 1:
-            await respond(interaction, f"Skiped {skipped_count}")
+        await session.pause(True)
+        if new_index == -2:
+            await respond(interaction, f"Skipped back to `{new_title}`", delete_after=5)
+        elif new_index == 0 or new_index == -1:
+            await respond(interaction, f"Restarting `{current_title}`", delete_after=5)
         else:
-            await respond(interaction, f"There are no tracks to skip")
+            await respond(interaction, f"Skipped back {-1 * new_index} tracks to `{new_title}`", delete_after=5)
+        await session.pause(False)
 
 
     async def view_callback(self, interaction: Interaction, state: ScrollerState) -> tuple[str, int, int]:
         # TODO ADJUST THIS TO WORK WITH THE MUSIC QUEUE
         ITEM_COUNT = 10
         offset = state.initial_offset + state.relative_offset
-        print(f"a.{offset=}")
         guild = cast(discord.Guild, interaction.guild)
         voice_client = guild.voice_client
         if voice_client is None:
@@ -265,7 +254,6 @@ class MusicCog(GroupCog, group_name="m"):
         
         offset = max(min(offset, last_index), first_index)
 
-        print(f"b.{offset=}")
         currently_playing = session.current
         if currently_playing is not None:
             status = "Playing" if session.playing else ("Paused" if session.paused else "Stopped")
