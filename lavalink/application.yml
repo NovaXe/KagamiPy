@@ -29,7 +29,7 @@ plugins: # Plugin configurations
       deezer: false # Enable Deezer source
       yandexmusic: false # Enable Yandex Music source
       flowerytts: false # Enable Flowery TTS source
-      youtube: true # Enable YouTube search source (https://github.com/topi314/LavaSearch)
+      youtube: false # Enable YouTube search source (https://github.com/topi314/LavaSearch)
       vkmusic: false # Enable Vk Music source
     lyrics-sources:
       spotify: false # Enable Spotify lyrics source
@@ -82,7 +82,7 @@ plugins: # Plugin configurations
       recommendationsLoadLimit: 10 # Number of tracks
 lavalink: # Plugin requirements
   plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.8.3"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.11.1"
     # repository: "https://maven.lavalink.dev/releases"
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.3.0"
     # repository: "https://maven.lavalink.dev/releases" # this is optional for lavalink v4.0.0-beta.5 or greater
