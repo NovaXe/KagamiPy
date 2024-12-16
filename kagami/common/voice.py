@@ -1,15 +1,18 @@
 from readline import add_history
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from discord import VoiceClient, VoiceChannel
+import discord
+from discord import VoiceClient, VoiceChannel, ui, Interaction
 from wavelink import Player, AutoPlayMode
 from bot import Kagami
+from common.utils import acstr, ms_timestamp
 
 class PlayerSession(Player):
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.autoplay = AutoPlayMode.partial
-    
+        self.status_bar: StatusBar | None = None
+
     def shift_queue(self, shift: int) -> int:
         assert self.queue.history is not None
         count: int = 0
@@ -41,3 +44,66 @@ class PlayerSession(Player):
         return new_index
     
 
+class StatusBar(ui.View):
+    type Button = ui.Button["StatusBar"]
+    def __init__(self, message: discord.Message, style: str):
+        super().__init__()
+        self.message = message
+        self.style = style
+
+    def get_content(self) -> str:
+        assert (guild:=self.message.guild) is not None, "Can't exist outside of a guild"
+        assert (voice_client:=guild.voice_client) is not None, "Voice session must exist"
+        session = cast(PlayerSession, voice_client)
+        current_track = session.current
+        rep = "Nothing is currently playing"
+        if self.style == "minimal" or self.style == "remote":
+            if current_track is not None:
+                status = "Playing" if session.playing and not session.paused else ("Paused" if session.paused else "Stopped")
+                rep = f"{acstr(status, 7)} {acstr(current_track.title, 60)} - {acstr(ms_timestamp(current_track.length), 8, just="r")}"
+        elif self.style == "mini-queue":
+            assert session.queue.history is not None, "There is no good reason the history shouldn't exist"
+            history_len = len(session.queue.history)
+            queue_len = len(session.queue)
+            # handles the case where a track is playing and it is the same as the last history track
+            # the only case where this isn't true is when playback has been interupted in some way
+            # No reason to have the previous track listed as the currently playing track, that's retarded
+            rep = ""
+            if history_len > 0 and (track:=session.queue.history[-1]) != current_track:
+                rep += f"{acstr("Prev", 7)} {acstr(track.title, 60)} - {acstr(ms_timestamp(track.length), 8, just="r")}"
+                rep += "-------"
+            elif history_len > 1:
+                track = session.queue.history[-2]
+                rep += f"{acstr("Prev", 7)} {acstr(track.title, 60)} - {acstr(ms_timestamp(track.length), 8, just="r")}"
+                rep += "-------"
+
+            if current_track is not None:
+                status = "Playing" if session.playing and not session.paused else ("Paused" if session.paused else "Stopped")
+                rep = f"{acstr(status, 7)} {acstr(current_track.title, 60)} - {acstr(ms_timestamp(current_track.length), 8, just="r")}"
+
+            if queue_len > 0:
+                track = session.queue[0]
+                rep += "-------"
+                rep += f"{acstr("Next", 7)} {acstr(track.title, 60)} - {acstr(ms_timestamp(track.length), 8, just="r")}"
+        return rep
+
+
+    async def resend(self) -> None:
+
+    async def update(self) -> None:
+        pass
+
+    async def skip_back(self, interaction: Interaction, button: Button):
+        pass
+
+    async def rewind(self, interaction: Interaction, button: Button):
+        pass
+
+    async def play_pause(self, interaction: Interaction, button: Button):
+        pass
+
+    async def fastforward(self, interaction: Interaction, button: Button):
+        pass
+
+    async def skip_forward(self, interaction: Interaction, button: Button):
+        pass

@@ -3,6 +3,7 @@ from enum import IntEnum
 from typing import (
     Literal, List, Callable, Any, cast
 )
+import datetime
 import math
 from math import ceil, floor
 import PIL as pillow
@@ -13,6 +14,7 @@ import aiosqlite
 import discord
 from discord.ext import commands, tasks
 from discord import (
+    ui,
     VoiceClient, 
     VoiceState, 
     app_commands, 
@@ -34,7 +36,7 @@ from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
 from common.voice import PlayerSession
 from utils.depr_db_interface import Database
-from common.utils import acstr
+from common.utils import acstr, ms_timestamp
 
 
 class NotInChannel(errors.CustomCheck):
@@ -235,7 +237,8 @@ class MusicCog(GroupCog, group_name="m"):
 
 
     async def view_callback(self, interaction: Interaction, state: ScrollerState) -> tuple[str, int, int]:
-        # TODO ADJUST THIS TO WORK WITH THE MUSIC QUEUE
+        # TODO Consider restructuring to use an embed to display information
+        # Also consider a custom button to offset the titles if they're too long to see the full title 
         ITEM_COUNT = 10
         offset = state.initial_offset + state.relative_offset
         guild = cast(discord.Guild, interaction.guild)
@@ -249,16 +252,26 @@ class MusicCog(GroupCog, group_name="m"):
         queue_length = len(queue_tracks)
         history_length = len(history_tracks)
 
-        first_index = -1 * (history_length + 4) // ITEM_COUNT
-        last_index = (queue_length + 4) // ITEM_COUNT
+        first_page_index = -1 * ((history_length + 4) // ITEM_COUNT)
+        last_page_index = (queue_length + 4) // ITEM_COUNT
         
-        offset = max(min(offset, last_index), first_index)
+        offset = max(min(offset, last_page_index), first_page_index)
+        
+        # column widths
+        W_INDEX, W_TITLE, W_DURATION = 7, 40, 8
+
+
+        def track_repr(track: Playable):
+            return f"{acstr(track.title, W_TITLE)} - {acstr(ms_timestamp(track.length), W_DURATION, just="r")}"
+
+        def track_repr_index(track: Playable, index: int):
+            return f"{acstr(index, W_INDEX, edges=("( ", ")"))} {acstr(track.title, W_TITLE)} - {acstr(ms_timestamp(track.length), W_DURATION, just="r")}"
 
         currently_playing = session.current
         if currently_playing is not None:
             status = "Playing" if session.playing and not session.paused else ("Paused" if session.paused else "Stopped")
             # ➤
-            currently_playing_rep = f"{acstr(status, 7)} {acstr(currently_playing.title, 40)} - {acstr(currently_playing.length, 8, just="r")}"
+            currently_playing_rep = f"{acstr(status, W_INDEX)} {track_repr(currently_playing)}"
         else:
             currently_playing_rep = f"Nothing is currently playing"
 
@@ -270,7 +283,7 @@ class MusicCog(GroupCog, group_name="m"):
             history_slice = history_tracks[-5:]
             for i, track in enumerate(history_slice):
                 index = len(history_slice) * -1 + i + 1
-                temp = f"{acstr(index, 7, edges=("(", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                temp = track_repr_index(track, index)
                 reps.append(temp)
             reps.append("-------")
             reps.append(currently_playing_rep)
@@ -278,7 +291,7 @@ class MusicCog(GroupCog, group_name="m"):
             queue_slice = queue_tracks[:5]
             for i, track in enumerate(queue_slice):
                 index = i + 1
-                temp = f"{acstr(index, 7, edges=("( ", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                temp = track_repr_index(track, index)
                 reps.append(temp)
         elif offset < 0:
             # 10 history tracks, now playing at the bottom
@@ -287,7 +300,7 @@ class MusicCog(GroupCog, group_name="m"):
             history_slice = history_tracks[first:last]
             for i, track in enumerate(history_slice):
                 index = len(history_slice) * -1 + i + last + 1
-                temp = f"{acstr(index, 7, edges=("(", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                temp = track_repr_index(track, index)
                 reps.append(temp)
             reps.append("-------")
             reps.append(currently_playing_rep)
@@ -300,15 +313,14 @@ class MusicCog(GroupCog, group_name="m"):
             queue_slice = queue_tracks[first:last]
             for i, track in enumerate(queue_slice):
                 index = i + 1 + first
-                temp = f"{acstr(index, 7, edges=("( ", ")"))} {acstr(track.title, 40)} - {acstr(track.length, 8, just="r")}"
+                temp = track_repr_index(track, index)
                 reps.append(temp)
 
         body = '\n'.join(reps)
-        header = f"{acstr('Index', 7)} {acstr('Title', 40)} - {acstr('Length', 8, just="r")}"
-        content = f"```swift\n{header}\n-------\n{body}\n------- ({first_index} : {offset} : {last_index})\n```"
+        header = f"{acstr('Index', W_INDEX)} {acstr('Title', W_TITLE)} - {acstr('Length', W_DURATION, just="r")}"
+        content = f"```swift\n{header}\n-------\n{body}\n-------\nPage # ({first_page_index} : {offset} : {last_page_index})\n```"
         # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
-        return content, first_index, last_index
-
+        return content, first_page_index, last_page_index
 
     @app_commands.command(name="queue", description="View all the tracks in the queue")
     @is_existing_session()
@@ -321,10 +333,30 @@ class MusicCog(GroupCog, group_name="m"):
         scroller = Scroller(message, user, self.view_callback)
         await scroller.update(interaction)
 
-    # @app_commands.command(name="view-history", description="View all track in the history")
-    async def view_history(self, interaction: Interaction) -> None:
-        raise NotImplementedError
+    @app_commands.command(name="nowplaying", description="An editable now playing message that dynamically changes")
+    async def nowplaying(self, interaction: Interaction, style: Literal["minimal", "remote", "mini-queue"]):
+        await respond(interaction)
+        
+        if style == "minimal":
+            pass
+        elif style == "remote":
+            pass
+        elif style == "mini-queue":
+            pass
 
+    @commands.Cog.listener()
+    async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload) -> None:
+        pass
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        if message.guild is None: # event ignored if in dm
+            return
+
+        if message.guild.voice_client:
+            session: PlayerSession = cast(PlayerSession, message.guild.voice_client)
+            if session.status_bar and session.status_bar.message.id != message.id:
+                session.status_bar.resend()
 
 
 
