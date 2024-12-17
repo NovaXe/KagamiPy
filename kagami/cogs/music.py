@@ -346,6 +346,9 @@ class MusicCog(GroupCog, group_name="m"):
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload) -> None:
+        session = cast(PlayerSession, payload.player)
+        if session.status_bar:
+            await session.status_bar.resend()
         pass
 
     @commands.Cog.listener()
@@ -356,7 +359,7 @@ class MusicCog(GroupCog, group_name="m"):
         if message.guild.voice_client:
             session: PlayerSession = cast(PlayerSession, message.guild.voice_client)
             if session.status_bar and session.status_bar.message.id != message.id:
-                session.status_bar.resend()
+                await session.status_bar.resend()
 
 
 

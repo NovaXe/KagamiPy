@@ -1,8 +1,9 @@
 from readline import add_history
 from typing import Any, Literal, cast
+import asyncio
 
 import discord
-from discord import VoiceClient, VoiceChannel, ui, Interaction
+from discord import VoiceClient, VoiceChannel, ui, Interaction, ButtonStyle
 from wavelink import Player, AutoPlayMode
 from bot import Kagami
 from common.utils import acstr, ms_timestamp
@@ -49,7 +50,12 @@ class StatusBar(ui.View):
     def __init__(self, message: discord.Message, style: str):
         super().__init__()
         self.message = message
+        self.channel = message.channel
         self.style = style
+        self.button_page = 0
+        if style == "minimal":
+            self.clear_items()
+
 
     def get_content(self) -> str:
         assert (guild:=self.message.guild) is not None, "Can't exist outside of a guild"
@@ -89,21 +95,49 @@ class StatusBar(ui.View):
 
 
     async def resend(self) -> None:
+        await asyncio.gather(self.message.delete(), self.channel.send(content=self.get_content()))
 
     async def update(self) -> None:
-        pass
+        await self.message.edit(content=self.get_content())
 
-    async def skip_back(self, interaction: Interaction, button: Button):
-        pass
-
+    # First row begins here
+    @ui.button(emoji="⏪", style=ButtonStyle.green, row=0)
     async def rewind(self, interaction: Interaction, button: Button):
         pass
 
+    @ui.button(emoji="⏯", style=ButtonStyle.green, row=0)
     async def play_pause(self, interaction: Interaction, button: Button):
         pass
 
+    @ui.button(emoji="⏩", style=ButtonStyle.green, row=0)
     async def fastforward(self, interaction: Interaction, button: Button):
         pass
 
+    @ui.button(emoji="🔁", style=ButtonStyle.primary, row=0)
+    async def loop_mode(self, interaction: Interaction, button: Button):
+        pass
+
+    @ui.button(emoji="🔊", style=ButtonStyle.secondary, row=0)
+    async def volume_up(self, interaction: Interaction, button: Button):
+        pass
+
+    # Second row begins here
+    @ui.button(emoji="⏮️", style=ButtonStyle.green, row=1)
+    async def skip_back(self, interaction: Interaction, button: Button):
+        pass
+
+    @ui.button(emoji="⏹️", style=ButtonStyle.green, row=1)
+    async def stop_playback(self, interaction: Interaction, button: Button):
+        pass
+
+    @ui.button(emoji="⏭", style=ButtonStyle.green, row=1)
     async def skip_forward(self, interaction: Interaction, button: Button):
+        pass
+
+    @ui.button(emoji="🔎", style=ButtonStyle.primary, row=1)
+    async def search(self, interaction: Interaction, button: Button):
+        pass
+
+    @ui.button(emoji="🔉", style=ButtonStyle.secondary, row=1)
+    async def volume_down(self, interaction: Interaction, button: Button):
         pass
