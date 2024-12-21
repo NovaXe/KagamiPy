@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import (
-    Literal, List, Callable, Any, cast
+    Literal, List, Callable, Any, cast, get_args
 )
 import datetime
 import math
@@ -14,6 +14,8 @@ import aiosqlite
 import discord
 from discord.ext import commands, tasks
 from discord import (
+    Status,
+    TextChannel,
     ui,
     VoiceClient, 
     VoiceState, 
@@ -34,7 +36,8 @@ from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
-from common.voice import PlayerSession
+from common.types import MessageableGuildChannel
+from common.voice import PlayerSession, StatusBar
 from utils.depr_db_interface import Database
 from common.utils import acstr, ms_timestamp
 
@@ -159,19 +162,7 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, "let the playa beforth playin", delete_after=5)
             return
         assert query is not None
-        results: Search = await Playable.search(query)
-        if isinstance(results, wavelink.Playlist):
-            parsed_query = cast(str, urlparse(results.url).query)
-            params = parse_qs(parsed_query)
-            if "v" in params.items():
-                await session.queue.put_wait(results[results.selected])
-            else:
-                await session.queue.put_wait(results)
-        else:
-            await session.queue.put_wait(results[0])
-            
-            
-
+        results = await session.search_and_queue(query)
         if not results:
             await respond(interaction, "I couldn't find any tracks that matched",
                           send_followup=True, delete_after=5)
@@ -335,30 +326,48 @@ class MusicCog(GroupCog, group_name="m"):
 
     @app_commands.command(name="nowplaying", description="An editable now playing message that dynamically changes")
     async def nowplaying(self, interaction: Interaction, style: Literal["minimal", "remote", "mini-queue"]):
-        await respond(interaction)
-        
-        if style == "minimal":
-            pass
-        elif style == "remote":
-            pass
-        elif style == "mini-queue":
-            pass
+        await respond(interaction, ephemeral=True)
+        assert interaction.channel is not None
+        channel = cast(MessageableGuildChannel, interaction.channel)
+        assert interaction.guild is not None
+        voice_client = interaction.guild.voice_client
+        if voice_client is None:
+            raise NoSession
+        session = cast(PlayerSession, voice_client)
+        if session.status_bar is None:
+            status_bar = StatusBar(channel=channel, style=style)
+            await status_bar.resend()
+            session.status_bar = status_bar
+            await respond(interaction, "`Sent the status bar`", delete_after=3)
+        else:
+            if style != session.status_bar.style:
+                await session.status_bar.kill()
+                session.status_bar = StatusBar(channel=channel, style=style)
+                await session.status_bar.resend()
+                await respond(interaction, "`Updated the status bar style`", delete_after=3)
+            else:
+                await session.status_bar.kill()
+                session.status_bar = None
+                await respond(interaction, "`Disabled the status bar`", delete_after=3)
 
     @commands.Cog.listener()
     async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload) -> None:
         session = cast(PlayerSession, payload.player)
         if session.status_bar:
-            await session.status_bar.resend()
-        pass
+            await session.status_bar.refresh()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
+        return # For right now this isn't needed, persistant messages like this are kinda shitty and bad
         if message.guild is None: # event ignored if in dm
             return
 
         if message.guild.voice_client:
             session: PlayerSession = cast(PlayerSession, message.guild.voice_client)
-            if session.status_bar and session.status_bar.message.id != message.id:
+            if session.status_bar is not None and session.status_bar.message != message:
+                print("================")
+                print(session.status_bar.message)
+                print(message)
                 await session.status_bar.resend()
 
 
