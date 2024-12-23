@@ -1,5 +1,5 @@
 from code import interact
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, override
 import asyncio
 
 from urllib.parse import urlparse, parse_qs
@@ -15,6 +15,16 @@ from common.utils import acstr, ms_timestamp
 from common.types import MessageableGuildChannel
 
 type Interaction = discord.Interaction[Kagami]
+
+class NotInChannel(CustomCheck):
+    MESSAGE: str = "You must be in a voice channel to use this command"
+
+class NotInSession(CustomCheck):
+    MESSAGE: str = "You must part of the voice session to use this"
+
+class NoSession(CustomCheck):
+    MESSAGE: str = "A voice session must be active to use this command"
+
 
 class PlayerSession(Player):
     def __init__(self, *args: Any, **kwargs: Any):
@@ -65,6 +75,36 @@ class PlayerSession(Player):
             await self.queue.put_wait(results[0])
         return results
 
+    async def update_status_bar(self) -> None:
+        if self.status_bar is not None:
+            await self.status_bar.update()
+
+    async def pause(self, value: bool, /) -> None:
+        await self.update_status_bar()
+        return await super().pause(value)
+
+    async def play(self, track: Playable, *, replace: bool = True, start: int = 0, end: int | None = None, volume: int | None = None, paused: bool | None = None, add_history: bool = True, filters: wavelink.Filters | None = None, populate: bool = False, max_populate: int = 5) -> Playable:
+        await self.update_status_bar()
+        return await super().play(track, replace=replace, start=start, end=end, volume=volume, paused=paused, add_history=add_history, filters=filters, populate=populate, max_populate=max_populate)
+
+    async def cycle_queue_mode(self) -> QueueMode:
+        """
+        Cycles the queue looping mode
+        normal -> loop -> loop_all
+        """
+        # TODO: maybe don't make this async since it doesn't need to be for its primary function
+        # look into just doing this update elsewhere, there has to be a better way, maybe in the command that will be calling this 
+        await self.update_status_bar()
+        match self.queue.mode:
+            case QueueMode.normal:
+                self.queue.mode = QueueMode.loop
+            case QueueMode.loop:
+                self.queue.mode = QueueMode.loop_all
+            case QueueMode.loop_all:
+                self.queue.mode = QueueMode.normal
+        return self.queue.mode
+
+
 class SearchQueryModal(ui.Modal, title="Search Query"):
     query: ui.TextInput["SearchQueryModal"] = ui.TextInput(label="Search Query", required=True, style=TextStyle.short)
 
@@ -82,6 +122,18 @@ class StatusBar(ui.View):
         self.seek_milliseconds: int = 5000
         if style == "minimal":
             self.clear_items()
+
+    async def interaction_check(self, interaction: discord.Interaction, /) -> bool:
+        assert interaction.guild is not None
+        assert isinstance(interaction.user, discord.Member)
+        voice_state = interaction.user.voice
+        voice_client = interaction.guild.voice_client
+        if voice_client is not None:
+            if voice_state is None or voice_state.channel != voice_client.channel:
+                await respond(interaction, "You must be in the voice session to use this", ephemeral=True, delete_after=3)
+                # raise CustomCheck("You must be part of the voice session to use this")
+                return False
+        return True
 
     def get_content(self) -> str:
         assert (guild:=self.channel.guild) is not None, "Can't exist outside of a guild"
@@ -135,9 +187,11 @@ class StatusBar(ui.View):
             # print(f"{self.message.id=}")
             await self.message.delete()
             self.message = await self.channel.send(content=self.get_content(), view=self)
+            await self.update()
             # _, self.message = await asyncio.gather(old_message.delete(), self.channel.send(content=self.get_content()))
         else:
             self.message = await self.channel.send(content=self.get_content(), view=self)
+            await self.update()
 
     async def refresh(self) -> None:
         voice_client = self.channel.guild.voice_client
@@ -150,9 +204,52 @@ class StatusBar(ui.View):
                 await self.update()
 
     async def update(self) -> None:
+        """
+        Updates the statusbar message if anything has changed, otherwise do nothing
+        """
         if self.message is None:
             return
-        await self.message.edit(content=self.get_content(), view=self)
+        assert (guild:=self.channel.guild) is not None, "Can't exist outside of a guild"
+        assert (voice_client:=guild.voice_client) is not None, "Voice session must exist"
+        session = cast(PlayerSession, voice_client)
+        is_anything_changed = False 
+        # used to to know if the message needs to be edited in case anything changed
+        # may seem redundant but without this I edit the message when I don't need to
+        # Ideally I would only edit the message when I need to but the instance is owned by the
+        # session and if a pause command is run I'd like it to update the view
+        # I wanted to just check if message.view != self but you can't actually do that
+        # only other thing would be making a copy of the current view and comparing it but that is a waste of memory
+
+        before = self.play_pause.emoji
+        self.play_pause.emoji = "▶️" if session.paused else "⏸️"
+        after = self.play_pause.emoji
+        is_anything_changed = is_anything_changed or before != after
+
+        before = session.queue.mode
+        match session.queue.mode:
+            case QueueMode.loop:
+                self.loop_mode.emoji = "🔂"
+                self.loop_mode.style = ButtonStyle.blurple
+            case QueueMode.loop_all:
+                self.loop_mode.emoji = "🔁"
+                self.loop_mode.style = ButtonStyle.blurple
+            case QueueMode.normal:
+                self.loop_mode.emoji = "🔁"
+                self.loop_mode.style = ButtonStyle.grey
+        after = session.queue.mode
+        is_anything_changed = is_anything_changed or before != after
+
+        before = self.volume_up.label
+        self.volume_up.label = f"{session.volume}"
+        self.volume_down.label = f"{session.volume}"
+        after = self.volume_down.label
+        is_anything_changed = is_anything_changed or before != after
+        
+        # old vs new content is done differently since I need the new content to edit the message
+        old_content = self.message.content
+        new_content = self.get_content()
+        if is_anything_changed or old_content != new_content:
+            await self.message.edit(content=new_content, view=self)
 
     async def kill(self) -> None:
         if self.message is not None:
@@ -182,7 +279,7 @@ class StatusBar(ui.View):
             # Consider changing the way the error handler works or something like that, maybe just send the error as a followup or reply instead of a proper error
         session = cast(PlayerSession, interaction.guild.voice_client)
         await session.pause(not session.paused)
-        button.emoji = "▶️" if session.paused else "⏸️"
+        # button.emoji = "▶️" if session.paused else "⏸️"
         await self.update()
 
     @ui.button(emoji="⏩", style=ButtonStyle.green, row=0)
@@ -206,16 +303,16 @@ class StatusBar(ui.View):
         match session.queue.mode:
             case QueueMode.normal:
                 session.queue.mode = QueueMode.loop
-                button.emoji = "🔂"
-                button.style = ButtonStyle.blurple
+                # button.emoji = "🔂"
+                # button.style = ButtonStyle.blurple
             case QueueMode.loop:
                 session.queue.mode = QueueMode.loop_all
-                button.emoji = "🔁"
-                button.style = ButtonStyle.blurple
+                # button.emoji = "🔁"
+                # button.style = ButtonStyle.blurple
             case QueueMode.loop_all:
                 session.queue.mode = QueueMode.normal
-                button.emoji = "🔁"
-                button.style = ButtonStyle.grey
+                # button.emoji = "🔁"
+                # button.style = ButtonStyle.grey
         await self.update()
 
     @ui.button(emoji="🔊", style=ButtonStyle.secondary, row=0)
@@ -248,7 +345,7 @@ class StatusBar(ui.View):
         session = cast(PlayerSession, interaction.guild.voice_client)
         await session.pause(True)
         await session.seek(0)
-        self.play_pause.emoji = "▶️"
+        # self.play_pause.emoji = "▶️"
         await self.update()
 
     @ui.button(emoji="⏭", style=ButtonStyle.green, row=1)
@@ -263,14 +360,14 @@ class StatusBar(ui.View):
 
     @ui.button(emoji="🔎", style=ButtonStyle.primary, row=1)
     async def search(self, interaction: Interaction, button: Button):
-        await respond(interaction)
+        # await respond(interaction)
         assert interaction.guild is not None
         if interaction.guild.voice_client is None:
             await self.kill()
         session = cast(PlayerSession, interaction.guild.voice_client)
         modal = SearchQueryModal()
         await interaction.response.send_modal(modal)
-        if (await modal.wait()):
+        if not (await modal.wait()):
             results = await session.search_and_queue(modal.query.value)
             if not results:
                 await respond(interaction, "I couldn't find any tracks that matched",

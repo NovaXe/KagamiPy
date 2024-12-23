@@ -3,6 +3,7 @@ from discord.app_commands import CheckFailure
 
 class CustomCheck(CheckFailure):
     MESSAGE: str = "Failed Custom Check"
+    EPHEMERAL: bool = True
     def __init__(self, message: str | None=None, *args) -> None:
         message = message or self.MESSAGE
         super().__init__(message, *args)

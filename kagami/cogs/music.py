@@ -37,19 +37,10 @@ from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
 from common.types import MessageableGuildChannel
-from common.voice import PlayerSession, StatusBar
+from common.voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession
 from utils.depr_db_interface import Database
 from common.utils import acstr, ms_timestamp
 
-
-class NotInChannel(errors.CustomCheck):
-    MESSAGE: str = "You must be in a voice channel to use this command"
-
-class NotInSession(errors.CustomCheck):
-    MESSAGE: str = "You must part of the voice session to use this"
-
-class NoSession(errors.CustomCheck):
-    MESSAGE: str = "A voice session must be active to use this command"
 
 type VocalGuildChannel = VoiceChannel | discord.StageChannel
 
@@ -209,6 +200,8 @@ class MusicCog(GroupCog, group_name="m"):
         await session.pause(False)
 
     @app_commands.command(name="back", description="Skip to the previous track in the queue")
+    @is_existing_session()
+    @is_not_outsider()
     async def back(self, interaction: Interaction, count: int=1) -> None:
         await respond(interaction)
         guild = cast(discord.Guild, interaction.guild)
@@ -315,6 +308,7 @@ class MusicCog(GroupCog, group_name="m"):
 
     @app_commands.command(name="queue", description="View all the tracks in the queue")
     @is_existing_session()
+    @is_not_outsider()
     async def view_queue(self, interaction: Interaction) -> None:
         message = await respond(interaction)
         guild = cast(discord.Guild, interaction.guild)
@@ -325,6 +319,8 @@ class MusicCog(GroupCog, group_name="m"):
         await scroller.update(interaction)
 
     @app_commands.command(name="nowplaying", description="An editable now playing message that dynamically changes")
+    @is_existing_session()
+    @is_not_outsider()
     async def nowplaying(self, interaction: Interaction, style: Literal["minimal", "remote", "mini-queue"]):
         await respond(interaction, ephemeral=True)
         assert interaction.channel is not None
