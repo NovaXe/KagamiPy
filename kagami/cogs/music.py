@@ -163,6 +163,7 @@ class MusicCog(GroupCog, group_name="m"):
                 await session.play(await session.queue.get_wait())
             await respond(interaction, f"Added {results[0]} to the queue", 
                           send_followup=True, delete_after=5)
+        await session.update_status_bar()
         
 
     @app_commands.command(name="pause", description="Pauses the player")
@@ -177,6 +178,7 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, f"temporary stopage of the playa's playin", delete_after=5)
         else:
             await respond(interaction, f"let the playa be playin", delete_after=5)
+        await session.update_status_bar()
 
 
     @app_commands.command(name="skip", description="Skip to the next track in the queue")
@@ -190,6 +192,7 @@ class MusicCog(GroupCog, group_name="m"):
         new_index = await session.skipto(count)
         new_title = session.current.title if session.current else "Nothing"
 
+        previous_state = session.paused
         await session.pause(True)
         if new_index == 1:
             await respond(interaction, f"Skipped `{current_title}`", delete_after=5)
@@ -197,7 +200,7 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, f"Restarting `{current_title}`", delete_after=5)
         else:
             await respond(interaction, f"Skipped {new_index} tracks to `{new_title}`", delete_after=5)
-        await session.pause(False)
+        await session.pause(previous_state)
 
     @app_commands.command(name="back", description="Skip to the previous track in the queue")
     @is_existing_session()
@@ -210,6 +213,7 @@ class MusicCog(GroupCog, group_name="m"):
         new_index = await session.skipto(count*-1)
         new_title = session.current.title if session.current else "Nothing"
 
+        previous_state = session.paused
         await session.pause(True)
         if new_index == -1:
             await respond(interaction, f"Skipped back to `{new_title}`", delete_after=5)
@@ -217,8 +221,22 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, f"Restarting `{current_title}`", delete_after=5)
         else:
             await respond(interaction, f"Skipped back {-1 * new_index} tracks to `{new_title}`", delete_after=5)
-        await session.pause(False)
+        await session.pause(previous_state)
 
+
+    @app_commands.command(name="loop", description="Sets the loop mode of the queue")
+    @is_existing_session()
+    @is_not_outsider()
+    async def loop(self, interaction: Interaction, mode: wavelink.QueueMode | None=None) -> None:
+        await respond(interaction, ephemeral=True)
+        guild = cast(discord.Guild, interaction.guild)
+        session = cast(PlayerSession, guild.voice_client)
+        if mode is None:
+            session.cycle_queue_mode()
+        else:
+            session.queue.mode = mode
+        await respond(interaction, f"Queue Mode: {session.queue.mode}", delete_after=5)
+        await session.update_status_bar()
 
     async def view_callback(self, interaction: Interaction, state: ScrollerState) -> tuple[str, int, int]:
         # TODO Consider restructuring to use an embed to display information

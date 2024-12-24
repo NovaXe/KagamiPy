@@ -10,9 +10,12 @@ from wavelink import Player, AutoPlayMode, QueueMode, Playable, Search
 import wavelink
 from bot import Kagami
 from common.interactions import respond
+from common.logging import setup_logging
 from common.errors import CustomCheck
 from common.utils import acstr, ms_timestamp
 from common.types import MessageableGuildChannel
+
+logger = setup_logging(__name__)
 
 type Interaction = discord.Interaction[Kagami]
 
@@ -76,25 +79,28 @@ class PlayerSession(Player):
         return results
 
     async def update_status_bar(self) -> None:
+        # logger.debug("enter update status bar")
         if self.status_bar is not None:
+            # logger.debug("statusbar exists")
             await self.status_bar.update()
 
-    async def pause(self, value: bool, /) -> None:
-        await self.update_status_bar()
-        return await super().pause(value)
+    # async def pause(self, value: bool, /) -> None:
+    #     result = await super().pause(value)
+    #     await self.update_status_bar()
+    #     return result
 
-    async def play(self, track: Playable, *, replace: bool = True, start: int = 0, end: int | None = None, volume: int | None = None, paused: bool | None = None, add_history: bool = True, filters: wavelink.Filters | None = None, populate: bool = False, max_populate: int = 5) -> Playable:
-        await self.update_status_bar()
-        return await super().play(track, replace=replace, start=start, end=end, volume=volume, paused=paused, add_history=add_history, filters=filters, populate=populate, max_populate=max_populate)
+    # async def play(self, track: Playable, *, replace: bool = True, start: int = 0, end: int | None = None, volume: int | None = None, paused: bool | None = None, add_history: bool = True, filters: wavelink.Filters | None = None, populate: bool = False, max_populate: int = 5) -> Playable:
+    #     result = await super().play(track, replace=replace, start=start, end=end, volume=volume, paused=paused, add_history=add_history, filters=filters, populate=populate, max_populate=max_populate)
+    #     await self.update_status_bar()
+    #     return result
 
-    async def cycle_queue_mode(self) -> QueueMode:
+    def cycle_queue_mode(self) -> QueueMode:
         """
         Cycles the queue looping mode
         normal -> loop -> loop_all
         """
         # TODO: maybe don't make this async since it doesn't need to be for its primary function
         # look into just doing this update elsewhere, there has to be a better way, maybe in the command that will be calling this 
-        await self.update_status_bar()
         match self.queue.mode:
             case QueueMode.normal:
                 self.queue.mode = QueueMode.loop
@@ -158,24 +164,30 @@ class StatusBar(ui.View):
             # No reason to have the previous track listed as the currently playing track, that's retarded
             rep = "```swift\n"
             if history_len > 0 and (track:=session.queue.history[-1]) != current_track:
-                rep += f"\n{acstr("Prev", 7)} {acstr(track.title, 60)} - {acstr(ms_timestamp(track.length), 8, just="r")}"
+                rep += f"\n{acstr("Prev", 7)} {acstr(track.title, 100)}" + \
+                       f"\n- Artist: {track.author}" + \
+                       f"\n- Duration: {ms_timestamp(track.length)}"
                 rep += "\n-------"
             elif history_len > 1:
                 track = session.queue.history[-2]
-                rep += f"\n{acstr("Prev", 7)} {acstr(track.title, 60)} - {acstr(ms_timestamp(track.length), 8, just="r")}"
+                rep += f"\n{acstr("Prev", 7)} {acstr(track.title, 100)}" + \
+                       f"\n- Artist: {track.author}" + \
+                       f"\n- Duration: {ms_timestamp(track.length)}"
                 rep += "\n-------"
             if current_track is not None:
                 status = "Playing" if session.playing and not session.paused else ("Paused" if session.paused else "Stopped")
-                rep = f"```swift" + \
-                f"\n{acstr(status, 7)} {acstr(current_track.title, 100)}" + \
-                f"\n- Artist: {current_track.author}" + \
-                f"\n- Duration: {ms_timestamp(current_track.length)}" + \
-                "\n```"
+                rep += f"\n{acstr(status, 7)} {acstr(current_track.title, 100)}" + \
+                       f"\n- Artist: {current_track.author}" + \
+                       f"\n- Duration: {ms_timestamp(current_track.length)}"
+            else:
+                rep += "\nNothing is currently playing"
 
             if queue_len > 0:
                 track = session.queue[0]
                 rep += "\n-------"
-                rep += f"\n{acstr("Next", 7)} {acstr(track.title, 60)} - {acstr(ms_timestamp(track.length), 8, just="r")}"
+                rep += f"\n{acstr("Next", 7)} {acstr(track.title, 100)}" + \
+                       f"\n- Artist: {track.author}" + \
+                       f"\n- Duration: {ms_timestamp(track.length)}"
             rep += "\n```"
         return rep
 
@@ -221,11 +233,16 @@ class StatusBar(ui.View):
         # only other thing would be making a copy of the current view and comparing it but that is a waste of memory
 
         before = self.play_pause.emoji
+        # logger.debug(f"{before=}")
         self.play_pause.emoji = "▶️" if session.paused else "⏸️"
         after = self.play_pause.emoji
+        # logger.debug(f"{after=}")
+        # logger.debug(f"{before=}")
         is_anything_changed = is_anything_changed or before != after
+        # logger.debug(f"{is_anything_changed}")
 
-        before = session.queue.mode
+        before = self.loop_mode.emoji
+        before2 = self.loop_mode.style
         match session.queue.mode:
             case QueueMode.loop:
                 self.loop_mode.emoji = "🔂"
@@ -236,19 +253,23 @@ class StatusBar(ui.View):
             case QueueMode.normal:
                 self.loop_mode.emoji = "🔁"
                 self.loop_mode.style = ButtonStyle.grey
-        after = session.queue.mode
-        is_anything_changed = is_anything_changed or before != after
+        after = self.loop_mode.emoji.id
+        after2 = self.loop_mode.style
+        is_anything_changed = is_anything_changed or before != after or before2 != after2
+        # logger.debug(f"{is_anything_changed}")
 
         before = self.volume_up.label
         self.volume_up.label = f"{session.volume}"
         self.volume_down.label = f"{session.volume}"
-        after = self.volume_down.label
+        after = self.volume_up.label
         is_anything_changed = is_anything_changed or before != after
+        # logger.debug(f"{is_anything_changed}")
         
         # old vs new content is done differently since I need the new content to edit the message
         old_content = self.message.content
         new_content = self.get_content()
         if is_anything_changed or old_content != new_content:
+            # logger.debug("editting status message")
             await self.message.edit(content=new_content, view=self)
 
     async def kill(self) -> None:
@@ -275,8 +296,6 @@ class StatusBar(ui.View):
         if interaction.guild.voice_client is None:
             await self.kill()
             # raise SessionInactive 
-            # (in reference to raise SessionInactive) Note this may not work properly as it will edit the view message with the error message 
-            # Consider changing the way the error handler works or something like that, maybe just send the error as a followup or reply instead of a proper error
         session = cast(PlayerSession, interaction.guild.voice_client)
         await session.pause(not session.paused)
         # button.emoji = "▶️" if session.paused else "⏸️"
@@ -300,19 +319,7 @@ class StatusBar(ui.View):
         if interaction.guild.voice_client is None:
             await self.kill()
         session = cast(PlayerSession, interaction.guild.voice_client)
-        match session.queue.mode:
-            case QueueMode.normal:
-                session.queue.mode = QueueMode.loop
-                # button.emoji = "🔂"
-                # button.style = ButtonStyle.blurple
-            case QueueMode.loop:
-                session.queue.mode = QueueMode.loop_all
-                # button.emoji = "🔁"
-                # button.style = ButtonStyle.blurple
-            case QueueMode.loop_all:
-                session.queue.mode = QueueMode.normal
-                # button.emoji = "🔁"
-                # button.style = ButtonStyle.grey
+        session.cycle_queue_mode()
         await self.update()
 
     @ui.button(emoji="🔊", style=ButtonStyle.secondary, row=0)
