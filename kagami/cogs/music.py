@@ -366,13 +366,21 @@ class MusicCog(GroupCog, group_name="m"):
                 session.status_bar = None
                 await respond(interaction, "`Disabled the status bar`", delete_after=3)
 
-    GroupCog.listener()
+    @GroupCog.listener()
     async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload) -> None:
         session = cast(PlayerSession, payload.player)
         if session.status_bar:
             await session.status_bar.refresh()
 
-    GroupCog.listener()
+
+    @GroupCog.listener()
+    async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload) -> None:
+        pass
+        # session = cast(PlayerSession, payload.player)
+        # if session.status_bar:
+        #     await session.status_bar.refresh()
+
+    @GroupCog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: VoiceState, after: VoiceState) -> None:
         # leave channel if len(members) == 1 and memeber == bot
         # make bot leave when someone else leaves and now the bot is alone, that's it
@@ -385,7 +393,7 @@ class MusicCog(GroupCog, group_name="m"):
         if member.guild.voice_client:
             session = cast(PlayerSession, member.guild.voice_client)
             if before.channel and before.channel != after.channel and session.channel == before.channel:
-                if len(before.channel.members) == 2:
+                if len(before.channel.members) == 1:
                     await session.disconnect()
         else:
             # I'm doing this with member stuff instead of voice clients in case the bot is left in the channel while lavalink has an issue
@@ -393,7 +401,7 @@ class MusicCog(GroupCog, group_name="m"):
                 if len(before.channel.members) == 2 and bot_member in before.channel.members:
                     await bot_member.move_to(None)
 
-    GroupCog.listener()
+    # @GroupCog.listener()
     async def on_message(self, message: discord.Message) -> None:
         return # For right now this isn't needed, persistant messages like this are kinda shitty and bad
         if message.guild is None: # event ignored if in dm

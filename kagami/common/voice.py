@@ -35,6 +35,12 @@ class PlayerSession(Player):
         self.autoplay = AutoPlayMode.partial
         self.status_bar: StatusBar | None = None
 
+    @override
+    async def disconnect(self, **kwargs: Any) -> None:
+        if self.status_bar:
+            await self.status_bar.kill()
+        return await super().disconnect(**kwargs)
+
     def shift_queue(self, shift: int) -> int:
         assert self.queue.history is not None
         count: int = 0
@@ -197,7 +203,8 @@ class StatusBar(ui.View):
         """
         if self.message is not None:
             # print(f"{self.message.id=}")
-            await self.message.delete()
+            old_message = self.message
+            await old_message.delete()
             self.message = await self.channel.send(content=self.get_content(), view=self)
             await self.update()
             # _, self.message = await asyncio.gather(old_message.delete(), self.channel.send(content=self.get_content()))
