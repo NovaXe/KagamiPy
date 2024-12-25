@@ -1,5 +1,5 @@
 from code import interact
-from typing import Any, Literal, cast, override
+from typing import Any, Literal, cast, override, Callable, Awaitable
 import asyncio
 
 from urllib.parse import urlparse, parse_qs
@@ -14,6 +14,7 @@ from common.logging import setup_logging
 from common.errors import CustomCheck
 from common.utils import acstr, ms_timestamp
 from common.types import MessageableGuildChannel
+from common.paginator import ScrollerState, Scroller
 
 logger = setup_logging(__name__)
 
@@ -123,6 +124,30 @@ class SearchQueryModal(ui.Modal, title="Search Query"):
     async def on_submit(self, interaction: Interaction, /) -> None:
         await respond(interaction)
 
+def get_tracklist_callback(tracks: list[wavelink.Playable] | wavelink.Playlist) -> Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]]:
+    async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
+        ITEM_COUNT = 10
+        first_page_index = 0
+        last_page_index = len(tracks) // ITEM_COUNT
+        offset = max(min(state.offset, last_page_index), first_page_index)
+        W_INDEX = 7
+        W_TITLE = 60
+        W_DURATION = 9
+        def repr(track: Playable, index: int) -> str:
+            return f"{acstr(index, W_INDEX, edges=("", ")"))} {acstr(track.title, W_TITLE)} - {acstr(ms_timestamp(track.length), W_DURATION, just="r")}"
+
+        reps: list[str] = []
+        for slice_index, track in enumerate(tracks[offset:offset + ITEM_COUNT]):
+            index = slice_index + offset * 10
+            rep = repr(track, index)
+            reps.append(rep)
+        body = '\n'.join(reps)
+        header = f"{acstr('Index', W_INDEX)} {acstr('Title', W_TITLE)} - {acstr('Length', W_DURATION, just="r")}"
+        content = f"```swift\n{header}\n-------\n{body}\n-------\nPage # ({first_page_index} : {offset} : {last_page_index})\n```"
+        # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
+        return content, first_page_index, last_page_index
+    return callback
+
 
 class StatusBar(ui.View):
     type Button = ui.Button["StatusBar"]
@@ -132,6 +157,7 @@ class StatusBar(ui.View):
         self.channel: MessageableGuildChannel = channel
         self.style: str = style
         self.seek_milliseconds: int = 5000
+        self.volume_interval = 10
         if style == "minimal":
             self.clear_items()
 
@@ -336,7 +362,7 @@ class StatusBar(ui.View):
         if interaction.guild.voice_client is None:
             await self.kill()
         session = cast(PlayerSession, interaction.guild.voice_client)
-        await session.set_volume(min(200, session.volume + 5))
+        await session.set_volume(min(200, session.volume + self.volume_interval))
         await self.update()
 
     # Second row begins here
@@ -383,15 +409,28 @@ class StatusBar(ui.View):
         await interaction.response.send_modal(modal)
         if not (await modal.wait()):
             results = await session.search_and_queue(modal.query.value)
-            if not results:
-                await respond(interaction, "I couldn't find any tracks that matched",
-                              send_followup=True, ephemeral=True, delete_after=5)
-            else:
-                # await session.queue.put_wait(results[0])
+            if len(results) == 1:
                 if session.current is None:
-                    await session.play(await session.queue.get_wait())
-                await respond(interaction, f"Added {results[0]} to the queue", 
-                              send_followup=True, ephemeral=True, delete_after=5)
+                    track = await session.queue.get_wait()
+                    await session.play(track)
+                    await respond(interaction, f"Now playing {track.title}", 
+                                  send_followup=True, delete_after=5)
+                else:
+                    await respond(interaction, f"Added {results[0]} to the queue", 
+                                  send_followup=True, delete_after=5)
+            elif len(results) > 1:
+                message = await respond(interaction, send_followup=True)
+                guild = cast(discord.Guild, interaction.guild)
+                session = cast(PlayerSession, guild.voice_client)
+                user = cast(discord.Member, interaction.user)
+
+                scroller = Scroller(message, user, get_tracklist_callback(results))
+                if session.current is None:
+                    track = await session.queue.get_wait()
+                await scroller.update(interaction)
+            else:
+                await respond(interaction, "I couldn't find any tracks that matched",
+                              send_followup=True, delete_after=5)
         await self.update()
 
     @ui.button(emoji="🔉", style=ButtonStyle.secondary, row=1)
@@ -401,5 +440,5 @@ class StatusBar(ui.View):
         if interaction.guild.voice_client is None:
             await self.kill()
         session = cast(PlayerSession, interaction.guild.voice_client)
-        await session.set_volume(max(0, session.volume - 5))
+        await session.set_volume(max(0, session.volume - self.volume_interval))
         await self.update()

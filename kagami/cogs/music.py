@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import IntEnum
+from inspect import getcallargs
 from typing import (
     Literal, List, Callable, Any, cast, get_args
 )
@@ -20,7 +21,7 @@ from discord import (
     VoiceClient, 
     VoiceState, 
     app_commands, 
-    Interaction, 
+#    Interaction, 
     Member, 
     VoiceChannel,
     voice_client,
@@ -39,12 +40,13 @@ from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
 from common.types import MessageableGuildChannel
-from common.voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession
+from common.voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, get_tracklist_callback
 from utils.depr_db_interface import Database
 from common.utils import acstr, ms_timestamp
 
 
 type VocalGuildChannel = VoiceChannel | discord.StageChannel
+type Interaction = discord.Interaction[Kagami]
 
 async def joinChannel(voice_channel: VocalGuildChannel) -> PlayerSession:
     voice_client = voice_channel.guild.voice_client
@@ -101,7 +103,7 @@ class MusicCog(GroupCog, group_name="m"):
                                    ignore_schema_updates=self.bot.config.ignore_schema_updates,
                                    ignore_trigger_updates=self.bot.config.ignore_trigger_updates)
         
-        node = wavelink.Node(**self.bot.config.lavalink, client=self.bot)
+        node = wavelink.Node(**self.bot.config.lavalink, client=self.bot) # pyright:ignore
         await wavelink.Pool.connect(nodes=[node])
 
     @app_commands.command(name="join", description="Starts a music session in the voice channel")
@@ -156,14 +158,27 @@ class MusicCog(GroupCog, group_name="m"):
             return
         assert query is not None
         results = await session.search_and_queue(query)
-        if not results:
-            await respond(interaction, "I couldn't find any tracks that matched",
-                          send_followup=True, delete_after=5)
-        else:
-            # await session.queue.put_wait(results[0])
+        if len(results) == 1:
             if session.current is None:
-                await session.play(await session.queue.get_wait())
-            await respond(interaction, f"Added {results[0]} to the queue", 
+                track = await session.queue.get_wait()
+                await session.play(track)
+                await respond(interaction, f"Now playing {track.title}", 
+                              send_followup=True, delete_after=5)
+            else:
+                await respond(interaction, f"Added {results[0]} to the queue", 
+                              send_followup=True, delete_after=5)
+        elif len(results) > 1:
+            message = await respond(interaction, send_followup=True)
+            guild = cast(discord.Guild, interaction.guild)
+            session = cast(PlayerSession, guild.voice_client)
+            user = cast(Member, interaction.user)
+
+            scroller = Scroller(message, user, get_tracklist_callback(results))
+            if session.current is None:
+                track = await session.queue.get_wait()
+            await scroller.update(interaction)
+        else:
+            await respond(interaction, "I couldn't find any tracks that matched",
                           send_followup=True, delete_after=5)
         await session.update_status_bar()
         
@@ -251,8 +266,8 @@ class MusicCog(GroupCog, group_name="m"):
             return """```swift\nThe voice session has ended.\n```""", 0, 0
         session = cast(PlayerSession, guild.voice_client)
         assert session.queue.history is not None
-        queue_tracks = session.queue._items
-        history_tracks = session.queue.history._items
+        queue_tracks = session.queue._items # pyright:ignore
+        history_tracks = session.queue.history._items # pyright:ignore
         queue_length = len(queue_tracks)
         history_length = len(history_tracks)
 

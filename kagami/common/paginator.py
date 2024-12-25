@@ -9,6 +9,7 @@ from discord import ButtonStyle, Interaction
 import discord.ui as ui
 from discord.ui import Item
 
+from bot import Kagami
 from common.logging import setup_logging
 from common.interactions import respond
 
@@ -24,7 +25,9 @@ class ScrollerState:
     def offset(self):
         return self.initial_offset + self.relative_offset
 
+type Interaction = discord.Interaction[Kagami]
 T_Callback = Callable[[Interaction, ScrollerState], list[str]]
+
 class Scroller(ui.View):
     def __init__(self, message: discord.Message, user: discord.User | discord.Member,
                  page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]],
