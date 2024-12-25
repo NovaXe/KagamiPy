@@ -23,14 +23,16 @@ from discord import (
     Interaction, 
     Member, 
     VoiceChannel,
+    voice_client,
 )
-from discord.ext.commands import GroupCog
+from discord.ext.commands import GroupCog, Cog
 from discord.app_commands import Transform, Transformer, Group, Choice, Range
 import wavelink
 from wavelink import Playable, Search
 
 from bot import Kagami
 from common import errors
+from common import voice
 from common.logging import setup_logging
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
@@ -364,13 +366,34 @@ class MusicCog(GroupCog, group_name="m"):
                 session.status_bar = None
                 await respond(interaction, "`Disabled the status bar`", delete_after=3)
 
-    @commands.Cog.listener()
+    GroupCog.listener()
     async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload) -> None:
         session = cast(PlayerSession, payload.player)
         if session.status_bar:
             await session.status_bar.refresh()
 
-    @commands.Cog.listener()
+    GroupCog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before: VoiceState, after: VoiceState) -> None:
+        # leave channel if len(members) == 1 and memeber == bot
+        # make bot leave when someone else leaves and now the bot is alone, that's it
+        if member == self.bot.user:
+            return # ignoring self
+        assert self.bot.user
+        bot_id = self.bot.user.id
+        bot_member = member.guild.get_member(bot_id)
+
+        if member.guild.voice_client:
+            session = cast(PlayerSession, member.guild.voice_client)
+            if before.channel and before.channel != after.channel and session.channel == before.channel:
+                if len(before.channel.members) == 2:
+                    await session.disconnect()
+        else:
+            # I'm doing this with member stuff instead of voice clients in case the bot is left in the channel while lavalink has an issue
+            if before.channel and before.channel != after.channel:
+                if len(before.channel.members) == 2 and bot_member in before.channel.members:
+                    await bot_member.move_to(None)
+
+    GroupCog.listener()
     async def on_message(self, message: discord.Message) -> None:
         return # For right now this isn't needed, persistant messages like this are kinda shitty and bad
         if message.guild is None: # event ignored if in dm

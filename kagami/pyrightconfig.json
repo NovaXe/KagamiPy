@@ -1,5 +1,6 @@
 {
     "reportMissingImports" : "error",
     "reportMissingTypeStubs" : true,
-    "reportUnusedCallResult" : false
+    "reportUnusedCallResult" : false,
+    "reportIgnoreCommentWithoutRule" : false
 }
