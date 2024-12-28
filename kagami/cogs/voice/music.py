@@ -40,7 +40,7 @@ from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
 from common.types import MessageableGuildChannel
-from common.voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, get_tracklist_callback
+from .voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, get_tracklist_callback
 from utils.depr_db_interface import Database
 from common.utils import acstr, ms_timestamp
 

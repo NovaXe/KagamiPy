@@ -24,7 +24,7 @@ from common.paginator import Scroller, ScrollerState
 @dataclass
 class TagSettings(Table, schema_version=1, trigger_version=1):
     guild_id: int
-    enforce_ownership = True
+    enforce_ownership: bool = True
 
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):

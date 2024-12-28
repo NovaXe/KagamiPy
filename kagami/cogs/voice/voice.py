@@ -138,7 +138,7 @@ def get_tracklist_callback(tracks: list[wavelink.Playable] | wavelink.Playlist) 
 
         reps: list[str] = []
         for slice_index, track in enumerate(tracks[offset:offset + ITEM_COUNT]):
-            index = slice_index + offset * 10
+            index = (slice_index + offset * 10) + 1
             rep = repr(track, index)
             reps.append(rep)
         body = '\n'.join(reps)
@@ -151,16 +151,17 @@ def get_tracklist_callback(tracks: list[wavelink.Playable] | wavelink.Playlist) 
 
 class StatusBar(ui.View):
     type Button = ui.Button["StatusBar"]
-    def __init__(self, channel: MessageableGuildChannel, style: str):
-        super().__init__()
+    def __init__(self, channel: MessageableGuildChannel, style: str, timeout: float | None=None):
+        super().__init__(timeout=timeout)
         self.message: discord.Message | None = None
         self.channel: MessageableGuildChannel = channel
         self.style: str = style
         self.seek_milliseconds: int = 5000
-        self.volume_interval = 10
+        self.volume_interval: int = 10
         if style == "minimal":
             self.clear_items()
 
+    @override
     async def interaction_check(self, interaction: discord.Interaction, /) -> bool:
         assert interaction.guild is not None
         assert isinstance(interaction.user, discord.Member)
@@ -172,6 +173,11 @@ class StatusBar(ui.View):
                 # raise CustomCheck("You must be part of the voice session to use this")
                 return False
         return True
+
+    @override
+    async def on_timeout(self) -> None:
+        await self.kill()
+        await super().on_timeout()
 
     def get_content(self) -> str:
         assert (guild:=self.channel.guild) is not None, "Can't exist outside of a guild"

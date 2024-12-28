@@ -230,7 +230,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
 
     # def __init__(self, *args, **kwargs): pass
     @classmethod
-    def _row_factory(cls, cur: aiosqlite.Cursor, row: tuple):
+    def _row_factory(cls, cur: aiosqlite.Cursor, row: tuple[Any, ...]):
         """Instantiates the dataclass from a row in the SQL table"""
         # field_names = {col[0] for col in cur.description}
         # got this stuff from chatgpt because the row factory thing always confused me, I know why it works so it's fine
