@@ -53,37 +53,36 @@ class Admin(commands.Cog):
     @commands.command(name="reload_all", description="reloads all cogs")
     @commands.is_owner()
     async def reload_all_cogs(self, ctx):
-        for file in os.listdir("cogs"):
-            if file.endswith(".py"):
-                name = file[:-3]
-                await self.bot.reload_extension(f"cogs.{name}")
+        exts = list(self.bot.extensions.keys())
+        for ext in exts:
+            await self.bot.reload_extension(ext)
         await ctx.send("Reloaded all cogs")
+
+    @commands.command(name="list-ext")
+    @commands.is_owner()
+    async def list_ext(self, ctx):
+        await ctx.send(" ".join(self.bot.extensions))
 
     @commands.command(name="reload", description="reloads a  cog")
     @commands.is_owner()
     async def reload_cog(self, ctx, cog_name):
-        for file in os.listdir("cogs"):
-            if file.endswith(".py"):
-                name = file[:-3]
-                if name.lower() == cog_name.lower():
-                    await self.bot.reload_extension(f"cogs.{name}")
-                    break
+        name = f"cogs.{cog_name}"
+        if name in self.bot.extensions:
+            await self.bot.reload_extension(name)
+            await ctx.send(f"Reloaded cog: `{cog_name}`")
+        # for file in os.listdir("cogs"):
+        #     if file.endswith(".py"):
+        #         name = file[:-3]
+        #         if name.lower() == cog_name.lower():
+        #             await self.bot.reload_extension(f"cogs.{name}")
+        #             break
         else:
             await ctx.send(f"No cog with that name could be found")
             return
-        await ctx.send(f"Reloaded cog: `{cog_name}`")
     
     @commands.command(name="load")
-    async def load_cog(self, ctx, cog_name):
-        for file in os.listdir("cogs"):
-            if file.endswith(".py"):
-                name = file[:-3]
-                if name.lower() == cog_name.lower():
-                    await self.bot.load_extension(f"cogs.{name}")
-                    break
-        else:
-            await ctx.send(f"No cog with that name could be found")
-            return
+    async def load_cog(self, ctx, cog_name: str):
+        await self.bot.load_cog_extension(f"cogs.{cog_name}")
         await ctx.send(f"Loaded cog: `{cog_name}`")
         
     @commands.command(name="unload")

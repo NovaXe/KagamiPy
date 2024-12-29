@@ -30,6 +30,7 @@ class NoSession(CustomCheck):
     MESSAGE: str = "A voice session must be active to use this command"
 
 
+
 class PlayerSession(Player):
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
@@ -448,3 +449,4 @@ class StatusBar(ui.View):
         session = cast(PlayerSession, interaction.guild.voice_client)
         await session.set_volume(max(0, session.volume - self.volume_interval))
         await self.update()
+

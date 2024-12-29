@@ -1,7 +1,6 @@
 from typing import ClassVar, override
 import aiosqlite
 from dataclasses import dataclass
-from cogs.depr_music import Music
 from common.database import Table, DatabaseManager
 from common.tables import Guild, GuildSettings, User
 

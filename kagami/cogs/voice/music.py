@@ -29,11 +29,10 @@ from discord import (
 from discord.ext.commands import GroupCog, Cog
 from discord.app_commands import Transform, Transformer, Group, Choice, Range
 import wavelink
-from wavelink import Playable, Search
+from wavelink import Playable, Search, TrackEndEventPayload, TrackStartEventPayload
 
 from bot import Kagami
 from common import errors
-from common import voice
 from common.logging import setup_logging
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
@@ -382,14 +381,14 @@ class MusicCog(GroupCog, group_name="m"):
                 await respond(interaction, "`Disabled the status bar`", delete_after=3)
 
     @GroupCog.listener()
-    async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload) -> None:
+    async def on_wavelink_track_start(self, payload: TrackStartEventPayload) -> None:
         session = cast(PlayerSession, payload.player)
         if session.status_bar:
             await session.status_bar.refresh()
 
 
     @GroupCog.listener()
-    async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload) -> None:
+    async def on_wavelink_track_end(self, payload: TrackEndEventPayload) -> None:
         pass
         # session = cast(PlayerSession, payload.player)
         # if session.status_bar:

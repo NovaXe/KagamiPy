@@ -14,7 +14,8 @@ from discord.ext.commands import Context
 
 from discord.ext import commands
 from typing import (
-    Any, )
+    Any,
+    override, )
 
 from common import errors
 from common.interactions import respond
@@ -66,15 +67,25 @@ class Kagami(commands.Bot):
                                ignore_schema_updates=self.config.ignore_schema_updates,
                                ignore_trigger_updates=self.config.ignore_trigger_updates)
 
-        for file in os.listdir("cogs"):
-            if file.endswith(".py") and not file.startswith("~"):
-                name = file[:-3]
-                if name in self.config.excluded_cogs:
-                    continue
-                path = f"cogs.{name}"
-                await self.load_extension(path)
+        await self.load_all_extensions()
 
-    async def start(self, token, reconnect=True):
+    async def load_all_extensions(self):
+        for file in os.listdir("cogs"):
+            await self.load_cog_extension(file)
+
+    async def load_cog_extension(self, filename: str):
+        if not (filename.startswith("~") or filename.endswith("__pycache__")):
+            if filename.endswith(".py"):
+                name = filename[:-3]
+            else:
+                name = filename
+            if name in self.config.excluded_cogs:
+                return
+            path = f"cogs.{name}"
+            await self.load_extension(path)
+
+    @override
+    async def start(self, token: str, *, reconnect: bool=True):
         await super().start(token, reconnect=reconnect)
 
     def run_bot(self):
@@ -91,20 +102,20 @@ class Kagami(commands.Bot):
 
     async def on_guild_join(self, guild: discord.Guild) -> None:
         guild_data = Guild.fromDiscord(guild)
-        async with self.dbman() as db:
+        async with self.dbman.conn() as db:
             await guild_data.upsert(db)
             await db.commit()
         my_logger.info(f"Registered new guild: {guild} to the Guild Table")
 
     async def on_guild_leave(self, guild: discord.Guild) -> None:
-        async with self.dbman() as db:
+        async with self.dbman.conn() as db:
             await Guild.deleteWhere(guild_id=guild.id)
             await db.commit()
         my_logger.info(f"Removed guild: {guild} from the Guild Table")
 
     async def on_guild_update(self, before: discord.Guild, after: discord.Guild):
         if before.name != after.name:
-            async with self.dbman() as db:
+            async with self.dbman.conn() as db:
                 guild_data = Guild.fromDiscord(after)
                 await guild_data.upsert(db)
         my_logger.info(f"Updated data for guild: {guild_data} in the Guild Table")
