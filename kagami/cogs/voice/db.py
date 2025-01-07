@@ -1,6 +1,9 @@
-from typing import ClassVar, override
+from typing import ClassVar, override, Any, cast
 import aiosqlite
 from dataclasses import dataclass
+from wavelink import Playable, Playlist, Node
+
+from discord import guild
 from common.database import Table, DatabaseManager
 from common.tables import Guild, GuildSettings, User
 
@@ -58,7 +61,11 @@ class TrackList(Table, schema_version=1, trigger_version=1):
     guild_id: int
     name: str
     position: int # starting at 1, represents order in playlist
-    encoded: str # encoded string representing the track from lavalink
+    # encoded: str # encoded string representing the track from lavalink
+    # track_data: bytes
+
+    # async def toWavelink(self, node: Node) -> Playable:
+    #     pass
     
     @override
     @classmethod
@@ -72,8 +79,9 @@ class TrackList(Table, schema_version=1, trigger_version=1):
             UNIQUE (guild_id, name, position),
             FOREIGN KEY (guild_id) REFERENCSE {Guild}(id)
         """
-        pass
+        await db.execute(query)
 
+    @override
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
         triggers = [
@@ -91,14 +99,74 @@ class TrackList(Table, schema_version=1, trigger_version=1):
             AFTER INSERT ON {TrackList}
             BEGIN
                 UPDATE Track
-                SET position = track_index + 1
+                SET position = position + 1
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) AND 
                 (position >= NEW.position) AND (rowid != NEW.rowid);
             END;
+            """,
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {TrackList}_shift_indices_after_update
+            AFTER UPDATE OF position ON {TrackList}
+            BEGIN
+                UPDATE Track
+                SET position = position + 1
+                WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) 
+                AND (position >= NEW.position) AND (position < OLD.position) AND (rowid != OLD.rowid);
+                UPDATE Track
+                SET position = position - 1
+                WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) 
+                AND (position > OLD.position) AND (position <= NEW.position) AND (rowid != OLD.rowid);
+            END
             """
         ]
         for t in triggers:
             await db.execute(t)
+
+    @override
+    async def insert(self, db: aiosqlite.Connection) -> int:
+        query = f"""
+        INSERT INTO {TrackList}(guild_id, name, position, encoded)
+        VALUES (
+            :guild_id, 
+            :name, 
+            (
+                SELECT Coalesce(Max(position), 0) + 1
+                FROM {TrackList} WHERE (guild_id = :guild_id) AND (name = :name)
+            ), 
+            :encoded
+        )
+        RETURNING position
+        """
+        db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
+        async with db.execute(query) as cur:
+            res = await cur.fetchone()
+            assert isinstance(res, TrackList)
+        return res.position
+
+    @override
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str, position: int, **kwargs: dict[str, Any]) -> "TrackList":
+        query = f"""
+        SELECT * FROM {TrackList}(guild_id, name, position, encoded)
+        WHERE guild_id = ? AND name = ? AND position = ?
+        """
+        db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
+        async with db.execute(query, (guild_id, name, position)) as cur:
+            res = await cur.fetchone()
+            assert isinstance(res, TrackList)
+        return cast(TrackList, res)
+
+    @classmethod
+    async def selectAllWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> list["TrackList"]:
+        query = f"""
+        SELECT * FROM {TrackList}(guild_id, name, position, encoded)
+        WHERE guild_id = ? AND name = ?
+        ORDER BY position
+        """
+        db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
+        async with db.execute(query, (guild_id, name)) as cur:
+            res = await cur.fetchall()
+        return cast(list[TrackList], res) # don't worry this is fine, row factory makes this fine
 
 
     

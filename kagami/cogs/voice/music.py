@@ -380,6 +380,32 @@ class MusicCog(GroupCog, group_name="m"):
                 session.status_bar = None
                 await respond(interaction, "`Disabled the status bar`", delete_after=3)
 
+
+    async def volume_autocomplete(self, interaction: Interaction, current: str) -> list[Choice[int]]:
+        assert interaction.guild is not None
+        voice_client = interaction.guild.voice_client
+        if voice_client:
+            session = cast(PlayerSession, voice_client)
+            return [Choice(name=str(session.volume), value=session.volume)]
+        else:
+            return []
+
+    @app_commands.command(name="volume", description="Adjusts the volume of the player for everyone in the call")
+    @app_commands.autocomplete(volume=volume_autocomplete)
+    @is_existing_session()
+    @is_not_outsider()
+    async def volume(self, interaction: Interaction, volume: int | None=None) -> None:
+        await respond(interaction, ephemeral=True)
+        guild = cast(discord.Guild, interaction.guild)
+        session = cast(PlayerSession, guild.voice_client)
+        if volume is None:
+            await respond(interaction, f"Session Volume: {session.volume}")
+        else:
+            old_volume = session.volume
+            session.set_volume(volume)
+            await respond(interaction, f"Session Volume: {old_volume} -> {session.volume}")
+
+
     @GroupCog.listener()
     async def on_wavelink_track_start(self, payload: TrackStartEventPayload) -> None:
         session = cast(PlayerSession, payload.player)
@@ -428,9 +454,4 @@ class MusicCog(GroupCog, group_name="m"):
                 print(session.status_bar.message)
                 print(message)
                 await session.status_bar.resend()
-
-
-
-async def setup(bot: Kagami):
-    await bot.add_cog(MusicCog(bot))
 

@@ -365,7 +365,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
 
     def astuple(self): return astuple(self)
 
-    async def insert(self, db: aiosqlite.Connection):
+    async def insert(self, db: aiosqlite.Connection) -> Any | None:
         """
         Inserts the instance into the table, ignores the row with no error on a conflict
         """
@@ -401,6 +401,13 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
         """
         raise TableSubclassMustImplement
         # return None
+
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, *args, **kwargs) -> "Table":
+        """
+        Select a row from the table given specific arguments
+        """
+        raise TableSubclassMustImplement
 
     # noinspection PyMethodParameters
     @classmethod

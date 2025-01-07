@@ -4,5 +4,5 @@ from . import music
 from . import db
 
 async def setup(bot: Kagami):
-    await music.setup(bot)
+    await bot.add_cog(music.MusicCog(bot))
 
