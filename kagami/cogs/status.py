@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import (
-    Literal, List, Callable, Any
+    Literal, List, Callable, Any, cast
 )
 
 import aiosqlite
@@ -33,7 +33,7 @@ def StatusType(IntEnum):
 class Status(Table, schema_version=1, trigger_version=1):
     name: str
     emoji: str
-    id: int=None
+    id: int|None=None
     
     def toDiscordActivity(self):
         emoji = discord.PartialEmoji.from_str(self.emoji) if self.emoji else None
@@ -56,9 +56,13 @@ class Status(Table, schema_version=1, trigger_version=1):
         VALUES(:name, :emoji)
         """
         db.row_factory = None
-        await db.execute(query, self.asdict())
-        async with db.execute("SELECT last_insert_rowid()") as cur:
-            self.id = (await cur.fetchone())[0]
+        async with db.cursor() as cur:
+            await cur.execute(query, self.asdict())
+            self.id = cur.lastrowid 
+        # await db.execute(query, self.asdict())
+        # async with db.execute("SELECT last_insert_rowid()") as cur:
+        #     res = await cur.fetchone()
+        #     self.id = (await cur.fetchone())[0]
         return self
 
     @classmethod
@@ -77,7 +81,7 @@ class Status(Table, schema_version=1, trigger_version=1):
         SELECT * FROM {Status}
         WHERE id = ?
         """
-        db.row_factory = Status.row_factory
+        db.row_factory = Status.row_factory # pyright:ignore reportAttributeAccessIssue
         async with db.execute(query, (id,)) as cur:
             res = await cur.fetchone()
         return res
@@ -99,7 +103,7 @@ class Status(Table, schema_version=1, trigger_version=1):
         WHERE id = :id
         RETURNING *
         """
-        db.row_factory = Status.row_factory
+        db.row_factory = Status.row_factory # pyright:ignore reportAttributeAccessIssue
         async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
         return res
