@@ -734,6 +734,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1):
         for trigger in triggers:
             await db.execute(trigger)
 
+    @override
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
         INSERT OR IGNORE 
@@ -745,6 +746,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1):
         """
         await db.execute(query, self.asdict())
 
+    @override
     async def upsert(self, db: aiosqlite.Connection):
         query = f"""
         INSERT INTO {SentinelSuit}(guild_id, sentinel_name, name, weight, trigger_id, response_id)
@@ -755,6 +757,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1):
         """
         await db.execute(query, self.asdict())
 
+    @override
     async def update(self, db: aiosqlite.Connection):
         query = f"""
         INSERT INTO {SentinelSuit}(guild_id, sentinel_name, name, weight, trigger_id, response_id)
@@ -767,15 +770,16 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1):
         await db.execute(query, self.asdict())
 
     @classmethod
-    async def selectValue(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit":
+    @override
+    async def selectValue(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit | None":
         query = f"""
         SELECT * FROM {SentinelSuit}
         WHERE guild_id = ? AND sentinel_name = ? AND name = ?
         """
         params = (guild_id, sentinel_name, name)
-        db.row_factory = SentinelSuit.row_factory
+        db.row_factory = SentinelSuit.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, params) as cur:
-            result = await cur.fetchone()
+            result: SentinelSuit | None = await cur.fetchone() # pyright:ignore [reportAssignmentType]
         return result
     
     @classmethod
@@ -792,21 +796,22 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1):
         return result[0]
 
     @classmethod
-    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit":
+    @override
+    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit | None":
         query = f"""
         DELETE FROM {SentinelSuit} 
         WHERE guild_id = ? AND sentinel_name = ? AND name = ? 
         RETURNING *
         """
         params = (guild_id, sentinel_name, name)
-        db.row_factory = SentinelSuit.row_factory
+        db.row_factory = SentinelSuit.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, params) as cur:
-            result = await cur.fetchone()
+            result: SentinelSuit | None = await cur.fetchone() # pyright:ignore [reportAssignmentType]
         return result
 
     @classmethod
     async def selectLikeNamesWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str,
-                                   limit: int=1, offset: int=0, null_field: Literal["trigger", "response"]=None) -> list["SentinelSuit"]:
+                                   limit: int=1, offset: int=0, null_field: Literal["trigger", "response"] |None=None) -> list[str]:
         extra = ""
         if null_field == "trigger":
             extra = "AND trigger_id IS NULL"
@@ -823,13 +828,13 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1):
         LIMIT ? OFFSET ?
         """
         params = (guild_id, sentinel_name, f"%{name}%", limit, offset)
-        db.row_factory = SentinelSuit.row_factory
+        db.row_factory = SentinelSuit.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, params) as cur:
-            result: list[SentinelSuit] = await cur.fetchall()
+            result: list[SentinelSuit] = await cur.fetchall() # pyright:ignore [reportAssignmentType] 
         return [n.name for n in result]
 
     @classmethod
-    async def toggleWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit":
+    async def toggleWhere(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit | None":
         query = f"""
         UPDATE {SentinelSuit}
         SET
@@ -841,9 +846,9 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1):
         RETURNING *
         """
         params = (guild_id, sentinel_name, name)
-        db.row_factory = SentinelSuit.row_factory
+        db.row_factory = SentinelSuit.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, params) as cur:
-            result = await cur.fetchone()
+            result: SentinelSuit | None = await cur.fetchone() # pyright:ignore [reportAssignmentType] 
         return result
 
     async def toggle(self, db: aiosqlite.Connection):
@@ -857,7 +862,7 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1):
             name = :name
         RETURNING *
         """
-        db.row_factory = SentinelSuit.row_factory
+        db.row_factory = SentinelSuit.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, self.asdict()) as cur:
             result = await cur.fetchone()
         return result
