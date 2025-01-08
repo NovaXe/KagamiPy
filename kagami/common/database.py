@@ -365,7 +365,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
 
     def astuple(self): return astuple(self)
 
-    async def insert(self, db: aiosqlite.Connection) -> Any | None:
+    async def insert(self, db: aiosqlite.Connection) -> Any | None: # pyright:ignore reportAny 
         """
         Inserts the instance into the table, ignores the row with no error on a conflict
         """
@@ -374,13 +374,13 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
         query = f"INSERT OR IGNORE INTO {self.__tablename__} VALUES ({placeholders})"
         await db.execute(query, self.astuple())
 
-    async def upsert(self, db: aiosqlite.Connection) -> "Table":
+    async def upsert(self, db: aiosqlite.Connection) -> Any | None: # pyright:ignore reportAny 
         """
         Attempts to insert the row and on a conflict updates values for proper insertion
         """
         raise TableSubclassMustImplement
 
-    async def update(self, db: aiosqlite.Connection) -> "Table":
+    async def update(self, db: aiosqlite.Connection) -> Any | None: # pyright:ignore reportAny 
         """
         Updates the row in the table using its primary keys as reference
         """
@@ -388,13 +388,13 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
 
 
     @classmethod
-    async def selectValue(cls, db: aiosqlite.Connection, *args, **kwargs) -> "Table":
+    async def selectValue(cls, db: aiosqlite.Connection, *args, **kwargs) -> Any | None: # pyright:ignore reportAny
         """
         Override to select a row from the table, returning an instance of the Table as the row
         """
         raise TableSubclassMustImplement
 
-    async def select(self, db: aiosqlite.Connection) -> "Table":
+    async def select(self, db: aiosqlite.Connection) -> Any | None: # pyright:ignore reportAny 
         """
         Selects a row from the table using a table instance for key values.
         Override to add functionality
@@ -403,7 +403,7 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
         # return None
 
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, *args, **kwargs) -> "Table":
+    async def selectWhere(cls, db: aiosqlite.Connection, *args, **kwargs) -> Any | None: # pyright:ignore reportAny 
         """
         Select a row from the table given specific arguments
         """
@@ -411,13 +411,13 @@ class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_regi
 
     # noinspection PyMethodParameters
     @classmethod
-    async def deleteWhere(cls, db: aiosqlite.Connection, *args, **kwargs) -> "Table":
+    async def deleteWhere(cls, db: aiosqlite.Connection, *args, **kwargs) -> Any | None: # pyright:ignore reportAny 
         """
         Override to delete a row from the table, returning an instance of the Table as the deleted row
         """
         raise TableSubclassMustImplement
 
-    async def delete(self, db: aiosqlite.Connection) -> "Table":
+    async def delete(self, db: aiosqlite.Connection) -> Any | None: # pyright:ignore reportAny 
         """
         Deletes a row from the table using a table instance for key values.
         Override to add functionality
