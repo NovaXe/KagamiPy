@@ -20,7 +20,7 @@ from common.paginator import Scroller, ScrollerState
 from utils.depr_db_interface import Database
 from common.utils import acstr
 from typing import (
-    Literal, List, Callable, Any
+    Literal, List, Callable, Any, override
 )
 
 @dataclass
@@ -374,29 +374,32 @@ class SentinelChannelSettings(Table, schema_version=2, trigger_version=1):
         await db.execute(query, self.asdict())
 
     @classmethod
-    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> "SentinelChannelSettings":
+    @override
+    async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> "SentinelChannelSettings | None":
         params = {"guild_id": guild_id, "channel_id": channel_id}
         query = f"""
         DELETE FROM {SentinelChannelSettings}
         WHERE guild_id = :guild_id AND channel_id = :channel_id
         RETURNING *
         """
-        db.row_factory = SentinelChannelSettings.row_factory
+        db.row_factory = SentinelChannelSettings.row_factory # pyright:ignore [reportAttributeAccessIssue] 
         async with db.execute(query, params) as cur:
-            result = await cur.fetchone()
+            result: SentinelChannelSettings | None = await cur.fetchone() # pyright:ignore [reportAssignmentType]
         return result
 
-    async def delete(self, db: aiosqlite.Connection) -> "SentinelChannelSettings":
+    @override
+    async def delete(self, db: aiosqlite.Connection) -> "SentinelChannelSettings | None":
         query = f"""
         DELETE FROM {SentinelChannelSettings}
         WHERE guild_id = :guild_id AND channel_id = :channel_id
         RETURNING *
         """
-        db.row_factory = SentinelChannelSettings.row_factory
+        db.row_factory = SentinelChannelSettings.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, self.asdict()) as cur:
-            result = await cur.fetchone()
+            result: SentinelChannelSettings | None = await cur.fetchone() # pyright:ignore [reportAssignmentType]
         return result
 
+    @override
     async def upsert(self, db: aiosqlite.Connection):
         query = f"""
         INSERT INTO {SentinelChannelSettings}(guild_id, channel_id, global_disabled, local_disabled)
@@ -407,18 +410,19 @@ class SentinelChannelSettings(Table, schema_version=2, trigger_version=1):
             local_disabled = :local_disabled
         RETURNING *
         """
-        db.row_factory = SentinelChannelSettings.row_factory
+        db.row_factory = SentinelChannelSettings.row_factory # pyright:ignore [reportAttributeAccessIssue]
         data = self.asdict()
         async with db.execute(query, data) as cur:
-            result = await cur.fetchone()
+            result: SentinelChannelSettings | None = await cur.fetchone() # pyright:ignore [reportAssignmentType]
         return result
     
     @classmethod
-    async def selectValue(cls, db: aiosqlite.Connection, channel_id: int) -> "SentinelChannelSettings":
+    @override
+    async def selectValue(cls, db: aiosqlite.Connection, channel_id: int) -> "SentinelChannelSettings | None":
         query = f"SELECT * FROM {SentinelChannelSettings} WHERE channel_id = ?"
-        db.row_factory = SentinelChannelSettings.row_factory
+        db.row_factory = SentinelChannelSettings.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, (channel_id,)) as cur:
-            result = await cur.fetchone()
+            result: SentinelChannelSettings | None = await cur.fetchone() # pyright:ignore [reportAssignmentType]
         return result
 
     @classmethod
@@ -428,9 +432,9 @@ class SentinelChannelSettings(Table, schema_version=2, trigger_version=1):
         WHERE guild_id = ?
         LIMIT ? OFFSET ?
         """
-        db.row_factory = SentinelChannelSettings.row_factory
+        db.row_factory = SentinelChannelSettings.row_factory  # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, (guild_id, limit, offset)) as cur:
-            results = await cur.fetchall()
+            results: list[SentinelChannelSettings] = await cur.fetchall() # pyright:ignore [reportAssignmentType]
         return results
 
     @classmethod
@@ -448,12 +452,12 @@ class SentinelChannelSettings(Table, schema_version=2, trigger_version=1):
             bool: _description_
         """        
         query = f"SELECT * FROM {SentinelChannelSettings} WHERE channel_id = ?"
-        db.row_factory = SentinelChannelSettings.row_factory
+        db.row_factory = SentinelChannelSettings.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, (channel_id,)) as cur:
-            res: SentinelChannelSettings = await cur.fetchone()
+            res: SentinelChannelSettings | None = await cur.fetchone() # pyright:ignore [reportAssignmentType] 
         if res is None:
             return False
-        if guild_id == 0:
+        elif guild_id == 0:
             return bool(res.global_disabled)
         else:
             return bool(res.local_disabled)
@@ -468,14 +472,14 @@ class SentinelChannelSettings(Table, schema_version=2, trigger_version=1):
         return res[0] if res else 0
 
     @classmethod
-    async def selectStatusWhere(cls, db: aiosqlite.Connection, channel_id: int) -> "SentinelChannelSettings":
+    async def selectStatusWhere(cls, db: aiosqlite.Connection, channel_id: int) -> "SentinelChannelSettings | None":
         query = f"""
         SELECT * FROM {SentinelChannelSettings}
         WHERE channel_id = ?
         """
-        db.row_factory = SentinelChannelSettings.row_factory
+        db.row_factory = SentinelChannelSettings.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, (channel_id,)) as cur:
-            result = await cur.fetchone()
+            result: SentinelChannelSettings | None = await cur.fetchone() # pyright:ignore [reportAssignmentType]
         return result
 
 
@@ -492,7 +496,7 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1):
 
     type: TriggerType
     object: str
-    id: int = None
+    id: int | None = None
 
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
@@ -517,9 +521,11 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1):
         async with db.execute(query, (trigger_type, trigger_object)) as cur:
             result = await cur.fetchone()
         if result: result = result[0]
+        assert isinstance(result, int)
         return result
 
-    async def insert(self, db: aiosqlite.Connection):
+    @override
+    async def insert(self, db: aiosqlite.Connection) -> int:
         query = f"""
         INSERT INTO {SentinelTrigger}(type, object)
         VALUES (:type, :object)
@@ -527,34 +533,32 @@ class SentinelTrigger(Table, schema_version=1, trigger_version=1):
         RETURNING id
         """
         db.row_factory = None
-        async with db.execute(query, self.asdict()) as cur:
-            result = await cur.fetchone()
+        await db.execute(query, self.asdict())
+        id = await SentinelTrigger.selectID(db, self.type, self.object)
+        return id
 
-        if not result:
-            result = await SentinelTrigger.selectID(db, self.type, self.object)
-
-        return result[0]
-
-    async def delete(self, db: aiosqlite.Connection) -> "Table":
+    @override
+    async def delete(self, db: aiosqlite.Connection) -> "SentinelTrigger | None":
         query = f"""
         DELETE FROM {SentinelTrigger}
         WHERE id = ?
         RETURNING *
         """
-        db.row_factory = SentinelTrigger.row_factory
+        db.row_factory = SentinelTrigger.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, (self.id,)) as cur:
-            result = await cur.fetchone()
+            result: SentinelTrigger | None = await cur.fetchone() # pyright:ignore [reportAssignmentType]
         return result
 
     @classmethod
-    async def selectValue(cls, db: aiosqlite.Connection, id: int) -> "SentinelTrigger":
+    @override
+    async def selectValue(cls, db: aiosqlite.Connection, id: int) -> "SentinelTrigger | None":
         query = f"""
             SELECT * FROM {SentinelTrigger}
             WHERE id = ?
             """
-        db.row_factory = SentinelTrigger.row_factory
+        db.row_factory = SentinelTrigger.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, (id,)) as cur:
-            result = await cur.fetchone()
+            result: SentinelTrigger | None = await cur.fetchone() # pyright:ignore [reportAssignmentType]
         return result
 
 @dataclass
@@ -567,7 +571,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1):
     type: ResponseType
     content: str
     reactions: str
-    id: int = None
+    id: int | None = None
 
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
@@ -584,7 +588,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1):
         await db.execute(query)
 
     @classmethod
-    async def selectID(cls, db: aiosqlite.Connection, response_type: ResponseType, content: str, reactions: str) -> int:
+    async def selectID(cls, db: aiosqlite.Connection, response_type: ResponseType, content: str, reactions: str) -> int | None:
         query = f"""
         SELECT id FROM {SentinelResponse}
         WHERE type = ? AND content = ? AND reactions = ?
@@ -593,6 +597,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1):
         async with db.execute(query, (response_type, content, reactions)) as cur:
             result = await cur.fetchone()
         if result: result = result[0]
+        assert isinstance(result, int)
         return result
 
     async def insert(self, db: aiosqlite.Connection):
@@ -603,23 +608,19 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1):
         RETURNING id
         """
         db.row_factory = None
-        async with db.execute(query, self.asdict()) as cur:
-            result = await cur.fetchone()
-
-        if not result:
-            result = await SentinelResponse.selectID(db, self.type, self.content, self.reactions)
-
-        return result[0]
+        await db.execute(query, self.asdict())
+        id = await SentinelResponse.selectID(db, self.type, self.content, self.reactions)
+        return id
 
     @classmethod
-    async def selectValue(cls, db: aiosqlite.Connection, id: int) -> "SentinelResponse":
+    async def selectValue(cls, db: aiosqlite.Connection, id: int) -> "SentinelResponse | None":
         query = f"""
         SELECT * FROM {SentinelResponse}
         WHERE id = ?
         """
-        db.row_factory = SentinelResponse.row_factory
+        db.row_factory = SentinelResponse.row_factory # pyright:ignore [reportAttributeAccessIssue]
         async with db.execute(query, (id,)) as cur:
-            result = await cur.fetchone()
+            result: SentinelResponse | None = await cur.fetchone() # pyright:ignore [reportAssignmentType] 
         return result
 
 @dataclass
@@ -1661,12 +1662,12 @@ class Sentinels(GroupCog, name="s"):
     @edit_group.command(name="trigger", description="edit a suit's trigger")
     async def edit_trigger(self, interaction: Interaction, scope: SentinelScope,
                            sentinel: Sentinel_Transform, suit: Suit_Transform,
-                           trigger_type: SentinelTrigger.TriggerType=None, trigger_object: str=None,
-                           weight: int=None):
+                           trigger_type: SentinelTrigger.TriggerType | None=None, trigger_object: str | None=None,
+                           weight: int | None=None):
         await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         if suit is None: raise SuitDoesNotExist
-        if trigger_type == 3:
+        if trigger_type == 3 and trigger_object is not None:
             try:
                 re.compile(trigger_object)
             except re.error:
