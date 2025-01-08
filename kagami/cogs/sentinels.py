@@ -600,7 +600,8 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1):
         assert isinstance(result, int)
         return result
 
-    async def insert(self, db: aiosqlite.Connection):
+    @override
+    async def insert(self, db: aiosqlite.Connection) -> int | None:
         query = f"""
         INSERT INTO {SentinelResponse}(type, content, reactions)
         VALUES (:type, :content, :reactions)
@@ -613,6 +614,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1):
         return id
 
     @classmethod
+    @override
     async def selectValue(cls, db: aiosqlite.Connection, id: int) -> "SentinelResponse | None":
         query = f"""
         SELECT * FROM {SentinelResponse}
@@ -629,8 +631,8 @@ class SentinelSuit(Table, schema_version=1, trigger_version=1):
     sentinel_name: str
     name: str
     weight: int = 100
-    trigger_id: int = None
-    response_id: int = None
+    trigger_id: int | None = None
+    response_id: int | None = None
     enabled: bool = True
 
     @classmethod
@@ -1324,11 +1326,11 @@ class Sentinels(GroupCog, name="s"):
     copy_group = Group(name="copy", description="commands for copying sentinel components")
     move_group = Group(name="move", description="commands for moving sentinel components")
 
-    Guild_Transform = Transform[Guild, GuildTransformer]
-    Sentinel_Transform = Transform[Sentinel, SentinelTransformer]
-    Suit_Transform = Transform[SentinelSuit, SentinelSuitTransformer]
-    SuitNullTrigger_Transform = Transform[SentinelSuit, SentinelSuitTransformer(empty_field="trigger_id")]
-    SuitNullResponse_Transform = Transform[SentinelSuit, SentinelSuitTransformer(empty_field="response_id")]
+    Guild_Transform = Transform[Guild | None, GuildTransformer]
+    Sentinel_Transform = Transform[Sentinel | None, SentinelTransformer]
+    Suit_Transform = Transform[SentinelSuit | None, SentinelSuitTransformer]
+    SuitNullTrigger_Transform = Transform[SentinelSuit | None, SentinelSuitTransformer(empty_field="trigger_id")]
+    SuitNullResponse_Transform = Transform[SentinelSuit | None, SentinelSuitTransformer(empty_field="response_id")]
 
 
     async def getResponsesForMessage(self, guild_id: int, content: str) -> list[SentinelResponse]:
@@ -1687,9 +1689,9 @@ class Sentinels(GroupCog, name="s"):
     @edit_group.command(name="response", description="edit a suit's response")
     async def edit_response(self, interaction: Interaction, scope: SentinelScope,
                             sentinel: Sentinel_Transform, suit: Suit_Transform,
-                            response_type: SentinelResponse.ResponseType=None,
-                            content: str=None, reactions: str=None,
-                            weight: int=None):
+                            response_type: SentinelResponse.ResponseType | None=None,
+                            content: str | None=None, reactions: str | None=None,
+                            weight: int | None=None):
         await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         if suit is None: raise SuitDoesNotExist
@@ -1733,6 +1735,7 @@ class Sentinels(GroupCog, name="s"):
         await respond(interaction, f"The sentinel `{sentinel.name}` is now `{state}`")
 
     async def channel_autocomplete(self, interaction: Interaction, current: str) -> list[Choice[str]]:
+        assert interaction.guild is not None
         channels = interaction.guild.text_channels + interaction.guild.voice_channels
         options = [
               Choice(name=channel.name, value=str(channel.id))
@@ -1743,7 +1746,9 @@ class Sentinels(GroupCog, name="s"):
 
     @toggle_group.command(name="channel", description="toggle all sentinels for a channel")
     # @commands.has_permissions(manage_channels=True)
-    async def toggle_channel(self, interaction: Interaction, channel: discord.TextChannel | discord.VoiceChannel=None, state: Literal["Enabled", "Disabled"]="Disabled", extent: Literal["all", "local", "global"]="all"):
+    async def toggle_channel(self, interaction: Interaction, channel: discord.TextChannel | discord.VoiceChannel | None=None, 
+                             state: Literal["Enabled", "Disabled"]="Disabled", extent: Literal["all", "local", "global"]="all"):
+        # this is not typed properly throughout but it works and i don't feel like typing this mess right now
         await respond(interaction, ephemeral=True)
         if channel is None:
             channel = interaction.channel
@@ -1799,6 +1804,9 @@ class Sentinels(GroupCog, name="s"):
 
     @view_group.command(name="channel-settings")
     async def view_channel(self, interaction: Interaction, channel: discord.TextChannel=None):
+        # this seems to fail on first use sometimes, idk seems fine to me
+        # hoping this was fixed by other fixes to id fetching
+        # type this at another time
         await respond(interaction, ephemeral=True) 
         channel = channel or interaction.channel
         async with self.conn() as db:
