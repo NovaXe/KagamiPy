@@ -40,6 +40,7 @@ from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
 from common.types import MessageableGuildChannel
 from .voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, get_tracklist_callback
+from .db import TrackList
 from utils.depr_db_interface import Database
 from common.utils import acstr, ms_timestamp
 
@@ -104,6 +105,9 @@ class MusicCog(GroupCog, group_name="m"):
         
         node = wavelink.Node(**self.bot.config.lavalink, client=self.bot) # pyright:ignore
         await wavelink.Pool.connect(nodes=[node])
+
+    def conn(self) -> ConnectionContext:
+        return self.bot.dbman.conn()
 
     @app_commands.command(name="join", description="Starts a music session in the voice channel")
     @is_not_outsider()
@@ -420,11 +424,22 @@ class MusicCog(GroupCog, group_name="m"):
         # if session.status_bar:
         #     await session.status_bar.refresh()
 
+    async def handle_bot_voice_state_update(self, before: VoiceState, after: VoiceState) -> None:
+        if before.channel and not after.channel:
+            session = cast(PlayerSession, before.channel.guild.voice_client)
+            assert session.queue.history
+            tracks = list(session.queue.history) + list(session.queue)
+            date = session.guild
+            async with self.conn() as db:
+                await TrackList.insert_wavelink_tracks(db, tracks, guild_id=session.guild.id, name=
+
+
     @GroupCog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: VoiceState, after: VoiceState) -> None:
         # leave channel if len(members) == 1 and memeber == bot
         # make bot leave when someone else leaves and now the bot is alone, that's it
         if member == self.bot.user:
+            await self.handle_bot_voice_state_update(before, after)
             return # ignoring self
         assert self.bot.user
         bot_id = self.bot.user.id
@@ -454,4 +469,5 @@ class MusicCog(GroupCog, group_name="m"):
                 print(session.status_bar.message)
                 print(message)
                 await session.status_bar.resend()
+
 

@@ -61,11 +61,23 @@ class TrackList(Table, schema_version=1, trigger_version=1):
     guild_id: int
     name: str
     position: int # starting at 1, represents order in playlist
-    # encoded: str # encoded string representing the track from lavalink
+    encoded: str # encoded string representing the track from lavalink
     # track_data: bytes
 
     # async def toWavelink(self, node: Node) -> Playable:
     #     pass
+
+    @classmethod
+    def from_wavelink(cls, track: Playable, guild_id: int, name: str, position: int=1):
+        return TrackList(guild_id=guild_id, 
+                         name=name,
+                         position=position,
+                         encoded=track.encoded)
+
+    @classmethod
+    async def insert_wavelink_tracks(cls, db: aiosqlite.Connection, tracks: list[Playable], guild_id: int, name: str) -> None:
+        for i, track in enumerate(tracks):
+            await TrackList.from_wavelink(track, guild_id, name, i+1).insert(db)
     
     @override
     @classmethod
