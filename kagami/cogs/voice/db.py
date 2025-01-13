@@ -1,4 +1,5 @@
 from typing import ClassVar, override, Any, cast
+from enum import Flag, Enum, IntEnum, IntFlag, auto
 import aiosqlite
 from dataclasses import dataclass
 from wavelink import Playable, Playlist, Node
@@ -57,10 +58,83 @@ class MusicSettings(Table, schema_version=1, trigger_version=1):
         return result
 
 @dataclass
+class TrackListDetails(Table, schema_version=1, trigger_version=1):
+    class Flags(IntFlag):
+        session = auto()
+
+    guild_id: int
+    name: str
+    start_index: int=0
+    flags: Flags=Flags(0)
+
+    @override
+    @classmethod
+    async def create_table(cls, db: aiosqlite.Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {TrackListDetails}(
+            guild_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            start_index INTEGER NOT NULL DEFAULT 0,
+            flags INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, name),
+            FOREIGN KEY (guild_id) REFERENCSE {Guild}(id)
+        """
+
+    @override
+    @classmethod
+    async def create_triggers(cls, db: aiosqlite.Connection):
+        triggers = [
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {TrackListDetails}_insert_settings_before_insert
+            BEFORE INSERT ON {TrackListDetails}
+            BEGIN
+                INSERT INTO {MusicSettings}(guild_id)
+                VALUES(NEW.guild_id)
+                ON CONFLICT DO NOTHING;
+            END
+            """
+        ]
+        for t in triggers:
+            await db.execute(t)
+
+    @override
+    async def insert(self, db: aiosqlite.Connection) -> None:
+        query = f"""
+        INSERT OR IGNORE INTO {TrackListDetails}(guild_id, name, start_index, flags)
+        VALUES (:guild_id, :name, :start_index, :flags)
+        """
+        await db.execute(query, self.asdict())
+
+    @override
+    async def upsert(self, db: aiosqlite.Connection) -> None:
+        query = f"""
+        INSERT {TrackListDetails}(guild_id, name, start_index, flags)
+        VALUES (:guild_id, :name, :start_index, :flags)
+        ON CONFLICT (guild_id, name)
+        DO UPDATE SET
+            start_index = :start_index,
+            flags = :flags
+        """
+        await db.execute(query, self.asdict())
+
+    @override
+    @classmethod
+    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> "TrackListDetails | None":
+        query = f"""
+        SELECT * FROM {TrackListDetails}(guild_id, name, start_index, flags)
+        WHERE guild_id = ? AND name = ?
+        """
+        async with db.execute(query, (guild_id, name)) as cur:
+            res: TrackListDetails = await cur.fetchone() # pyright: ignore [reportAssignmentType]
+        return res
+
+
+
+@dataclass
 class TrackList(Table, schema_version=1, trigger_version=1):
     guild_id: int
     name: str
-    position: int # starting at 1, represents order in playlist
+    index: int # starting at 0, represents order in playlist
     encoded: str # encoded string representing the track from lavalink
     # track_data: bytes
 
@@ -68,10 +142,10 @@ class TrackList(Table, schema_version=1, trigger_version=1):
     #     pass
 
     @classmethod
-    def from_wavelink(cls, track: Playable, guild_id: int, name: str, position: int=1):
+    def from_wavelink(cls, track: Playable, guild_id: int, name: str, index: int=0):
         return TrackList(guild_id=guild_id, 
                          name=name,
-                         position=position,
+                         index=index,
                          encoded=track.encoded)
 
     @classmethod
@@ -86,9 +160,9 @@ class TrackList(Table, schema_version=1, trigger_version=1):
         CREATE TABLE IF NOT EXISTS {TrackList}(
             guild_id INTEGER NOT NULL,
             name TEXT NOT NULL,
-            position INTEGER NOT NULL,
+            index INTEGER NOT NULL,
             encoded TEXT NOT NULL,
-            UNIQUE (guild_id, name, position),
+            UNIQUE (guild_id, name, index),
             FOREIGN KEY (guild_id) REFERENCSE {Guild}(id)
         """
         await db.execute(query)
@@ -98,38 +172,38 @@ class TrackList(Table, schema_version=1, trigger_version=1):
     async def create_triggers(cls, db: aiosqlite.Connection):
         triggers = [
             f"""
-            CREATE TRIGGER IF NOT EXISTS {TrackList}_insert_settings_before_insert
-            BEFORE INSERT ON {TrackList}
-            BEGIN
-                INSERT INTO {MusicSettings}(guild_id)
-                VALUES(NEW.guild_id)
-                ON CONFLICT DO NOTHING;
-            END
-            """,
-            f"""
             CREATE TRIGGER IF NOT EXISTS {TrackList}_shift_indices_after_insert
             AFTER INSERT ON {TrackList}
             BEGIN
                 UPDATE Track
-                SET position = position + 1
+                SET index = index + 1
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) AND 
-                (position >= NEW.position) AND (rowid != NEW.rowid);
+                (index >= NEW.index) AND (rowid != NEW.rowid);
             END;
             """,
             f"""
             CREATE TRIGGER IF NOT EXISTS {TrackList}_shift_indices_after_update
-            AFTER UPDATE OF position ON {TrackList}
+            AFTER UPDATE OF index ON {TrackList}
             BEGIN
                 UPDATE Track
-                SET position = position + 1
+                SET index = index + 1
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) 
-                AND (position >= NEW.position) AND (position < OLD.position) AND (rowid != OLD.rowid);
+                AND (index >= NEW.index) AND (index < OLD.index) AND (rowid != OLD.rowid);
                 UPDATE Track
-                SET position = position - 1
+                SET index = index - 1
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) 
-                AND (position > OLD.position) AND (position <= NEW.position) AND (rowid != OLD.rowid);
+                AND (index > OLD.index) AND (index <= NEW.index) AND (rowid != OLD.rowid);
             END
-            """
+            """,
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {TrackList}_insert_details_before_insert
+            BEFORE INSERT ON {TrackList}
+            BEGIN
+                INSERT INTO {TrackListDetails}(guild_id, name)
+                VALUES(NEW.guild_id, NEW.name)
+                ON CONFLICT DO NOTHING;
+            END
+            """,
         ]
         for t in triggers:
             await db.execute(t)
@@ -137,33 +211,32 @@ class TrackList(Table, schema_version=1, trigger_version=1):
     @override
     async def insert(self, db: aiosqlite.Connection) -> int:
         query = f"""
-        INSERT INTO {TrackList}(guild_id, name, position, encoded)
+        INSERT INTO {TrackList}(guild_id, name, index, encoded)
         VALUES (
             :guild_id, 
             :name, 
             (
-                SELECT Coalesce(Max(position), 0) + 1
+                SELECT Coalesce(Max(index), 0)
                 FROM {TrackList} WHERE (guild_id = :guild_id) AND (name = :name)
             ), 
             :encoded
         )
-        RETURNING position
+        RETURNING index
         """
         db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
         async with db.execute(query) as cur:
-            res = await cur.fetchone()
-            assert isinstance(res, TrackList)
-        return res.position
+            res: TrackList = await cur.fetchone() # pyright: ignore [reportAssignmentType]
+        return res.index
 
     @override
     @classmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str, position: int, **kwargs: dict[str, Any]) -> "TrackList":
+    async def selectWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str, index: int, **kwargs: dict[str, Any]) -> "TrackList":
         query = f"""
-        SELECT * FROM {TrackList}(guild_id, name, position, encoded)
-        WHERE guild_id = ? AND name = ? AND position = ?
+        SELECT * FROM {TrackList}(guild_id, name, index, encoded)
+        WHERE guild_id = ? AND name = ? AND index = ?
         """
         db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
-        async with db.execute(query, (guild_id, name, position)) as cur:
+        async with db.execute(query, (guild_id, name, index)) as cur:
             res = await cur.fetchone()
             assert isinstance(res, TrackList)
         return cast(TrackList, res)
@@ -171,9 +244,9 @@ class TrackList(Table, schema_version=1, trigger_version=1):
     @classmethod
     async def selectAllWhere(cls, db: aiosqlite.Connection, guild_id: int, name: str) -> list["TrackList"]:
         query = f"""
-        SELECT * FROM {TrackList}(guild_id, name, position, encoded)
+        SELECT * FROM {TrackList}(guild_id, name, index, encoded)
         WHERE guild_id = ? AND name = ?
-        ORDER BY position
+        ORDER BY index
         """
         db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
         async with db.execute(query, (guild_id, name)) as cur:

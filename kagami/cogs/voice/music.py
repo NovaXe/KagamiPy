@@ -6,6 +6,7 @@ from typing import (
 )
 import datetime
 import math
+import time
 from math import ceil, floor
 import PIL as pillow
 from PIL import Image, ImageDraw, ImageFont
@@ -40,7 +41,7 @@ from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
 from common.types import MessageableGuildChannel
 from .voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, get_tracklist_callback
-from .db import TrackList
+from .db import TrackList, TrackListDetails
 from utils.depr_db_interface import Database
 from common.utils import acstr, ms_timestamp
 
@@ -426,13 +427,20 @@ class MusicCog(GroupCog, group_name="m"):
 
     async def handle_bot_voice_state_update(self, before: VoiceState, after: VoiceState) -> None:
         if before.channel and not after.channel:
+            guild_id = before.channel.guild.id
             session = cast(PlayerSession, before.channel.guild.voice_client)
             assert session.queue.history
             tracks = list(session.queue.history) + list(session.queue)
+            current_index = l-1 if (l:=len(session.queue.history)) > 0 else 0
             date = session.guild
-            async with self.conn() as db:
-                await TrackList.insert_wavelink_tracks(db, tracks, guild_id=session.guild.id, name=
+            epoch_seconds = int(time.time())
+            name = f"{epoch_seconds}"
+            list_details = TrackListDetails(guild_id, name, start_index=current_index, flags=TrackListDetails.Flags.session)
 
+            async with self.conn() as db:
+                await list_details.insert(db)
+                await TrackList.insert_wavelink_tracks(db, tracks, guild_id=guild_id, name=name)
+                await db.commit()
 
     @GroupCog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: VoiceState, after: VoiceState) -> None:
