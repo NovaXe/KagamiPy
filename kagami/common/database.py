@@ -1,6 +1,7 @@
 import asyncio
 import traceback
 import logging
+from types import EllipsisType
 import typing
 from asyncio import Queue
 import aiosqlite
@@ -180,16 +181,16 @@ class TableSubclassMustImplement(NotImplementedError):
         super().__init__(message)
 
 class TableMeta(type):
-    def __new__(mcs, name, bases, class_dict, *args,
-                table_registry: type["TableRegistry"]=TableRegistry,
+    def __new__(mcs, name: str, bases: Any, class_dict: Any, *args,
+                table_registry: type["TableRegistry"] | None=TableRegistry,
                 schema_version: int,
                 trigger_version: int,
-                table_group: str=..., **kwargs):
+                table_group: str | EllipsisType=..., **kwargs):
         cls = super().__new__(mcs, name, bases, class_dict)
-        cls.__table_registry__ = table_registry
-        cls.__tablename__ = name
-        cls.__schema_version__ = schema_version
-        cls.__trigger_version__ = trigger_version
+        cls.__table_registry__ = table_registry # pyright: ignore [reportAttributeAccessIssue]
+        cls.__tablename__ = name # pyright: ignore [reportAttributeAccessIssue]
+        cls.__schema_version__ = schema_version # pyright: ignore [reportAttributeAccessIssue]
+        cls.__trigger_version__ = trigger_version # pyright: ignore [reportAttributeAccessIssue]
         if table_group is ...:
             cls.__table_group__ = cls.__module__
         elif table_group is None:
@@ -217,6 +218,10 @@ class TableMeta(type):
 
 @dataclass
 class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_registry=None):
+    @staticmethod
+    def _columns(columns: str) -> tuple[str, ...]:
+        return tuple(columns.split())
+
     @staticmethod
     def group(name: str):
         """
