@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 import traceback
 import logging
@@ -10,7 +11,7 @@ from dataclasses import dataclass, asdict, astuple, fields
 from contextlib import asynccontextmanager
 
 from common.logging import setup_logging
-from typing import Generator, Iterable, Any
+from typing import Generator, Iterable, Any, Annotated, ClassVar
 
 logger = setup_logging(__name__)
 
@@ -218,9 +219,17 @@ class TableMeta(type):
 
 @dataclass
 class Table(metaclass=TableMeta, schema_version=0, trigger_version=0, table_registry=None):
-    @staticmethod
-    def _columns(columns: str) -> tuple[str, ...]:
-        return tuple(columns.split())
+    """
+    _columns: String formatting utility - (column_a, column_b, ...)
+    """
+    _columns: ClassVar[str] = ""
+    # @classmethod
+    # def columns(cls, columns: str | None=None) -> str:
+    #     "Utility for string formatting: (column_a, column_b, ...)"
+    #     if columns:
+    #         cls._columns = columns
+    #     return cls._columns
+    
 
     @staticmethod
     def group(name: str):
