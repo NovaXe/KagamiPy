@@ -36,6 +36,7 @@ class PlayerSession(Player):
         super().__init__(*args, **kwargs)
         self.autoplay = AutoPlayMode.partial
         self.status_bar: StatusBar | None = None
+        assert self.queue.history is not None
 
     @override
     async def disconnect(self, **kwargs: Any) -> None:
@@ -84,7 +85,13 @@ class PlayerSession(Player):
                 await self.queue.put_wait(results)
         else:
             await self.queue.put_wait(results[0])
+            results = [results[0]]
         return results
+
+    async def play_next(self) -> None:
+        "Simple wrapper to get and play the next track in the queue"
+        track = await self.queue.get_wait()
+        await self.play(track)
 
     async def update_status_bar(self) -> None:
         # logger.debug("enter update status bar")

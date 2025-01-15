@@ -27,8 +27,9 @@ from discord import (
     VoiceChannel,
     voice_client,
 )
-from discord.ext.commands import GroupCog, Cog
+from discord.ext.commands import GroupCog, Cog, MessageNotFound
 from discord.app_commands import Transform, Transformer, Group, Choice, Range
+from discord.types.components import ButtonStyle
 import wavelink
 from wavelink import Playable, Search, TrackEndEventPayload, TrackStartEventPayload
 
@@ -45,6 +46,7 @@ from .db import TrackList, TrackListDetails
 from utils.depr_db_interface import Database
 from common.utils import acstr, ms_timestamp
 
+logger = setup_logging(__name__)
 
 type VocalGuildChannel = VoiceChannel | discord.StageChannel
 type Interaction = discord.Interaction[Kagami]
@@ -110,15 +112,23 @@ class MusicCog(GroupCog, group_name="m"):
     def conn(self) -> ConnectionContext:
         return self.bot.dbman.conn()
 
+    async def send_session_confirmation(self, interaction: Interaction, epoch_seconds: int) -> bool:
+        """
+        time: epoch seconds converted to discord timestamp
+        """
+        content = f"A previous session ended early on <t:{epoch_seconds}:D>, would you like to resume the session?"
+        return await Confirmation.send(interaction, content)
+
     @app_commands.command(name="join", description="Starts a music session in the voice channel")
     @is_not_outsider()
     # @app_commands.guild_only()
     async def join(self, interaction: Interaction, channel: VoiceChannel | None=None) -> None:
-        await respond(interaction)
+        message = await respond(interaction)
         guild = cast(discord.Guild, interaction.guild)
         user = cast(Member, interaction.user)
         session = guild.voice_client
         voice_state = user.voice
+        is_new_sesssion = not guild.voice_client
 
         if channel is not None:
             session = await joinChannel(channel)
@@ -127,8 +137,20 @@ class MusicCog(GroupCog, group_name="m"):
             session = await joinChannel(voice_state.channel)
         else:
             raise errors.CustomCheck("Join or specify a channel to start a session")
-
-        await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
+        assert session.queue.history is not None
+        
+        if is_new_sesssion:
+            details = None
+            async with self.conn() as db:
+                details = await TrackListDetails.selectPriorSession(db, guild.id)
+            if details and await self.send_session_confirmation(interaction, int(details.name)): 
+                async with self.conn() as db:
+                    playable_tracks = await TrackList.selectAllWavelink(db, wavelink.Pool.get_node(), guild_id=guild.id, name=details.name)
+                    session.queue.history._items = playable_tracks[:details.start_index]
+                    session.queue._items = playable_tracks[details.start_index:]
+                    await session.play_next()
+        else:
+            await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
         
     @app_commands.command(name="leave", description="Ends the current session")
     @is_existing_session()
@@ -152,9 +174,21 @@ class MusicCog(GroupCog, group_name="m"):
         session = guild.voice_client
         if not session:
             session = await joinChannel(user.voice.channel)
-            await respond(interaction, "let the playa be playin", delete_after=5)
-            if query is None:
-                return
+            assert session.queue.history is not None
+            details = None
+            async with self.conn() as db:
+                details = await TrackListDetails.selectPriorSession(db, guild.id)
+            if details and await self.send_session_confirmation(interaction, int(details.name)): 
+                async with self.conn() as db:
+                    playable_tracks = await TrackList.selectAllWavelink(db, wavelink.Pool.get_node(), guild_id=guild.id, name=details.name)
+                    session.queue.history._items = playable_tracks[:details.start_index]
+                    session.queue._items = playable_tracks[details.start_index:]
+                    await session.play_next()
+            else:
+                await respond(interaction, "let the playa be playin", delete_after=5)
+                if query is None:
+                    return
+
         session = cast(PlayerSession, session)
         if query is None:
             await session.pause(False)
@@ -164,8 +198,7 @@ class MusicCog(GroupCog, group_name="m"):
         results = await session.search_and_queue(query)
         if len(results) == 1:
             if session.current is None:
-                track = await session.queue.get_wait()
-                await session.play(track)
+                await session.play_next()
                 await respond(interaction, f"Now playing {track.title}", 
                               send_followup=True, delete_after=5)
             else:
@@ -477,5 +510,47 @@ class MusicCog(GroupCog, group_name="m"):
                 print(session.status_bar.message)
                 print(message)
                 await session.status_bar.resend()
+
+class Confirmation(ui.View):
+    def __init__(self, timeout: float=60, message: discord.Message | None=None):
+        """
+        message: the discord message the view is attached to, when passed will be deleted on timeout
+        """
+        super().__init__(timeout=timeout)
+        self.message: discord.Message | None = message
+        self.value: bool = False
+
+    @classmethod
+    async def send(cls, interaction: Interaction, content: str) -> bool:
+        assert interaction.guild_id is not None
+        confirmation_view = Confirmation()
+        message = await respond(interaction, view=confirmation_view, 
+                                content=content)
+        confirmation_view.message = message
+        await confirmation_view.wait()
+        return confirmation_view.value
+
+    async def on_timeout(self) -> None:
+        if self.message:
+            try:
+                await self.message.delete()
+            except MessageNotFound as e:
+                logger.debug(f"Confirmation View on_timeout - {e}")
+    
+    async def done(self) -> None:
+        await self.on_timeout()
+        self.stop()
+    
+    @ui.button(label="yes", style=discord.ButtonStyle.green)
+    async def yes(self, interaction: Interaction, button: ui.Button["Confirmation"]) -> None:
+        await respond(interaction)
+        self.value = True
+        await self.done()
+
+    @ui.button(label="no", style=discord.ButtonStyle.green)
+    async def no(self, interaction: Interaction, button: ui.Button["Confirmation"]) -> None:
+        await respond(interaction)
+        self.value = False
+        await self.done()
 
 
