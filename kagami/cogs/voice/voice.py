@@ -36,7 +36,6 @@ class PlayerSession(Player):
         super().__init__(*args, **kwargs)
         self.autoplay = AutoPlayMode.partial
         self.status_bar: StatusBar | None = None
-        assert self.queue.history is not None
 
     @override
     async def disconnect(self, **kwargs: Any) -> None:
