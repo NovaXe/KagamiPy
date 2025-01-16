@@ -66,7 +66,8 @@ class MusicSettings(Table, schema_version=1, trigger_version=1):
 @dataclass
 class TrackListDetails(Table, schema_version=1, trigger_version=1):
     class Flags(IntFlag):
-        session = auto()
+        """Never change these, only add on to the end. They're used in the database so 1 must always be 1"""
+        session = 1
     _columns: ClassVar[str] = "(guild_id, name, start_index, flags)"
 
     guild_id: int
@@ -90,6 +91,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1):
             flags INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (guild_id, name),
             FOREIGN KEY (guild_id) REFERENCSE {Guild}(id)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         """
 
     @override
@@ -103,6 +105,18 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1):
                 INSERT INTO {MusicSettings}(guild_id)
                 VALUES(NEW.guild_id)
                 ON CONFLICT DO NOTHING;
+            END
+            """,
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {TrackListDetails}_delete_old_sessions_before_insert
+            BEFORE INSERT ON {TrackListDetails}
+            BEGIN
+                CASE 
+                WHEN (NEW.Flags & {TrackListDetails.Flags.session} != 0)
+                    DELETE * FROM {TrackListDetails}
+                    WHERE guild_id = NEW.guild_id AND flags & {TrackListDetails.Flags.session} != 0
+                    ORDER BY CAST(name AS INTEGER) ASC
+                    LIMIT -1 OFFSET 3;
             END
             """
         ]
@@ -211,7 +225,8 @@ class TrackList(Table, schema_version=1, trigger_version=1):
             index INTEGER NOT NULL,
             encoded TEXT NOT NULL,
             UNIQUE (guild_id, name, index),
-            FOREIGN KEY (guild_id) REFERENCSE {Guild}(id)
+            FOREIGN KEY (guild_id, name) REFERENCES {TrackListDetails}(guild_id, name)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         """
         await db.execute(query)
 

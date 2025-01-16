@@ -29,7 +29,7 @@ from discord import (
 )
 from discord.ext.commands import GroupCog, Cog, MessageNotFound
 from discord.app_commands import Transform, Transformer, Group, Choice, Range
-from discord.types.components import ButtonStyle
+from discord import ButtonStyle
 import wavelink
 from wavelink import Playable, Search, TrackEndEventPayload, TrackStartEventPayload
 
@@ -417,7 +417,6 @@ class MusicCog(GroupCog, group_name="m"):
                 await session.status_bar.kill()
                 session.status_bar = None
                 await respond(interaction, "`Disabled the status bar`", delete_after=3)
-
 
     async def volume_autocomplete(self, interaction: Interaction, current: str) -> list[Choice[int]]:
         assert interaction.guild is not None
