@@ -183,7 +183,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1):
 
 
 @dataclass
-class TrackList(Table, schema_version=1, trigger_version=1):
+class TrackList(Table, schema_version=1, trigger_version=2):
     guild_id: int
     name: str
     index: int # starting at 0, represents order in playlist
@@ -243,6 +243,15 @@ class TrackList(Table, schema_version=1, trigger_version=1):
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) AND 
                 (index >= NEW.index) AND (rowid != NEW.rowid);
             END;
+            """,
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {TrackList}_shift_indices_after_delete
+            AFTER DELETE ON {TrackList}
+            BEGIN
+                UPDATE Track
+                SET index = index - 1
+                WHERE (guild_id = OLD.guild_id) AND (name = OLD.name) AND (index >= OLD.index);
+                END;
             """,
             f"""
             CREATE TRIGGER IF NOT EXISTS {TrackList}_shift_indices_after_update
@@ -323,6 +332,17 @@ class TrackList(Table, schema_version=1, trigger_version=1):
         for track in tracks:
             playable_tracks += [await track.to_wavelink(node)]
         return playable_tracks
+
+    @classmethod
+    async def deleteWhere(cls, db: Connection, guild_id: int, name: str, index: int) -> TrackList:
+        query = f"""
+        SELECT * FROM {TrackList}{TrackList._columns}
+        WHERE guild_id = ? AND name = ? and index = ?
+        RETURNING *
+        """
+        async with db.execute(query, (guild_id, name, index)) as cur:
+            res: TrackList = await cur.fetchone() # pyright: ignore [reportAssignmentType]
+        return res
 
 
 @dataclass

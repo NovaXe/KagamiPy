@@ -7,7 +7,7 @@ from typing import (
 import datetime
 import math
 import time
-from math import ceil, floor
+from math import ceil, floor, copysign
 import PIL as pillow
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
@@ -119,6 +119,50 @@ class MusicCog(GroupCog, group_name="m"):
         content = f"A previous session ended early on <t:{epoch_seconds}:D>, would you like to resume the session?"
         return await Confirmation.send(interaction, content)
 
+    async def session_queue_tracks(self, session: PlayerSession, tracks: list[Playable]) -> None:
+        async with self.conn() as db:
+            pass
+
+    async def session_pop_track(self, session: PlayerSession, index: int) -> Playable | None:
+        assert session.queue.history # because the history could be None since history is a queue but doesn't have a history of it's own
+        assert session.guild
+        history_count = len(session.queue.history)
+        queue_count = len(session.queue)
+        current_index = history_count - 1
+        pop_index = current_index + index
+
+        async with self.conn() as db:
+            details = await TrackListDetails.selectPriorSession(db, session.guild.id)
+            if not details:
+                return
+            details.start_index += int(max(0, copysign(1, pop_index)))
+            await TrackList.deleteWhere(db, pop_index)
+
+            await details.insert(db)
+            await db.commit()
+    
+    async def session_new_tracklist(self, session: PlayerSession) -> None:
+        assert session.queue.history # because the history could be None since history is a queue but doesn't have a history of it's own
+        assert session.guild
+
+        tracks = list(session.queue.history) + list(session.queue)
+        logger.debug(f"session_new_tracklist - session track count: {len(tracks)}")
+        current_index = l-1 if (l:=len(session.queue.history)) > 0 else 0
+        logger.debug(f"session_new_tracklist - current index: {current_index}")
+        name = str(int(time.time()))
+        list_details = TrackListDetails(session.guild.id, name, start_index=current_index, flags=TrackListDetails.Flags.session)
+        logger.debug(f"session_new_tracklist - track list details: {list_details}")
+
+        async with self.conn() as db:
+            logger.debug(f"session_new_tracklist - begin insert")
+            await list_details.insert(db)
+            await TrackList.insert_wavelink_tracks(db, tracks, guild_id=session.guild.id, name=name)
+            await db.commit()
+            logger.debug(f"session_new_tracklist - committed changes")
+
+    async def session_change_index(self, session: PlayerSession, delta: int=1) -> None:
+        pass
+
     @app_commands.command(name="join", description="Starts a music session in the voice channel")
     @is_not_outsider()
     # @app_commands.guild_only()
@@ -140,17 +184,22 @@ class MusicCog(GroupCog, group_name="m"):
         assert session.queue.history is not None
         
         if is_new_sesssion:
+            logger.debug("m join : new session")
             details = None
             async with self.conn() as db:
                 details = await TrackListDetails.selectPriorSession(db, guild.id)
+            logger.debug(f"m join : details - {details}")
             if details and await self.send_session_confirmation(interaction, int(details.name)): 
                 async with self.conn() as db:
                     playable_tracks = await TrackList.selectAllWavelink(db, wavelink.Pool.get_node(), guild_id=guild.id, name=details.name)
+                    logger.debug(f"m join : track count - {len(playable_tracks)}")
                     session.queue.history._items = playable_tracks[:details.start_index]
                     session.queue._items = playable_tracks[details.start_index:]
+                    logger.debug(f"m join : modified queue and history")
                     await session.play_next()
-        else:
-            await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
+                return
+            # if there isn't a previous session then it will give the normal playa be playing message
+        await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
         
     @app_commands.command(name="leave", description="Ends the current session")
     @is_existing_session()
@@ -172,6 +221,7 @@ class MusicCog(GroupCog, group_name="m"):
         user = cast(Member, interaction.user)
         assert user.voice and user.voice.channel
         session = guild.voice_client
+
         if not session:
             session = await joinChannel(user.voice.channel)
             assert session.queue.history is not None
@@ -194,15 +244,16 @@ class MusicCog(GroupCog, group_name="m"):
             await session.pause(False)
             await respond(interaction, "let the playa beforth playin", delete_after=5)
             return
+
         assert query is not None
         results = await session.search_and_queue(query)
         if len(results) == 1:
-            if session.current is None:
-                await session.play_next()
-                await respond(interaction, f"Now playing {track.title}", 
+            if session.current is not None:
+                await respond(interaction, f"Added {results[0]} to the queue", 
                               send_followup=True, delete_after=5)
             else:
-                await respond(interaction, f"Added {results[0]} to the queue", 
+                await session.play_next()
+                await respond(interaction, f"Now playing {session.current}", 
                               send_followup=True, delete_after=5)
         elif len(results) > 1:
             message = await respond(interaction, send_followup=True)
@@ -218,7 +269,7 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, "I couldn't find any tracks that matched",
                           send_followup=True, delete_after=5)
         await session.update_status_bar()
-        
+      
 
     @app_commands.command(name="pause", description="Pauses the player")
     @is_existing_session()
@@ -459,20 +510,29 @@ class MusicCog(GroupCog, group_name="m"):
 
     async def handle_bot_voice_state_update(self, before: VoiceState, after: VoiceState) -> None:
         if before.channel and not after.channel:
+            logger.debug("voice_state_update - Bot left a channel")
             guild_id = before.channel.guild.id
             session = cast(PlayerSession, before.channel.guild.voice_client)
+            if not session:
+                logger.debug("voice_state_update - No session, ignoring")
+                return
+
             assert session.queue.history
             tracks = list(session.queue.history) + list(session.queue)
+            logger.debug(f"voice_state_update - session track count: {len(tracks)}")
             current_index = l-1 if (l:=len(session.queue.history)) > 0 else 0
-            date = session.guild
+            logger.debug(f"voice_state_update - current index: {current_index}")
             epoch_seconds = int(time.time())
             name = f"{epoch_seconds}"
             list_details = TrackListDetails(guild_id, name, start_index=current_index, flags=TrackListDetails.Flags.session)
+            logger.debug(f"voice_state_update - track list details: {list_details}")
 
             async with self.conn() as db:
+                logger.debug(f"voice_state_update - begin insert")
                 await list_details.insert(db)
                 await TrackList.insert_wavelink_tracks(db, tracks, guild_id=guild_id, name=name)
                 await db.commit()
+                logger.debug(f"voice_state_update - committed changes")
 
     @GroupCog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: VoiceState, after: VoiceState) -> None:
