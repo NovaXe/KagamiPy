@@ -5,7 +5,7 @@ import logging
 from types import EllipsisType
 import typing
 from asyncio import Queue
-import aiosqlite
+import aiosqlite, sqlite3
 from aiosqlite.context import contextmanager
 from dataclasses import dataclass, asdict, astuple, fields
 from contextlib import asynccontextmanager
@@ -14,6 +14,7 @@ from common.logging import setup_logging
 from typing import Generator, Iterable, Any, Annotated, ClassVar
 
 logger = setup_logging(__name__)
+# sqlite3.enable_callback_tracebacks(True)
 
 """
 Gives some classes and methods for interfacing with an sqlite database in a standard way across cogs
@@ -516,26 +517,31 @@ class TableMetadata(Table, schema_version=1, trigger_version=1):
 class ConnectionPool:
     def __init__(self, db_path: str, pool_size: int):
         self.db_path = db_path
-        self._pool: Queue[aiosqlite.Connection] = Queue(maxsize=pool_size)
+        self._pool: Queue[aiosqlite.Connection | None] = Queue(maxsize=pool_size)
         self._init_pool(pool_size)
 
+    def _debug_log(self, message: str) -> None:
+        logger.debug(f"{self.__class__.__name__} {repr(self)} - {message}")
+
     def _init_pool(self, pool_size):
-        logger.debug(f"Initializing ConnectionPool: {repr(self)}")
+        self._debug_log(f"Initializing")
         for _ in range(pool_size):
             self._pool.put_nowait(None) # placeholder for connection
-        logger.debug(f"Initialized ConnectionPool: {repr(self)} - Size: {pool_size}")
+        self._debug_log(f"Initialized, Size ({pool_size})")
 
     async def close(self):
-        logger.debug(f"Closing ConnectionPool: {repr(self)}")
+        self._debug_log("Closing")
         while not self._pool.empty():
             conn = await self._pool.get()
-            await conn.close()
-            logger.debug(f"Connection closed by pool: {repr(self)} - conn: {repr(conn)}")
-        logger.debug(f"Closed ConnectionPool: {repr(self)}")
+            await conn.close() if conn else ...
+            self._debug_log(f"Closed connection {repr(conn)}")
+            # logger.debug(f"Connection closed by pool: {repr(self)} - conn: {repr(conn)}")
+        self._debug_log(f"Finished closing")
 
     async def _create_connection(self) -> aiosqlite.Connection:
         logger.debug(f"Opening Connection")
         conn = await aiosqlite.connect(self.db_path)
+        conn.set_trace_callback(lambda statement: logger.debug(f"Executing statement: {statement}"))
         logger.debug(f"Opened Connection: {repr(conn)}")
         return conn
 
@@ -543,36 +549,49 @@ class ConnectionPool:
         conn = await self._pool.get()
         if conn is None:
             conn = await self._create_connection()
-        logger.debug(f"Connection retrieved from pool: {repr(self)} - conn: {repr(conn)}")
+        self._debug_log(f"Retrieved Connection {repr(conn)}")
+        # logger.debug(f"Connection retrieved from pool: {repr(self)} - conn: {repr(conn)}")
         return conn
 
     async def release(self, conn: aiosqlite.Connection):
         if self._pool.qsize() < self._pool.maxsize:
             await self._pool.put(conn)
-            logger.debug(f"Connection released to pool: {repr(self)} - conn: {repr(conn)}")
+            self._debug_log(f"Released Connection {repr(conn)}")
+            # logger.debug(f"Connection released to pool: {repr(self)} - conn: {repr(conn)}")
         else:
             await conn.close()
-            logger.debug(f"Connection closed by pool: {repr(self)} - conn: {repr(conn)}")
+            self._debug_log(f"Closed Connection {repr(conn)}")
+            # logger.debug(f"Connection closed by pool: {repr(self)} - conn: {repr(conn)}")
 
 
 class ConnectionContext:
     def __init__(self, connection_pool: ConnectionPool, autocommit: bool=False):
-        self.pool = connection_pool
-        self._conn: aiosqlite.Connection = None
-        self.autocommit = autocommit
+        self.pool: ConnectionPool = connection_pool
+        self._conn: aiosqlite.Connection|None = None
+        self.autocommit: bool = autocommit
+        self.query_count: int = 0
+
+    def _debug_log(self, message: str) -> None:
+        logger.debug(f"ConnectionContext {repr(self)} - {message}")
+
+    def _track_callback(self, statement: str) -> None:
+        self.query_count += 1
+        self._debug_log(f"Executing statement ({1})\n{statement}")
 
     async def __aenter__(self) -> aiosqlite.Connection:
         self._conn = await self.pool.get()
+        self._conn.set_trace_callback(self._track_callback)
         return self._conn
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self._conn:
             self._conn.row_factory = None
-            await self.pool.release(self._conn)
             if self.autocommit:
                 await self._conn.commit()
+            await self.pool.release(self._conn)
+            self._debug_log(f"Exiting - ({self.query_count}) queries, ({self._conn.total_changes}) changes")
             self._conn = None
-        return True
+        return False # Only return True if the context manager handles it's own errors
 
 
 class ManagerMeta(type):
@@ -599,10 +618,13 @@ class DatabaseManager(metaclass=ManagerMeta, table_registry=TableRegistry):
         self.pool = ConnectionPool(db_path, pool_size)
         asyncio.run(self._initialize_resources())
 
+    def _debug_log(self, message: str) -> None:
+        logger.debug(f"DatabaseManager {repr(self)} - {message}")
+
     async def _initialize_resources(self):
-        logger.debug(f"Initializing resources for Manager: {repr(self)}")
+        self._debug_log(f"Initializing resources")
         await self.setup(table_group=__name__)
-        logger.debug(f"Initialized resources for Manager: {repr(self)}")
+        self._debug_log(f"Initialized resources")
 
     async def setup(self, table_group: str=None,
                     ignore_schema_updates: bool=False, ignore_trigger_updates: bool=False,
