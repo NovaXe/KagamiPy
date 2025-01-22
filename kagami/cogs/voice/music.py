@@ -31,7 +31,7 @@ from discord.ext.commands import GroupCog, Cog, MessageNotFound
 from discord.app_commands import Transform, Transformer, Group, Choice, Range
 from discord import ButtonStyle
 import wavelink
-from wavelink import Playable, Search, TrackEndEventPayload, TrackStartEventPayload
+from wavelink import Playable, Search, TrackEndEventPayload, TrackStartEventPayload, WebsocketClosedEventPayload
 
 from bot import Kagami
 from common import errors
@@ -123,23 +123,22 @@ class MusicCog(GroupCog, group_name="m"):
         async with self.conn() as db:
             pass
 
-    async def session_pop_track(self, session: PlayerSession, index: int) -> Playable | None:
-        assert session.queue.history # because the history could be None since history is a queue but doesn't have a history of it's own
-        assert session.guild
-        history_count = len(session.queue.history)
-        queue_count = len(session.queue)
-        current_index = history_count - 1
-        pop_index = current_index + index
+    # async def session_pop_track(self, session: PlayerSession, index: int) -> Playable | None:
+    #     assert session.queue.history # because the history could be None since history is a queue but doesn't have a history of it's own
+    #     assert session.guild
+    #     history_count = len(session.queue.history)
+    #     queue_count = len(session.queue)
+    #     current_index = history_count - 1
+    #     pop_index = current_index + index
 
-        async with self.conn() as db:
-            details = await TrackListDetails.selectPriorSession(db, session.guild.id)
-            if not details:
-                return
-            details.start_index += int(max(0, copysign(1, pop_index)))
-            await TrackList.deleteWhere(db, pop_index)
-
-            await details.insert(db)
-            await db.commit()
+    #     async with self.conn() as db:
+    #         details = await TrackListDetails.selectPriorSession(db, session.guild.id)
+    #         if not details:
+    #             return
+    #         details.start_index += int(max(0, copysign(1, pop_index)))
+    #         await TrackList.deleteWhere(db, details.guild_id, details.name, pop_index)
+    #         await details.insert(db)
+    #         await db.commit()
     
     async def session_new_tracklist(self, session: PlayerSession) -> None:
         assert session.queue.history # because the history could be None since history is a queue but doesn't have a history of it's own
@@ -160,8 +159,8 @@ class MusicCog(GroupCog, group_name="m"):
             await db.commit()
             logger.debug(f"session_new_tracklist - committed changes")
 
-    async def session_change_index(self, session: PlayerSession, delta: int=1) -> None:
-        pass
+    # async def session_change_index(self, session: PlayerSession, delta: int=1) -> None:
+    #     pass
 
     @app_commands.command(name="join", description="Starts a music session in the voice channel")
     @is_not_outsider()
@@ -492,6 +491,11 @@ class MusicCog(GroupCog, group_name="m"):
             old_volume = session.volume
             session.set_volume(volume)
             await respond(interaction, f"Session Volume: {old_volume} -> {session.volume}")
+
+    @GroupCog.listener()
+    async def on_wavelink_websocket_close(self, payload: WebsocketClosedEventPayload) -> None:
+        session = cast(PlayerSession, payload.player)
+        await self.session_new_tracklist(session)
 
 
     @GroupCog.listener()
