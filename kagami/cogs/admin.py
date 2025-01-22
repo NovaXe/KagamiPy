@@ -114,12 +114,6 @@ class Admin(commands.Cog):
         self.bot.tree.clear_commands(guild=ctx.guild)
         await ctx.send("Cleared the local command tree, the tree needs to be synced")
 
-    @commands.command(name="update_tables")
-    @commands.is_owner()
-    async def update_tables(self, ctx: commands.Context):
-        await self.bot.dbman.update_tables()
-        await ctx.send("Tables updated")
-
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.NotOwner):
