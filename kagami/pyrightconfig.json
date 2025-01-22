@@ -2,5 +2,7 @@
     "reportMissingImports" : "error",
     "reportMissingTypeStubs" : true,
     "reportUnusedCallResult" : false,
-    "reportIgnoreCommentWithoutRule" : false
+    "reportIgnoreCommentWithoutRule" : false,
+    "reportExplicitAny": false,
+    "reportPrivateUsage": false
 }
