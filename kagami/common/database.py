@@ -201,9 +201,9 @@ class TableMeta(type):
                 table_registry: type["TableRegistry"] | None=TableRegistry,
                 schema_version: int,
                 trigger_version: int,
-                table_group: str | EllipsisType | None=..., **kwargs) -> TableBase:
+                table_group: str | EllipsisType | None=..., **kwargs) -> type[Table]:
         cls = super().__new__(mcs, name, bases, class_dict)
-        cls = cast(type[TableBase], cls) 
+        cls = cast(type[Table], cls) 
         cls.__table_registry__ = table_registry 
         cls.__tablename__ = name 
         cls.__schema_version__ = schema_version 
@@ -219,15 +219,17 @@ class TableMeta(type):
         # cls.__schema_altered__ = schema_altered
         cls.__old_tablename__ = None 
         if table_registry is not None:
-            table_registry.register_table(cls) # TODO: update the existing places of Table to be TableBase or not, idgaf
+            table_registry.register_table(cls) 
         else:
             logger.warn(f"The table class: {name} has it's registry set to None")
         return cls
 
     def __str__(cls):
+        cls = cast(type[Table], cls)
         return cls.__tablename__
 
     def __field_count(cls):
+        cls = cast(type[Table], cls)
         """
         Gives the number of dataclass fields, will return 0 if not a dataclass
         """
