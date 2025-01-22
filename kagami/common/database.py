@@ -12,7 +12,7 @@ from dataclasses import dataclass, asdict, astuple, fields
 from contextlib import asynccontextmanager
 
 from common.logging import setup_logging
-from typing import Generator, Iterable, Any, Annotated, ClassVar, Protocol, Generic, cast
+from typing import Generator, Iterable, Any, Annotated, ClassVar, Protocol, Generic, cast, overload, override
 
 logger = setup_logging(__name__)
 # sqlite3.enable_callback_tracebacks(True)
@@ -187,6 +187,7 @@ class TableSubclassMustImplement(NotImplementedError):
     def __init__(self, message="Subclasses of Table must implement this method to call it"):
         super().__init__(message)
 
+
 class TableBase:
     __table_registry__: ClassVar[type[TableRegistry] | None]
     __tablename__: ClassVar[str]
@@ -197,11 +198,11 @@ class TableBase:
     
 
 class TableMeta(type):
-    def __new__(mcs, name: str, bases: Any, class_dict: Any, *args,
+    def __new__(mcs, name: str, bases: tuple[type, ...], class_dict: dict[str, Any], *args: tuple[Any, ...], 
                 table_registry: type["TableRegistry"] | None=TableRegistry,
                 schema_version: int,
                 trigger_version: int,
-                table_group: str | EllipsisType | None=..., **kwargs) -> type[Table]:
+                table_group: str | EllipsisType | None=..., **kwargs: dict[str, Any]) -> type[Table]:
         cls = super().__new__(mcs, name, bases, class_dict)
         cls = cast(type[Table], cls) 
         cls.__table_registry__ = table_registry 
@@ -221,14 +222,15 @@ class TableMeta(type):
         if table_registry is not None:
             table_registry.register_table(cls) 
         else:
-            logger.warn(f"The table class: {name} has it's registry set to None")
+            logger.warning(f"The table class: {name} has it's registry set to None")
         return cls
 
+    @override
     def __str__(cls):
         cls = cast(type[Table], cls)
         return cls.__tablename__
 
-    def __field_count(cls):
+    def _field_count(cls):
         cls = cast(type[Table], cls)
         """
         Gives the number of dataclass fields, will return 0 if not a dataclass
@@ -251,12 +253,13 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
     #         cls._columns = columns
     #     return cls._columns
     
-    def _debug_log(self, message: str) -> None:
-        logger.debug(f"{self.__class__.__name__} {repr(self)}")
-
     @classmethod
     def _debug_log(cls, message: str) -> None:
-        logger.debug(f"{cls.__name__} {repr(cls)}")
+        logger.debug(f"{cls.__name__} {repr(cls)} {message}")
+
+    # def _debug_log(self, message: str) -> None:
+    #     logger.debug(f"{self.__class__.__name__} {repr(self)} - {message}")
+
 
     @staticmethod
     def group(name: str):
@@ -300,10 +303,8 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
         return name is not None
 
     @classmethod
-    async def _execute_query(cls, db: aiosqlite.Connection, query: str, params: tuple | dict=None):
-        is_valid = cls._validate_query(db, query)
-        if is_valid:
-            await db.execute(query, params)
+    async def _execute_query(cls, db: aiosqlite.Connection, query: str, params: tuple[Any, ...] | dict[str, Any] | None=None):
+        await db.execute(query, params) if await cls._validate_query(db, query) else ...
 
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
@@ -313,7 +314,7 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
         await db.execute(f"CREATE TABLE IF NOT EXISTS {cls.__tablename__}(rowid INTEGER PRIMARY KEY)")
 
     @classmethod
-    async def alter_table(cls, db: aiosqlite.Connection):
+    async def alter_table(cls, db: aiosqlite.Connection) -> None:
         """
         Called during the setup phase if the table is marked as altered in the metadata
         """
@@ -406,11 +407,11 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
 
     def astuple(self): return astuple(self)
 
-    async def insert(self, db: aiosqlite.Connection) -> Any | None: # pyright:ignore reportAny 
+    async def insert(self, db: aiosqlite.Connection) -> Any | None: 
         """
         Inserts the instance into the table, ignores the row with no error on a conflict
         """
-        field_count = self.__class__.__field_count()
+        field_count = self.__class__._field_count()
         placeholders = ",".join('?' for _ in range(field_count))
         query = f"INSERT OR IGNORE INTO {self.__tablename__} VALUES ({placeholders})"
         await db.execute(query, self.astuple())
