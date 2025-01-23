@@ -480,13 +480,14 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
         raise TableSubclassMustImplement
 
     # noinspection PyMethodParameters
-    @classmethod
-    @abstractmethod
-    async def deleteWhere(cls, db: aiosqlite.Connection, *args: tuple[Any, ...], **kwargs: dict[str, Any]) -> Any | None:
-        """
-        Override to delete a row from the table, returning an instance of the Table as the deleted row
-        """
-        raise TableSubclassMustImplement
+    # @classmethod
+    # @abstractmethod
+    # # , *args: tuple[Any, ...] | None, **kwargs: dict[str, Any] | None
+    # async def deleteWhere(cls, db: aiosqlite.Connection) -> Any | None:
+    #     """
+    #     Override to delete a row from the table, returning an instance of the Table as the deleted row
+    #     """
+    #     raise TableSubclassMustImplement
 
     @abstractmethod
     async def delete(self, db: aiosqlite.Connection) -> Any | None:
