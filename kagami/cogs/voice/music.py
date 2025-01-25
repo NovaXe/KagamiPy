@@ -2,11 +2,12 @@ from dataclasses import dataclass
 from enum import IntEnum
 from inspect import getcallargs
 from typing import (
-    Literal, List, Callable, Any, cast, get_args
+    Literal, List, Callable, Any, cast, get_args, override
 )
 import datetime
 import math
 import time
+import re
 from math import ceil, floor, copysign
 import PIL as pillow
 from PIL import Image, ImageDraw, ImageFont
@@ -44,7 +45,9 @@ from common.types import MessageableGuildChannel
 from .voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, get_tracklist_callback
 from .db import TrackList, TrackListDetails
 from utils.depr_db_interface import Database
-from common.utils import acstr, ms_timestamp
+from common.utils import acstr, ms_timestamp, secondsToTime, milliseconds_divmod
+
+from cogs.voice import voice
 
 logger = setup_logging(__name__)
 
@@ -200,6 +203,7 @@ class MusicCog(GroupCog, group_name="m"):
             # if there isn't a previous session then it will give the normal playa be playing message
         await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
         
+
     @app_commands.command(name="leave", description="Ends the current session")
     @is_existing_session()
     @is_not_outsider()
@@ -210,6 +214,7 @@ class MusicCog(GroupCog, group_name="m"):
         await session.disconnect()
         await respond(interaction, "the playa done playin", delete_after=5)
     
+
     @app_commands.command(name="play", description="Queue a track to be played in the voice channel")
     @app_commands.describe(query="search query / song link / playlist link")
     @is_not_outsider()
@@ -306,6 +311,7 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, f"Skipped {new_index} tracks to `{new_title}`", delete_after=5)
         await session.pause(previous_state)
 
+
     @app_commands.command(name="back", description="Skip to the previous track in the queue")
     @is_existing_session()
     @is_not_outsider()
@@ -327,6 +333,54 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, f"Skipped back {-1 * new_index} tracks to `{new_title}`", delete_after=5)
         await session.pause(previous_state)
 
+
+    class SeekTranformer(Transformer):
+        @override
+        async def autocomplete(self, interaction: Interaction, current: str) -> list[Choice[int]]: # pyright: ignore [reportIncompatibleMethodOverride]
+            assert interaction.guild is not None
+            voice_client = interaction.guild.voice_client
+            if current or not voice_client:
+                return []
+            session = cast(PlayerSession, voice_client)
+            now = session.position
+                
+            choices: list[Choice[int]] = []
+            for i in reversed(range(-10, 10+1, 5)):
+                stamp = ms_timestamp(now+i*1000)
+                choices += [Choice(name=f"{stamp} ({i:+})", value = now // 1000 + i)]
+            return choices
+
+        @override
+        async def transform(self, interaction: Interaction, value: int | str) -> int: # pyright: ignore [reportIncompatibleMethodOverride]
+            assert interaction.guild is not None
+            voice_client = interaction.guild.voice_client
+            if not voice_client: 
+                raise NoSession
+
+            if isinstance(value, int) or value.isdigit():
+                seek_ms = int(value) * 1000
+                if seek_ms < 0:
+                    raise errors.CustomCheck(f"Invalid Timestamp: {value}") 
+            else:
+                pattern = r"(?:(\d+):)?([0-5]?\d):([0-5]?\d)"
+                capture = re.match(pattern, value)
+                if not capture:
+                    raise errors.CustomCheck(f"Invalid Timestamp: {value}")
+                hours, minutes, seconds = (int(c) for c in capture.groups()) # assumed that all elements are ints based off the pattern match
+                if not hours: hours = 0
+                seek_ms = datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds).seconds * 1000
+            return seek_ms
+
+    @app_commands.command(name="seek", description="seeks to the time in the track")
+    @is_existing_session()
+    @is_not_outsider()
+    async def seek(self, interaction: Interaction, seconds: Transform[int, SeekTranformer]) -> None:
+        await respond(interaction, ephemeral=True)
+        assert interaction.guild is not None
+        voice_client = interaction.guild.voice_client
+        session = cast(PlayerSession, voice_client)
+        await session.seek(seconds * 1000)
+        await respond(interaction, f"Seeked to {ms_timestamp(seconds*1000)}")
 
     @app_commands.command(name="loop", description="Sets the loop mode of the queue")
     @is_existing_session()
