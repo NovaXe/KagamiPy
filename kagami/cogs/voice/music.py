@@ -202,7 +202,6 @@ class MusicCog(GroupCog, group_name="m"):
                 return
             # if there isn't a previous session then it will give the normal playa be playing message
         await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
-        
 
     @app_commands.command(name="leave", description="Ends the current session")
     @is_existing_session()
@@ -213,7 +212,6 @@ class MusicCog(GroupCog, group_name="m"):
         session = cast(PlayerSession, guild.voice_client)
         await session.disconnect()
         await respond(interaction, "the playa done playin", delete_after=5)
-    
 
     @app_commands.command(name="play", description="Queue a track to be played in the voice channel")
     @app_commands.describe(query="search query / song link / playlist link")
@@ -273,7 +271,6 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, "I couldn't find any tracks that matched",
                           send_followup=True, delete_after=5)
         await session.update_status_bar()
-      
 
     @app_commands.command(name="pause", description="Pauses the player")
     @is_existing_session()
@@ -332,6 +329,36 @@ class MusicCog(GroupCog, group_name="m"):
         else:
             await respond(interaction, f"Skipped back {-1 * new_index} tracks to `{new_title}`", delete_after=5)
         await session.pause(previous_state)
+
+    @app_commands.command(name="pop", description="Removes a track from the queue or history")
+    @app_commands.describe(extent="If specified, removes all tracks between both points")
+    @is_existing_session()
+    @is_not_outsider()
+    async def pop(self, interaction: Interaction, index: int, extent: int | None=None) -> None:
+        await respond(interaction, ephemeral=True)
+        guild = cast(discord.Guild, interaction.guild)
+        session = cast(PlayerSession, guild.voice_client)
+        assert session.queue.history is not None, "impossible"
+        if index > 0:
+            index = min(index, len(session.queue)) - 1
+            if extent:
+                extent = min(extent, len(session.queue)) - 1
+                a, b = min(index, extent), max(index, extent)
+                del session.queue[a:b + 1]
+                await respond(interaction, f"Removed {b-a} tracks from the queue")
+            else:
+                del session.queue[index]
+                await respond(interaction, f"Removed track {index} from the queue")
+        else:
+            index = max(index, -len(session.queue.history)) - 1
+            if extent:
+                extent = max(extent, -len(session.queue.history)) - 1
+                a, b = min(index, extent), max(index, extent)
+                del session.queue[a:b + 1]
+                await respond(interaction, f"Removed {b-a} tracks from the history")
+            else:
+                del session.queue.history[index]
+                await respond(interaction, f"Removed track {index} from the history")
 
 
     class SeekTranformer(Transformer):
