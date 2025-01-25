@@ -2,6 +2,10 @@ from discord.app_commands import CheckFailure
 
 
 class CustomCheck(CheckFailure):
+    """
+    The ephemeral flag on this error is checked when the error is handled by the global app_command handler. \
+    When True it dictates that the error messsage sent to the user of the command is ephemeral
+    """
     MESSAGE: str = "Failed Custom Check"
     EPHEMERAL: bool = True
     def __init__(self, message: str | None=None, *args) -> None:
