@@ -103,7 +103,7 @@ class MusicCog(GroupCog, group_name="m"):
         self.dbman = bot.dbman
 
     async def cog_load(self):
-        await self.bot.dbman.setup(table_group=__name__,
+        await self.bot.dbman.setup(table_group=__package__,
                                    drop_tables=self.bot.config.drop_tables,
                                    drop_triggers=self.bot.config.drop_triggers,
                                    ignore_schema_updates=self.bot.config.ignore_schema_updates,

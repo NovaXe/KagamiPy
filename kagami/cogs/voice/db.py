@@ -15,7 +15,7 @@ from common.tables import Guild, GuildSettings, User
 logger = setup_logging(__name__)
 
 @dataclass
-class MusicSettings(Table, schema_version=1, trigger_version=1):
+class MusicSettings(Table, schema_version=1, trigger_version=1, table_group=__package__):
     guild_id: int
     music_enabled: bool=True
     saving_enabled: bool=True
@@ -64,7 +64,7 @@ class MusicSettings(Table, schema_version=1, trigger_version=1):
         return result
 
 @dataclass
-class TrackListDetails(Table, schema_version=1, trigger_version=1):
+class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=__package__):
     class Flags(IntFlag):
         """Never change these, only add on to the end. They're used in the database so 1 must always be 1"""
         session = 1
@@ -183,7 +183,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1):
 
 
 @dataclass
-class TrackList(Table, schema_version=1, trigger_version=2):
+class TrackList(Table, schema_version=1, trigger_version=2, table_group=__package__):
     guild_id: int
     name: str
     index: int # starting at 0, represents order in playlist
@@ -346,7 +346,7 @@ class TrackList(Table, schema_version=1, trigger_version=2):
 
 
 @dataclass
-class FavoriteTrack(Table, schema_version=1, trigger_version=1):
+class FavoriteTrack(Table, schema_version=1, trigger_version=1, table_group=__package__):
     MAX_DURATION: ClassVar[int] = 5 * 1000 # in milliseconds
     user_id: int
     encoded: str

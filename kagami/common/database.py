@@ -72,7 +72,7 @@ class TableRegistry:
 
     @classmethod
     def register_table(cls, table: type["Table"]):
-        cls._debug_log(f"Registered new Table: {table.__name__}")
+        cls._debug_log(f"Group: {table.__table_group__}, Module: {table.__module__} - Registered new Table: {table.__name__}")
         cls.tables[table.__name__] = table
 
     @classmethod
