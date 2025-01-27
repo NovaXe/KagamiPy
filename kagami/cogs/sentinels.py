@@ -374,7 +374,6 @@ class SentinelChannelSettings(Table, schema_version=2, trigger_version=1):
         await db.execute(query, self.asdict())
 
     @classmethod
-    @override
     async def deleteWhere(cls, db: aiosqlite.Connection, guild_id: int, channel_id: int) -> "SentinelChannelSettings | None":
         params = {"guild_id": guild_id, "channel_id": channel_id}
         query = f"""

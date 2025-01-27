@@ -52,7 +52,7 @@ class Status(Table, schema_version=1, trigger_version=1):
 
     async def insert(self, db: aiosqlite.Connection) -> "Status":
         query = f"""
-        INSERT OR IGNORE INTO {Status}(name, emoji)
+        INSERT OR IGNORE INTO {Status} (name, emoji)
         VALUES(:name, :emoji)
         """
         db.row_factory = None
