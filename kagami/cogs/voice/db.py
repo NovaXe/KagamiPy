@@ -90,9 +90,11 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
             start_index INTEGER NOT NULL DEFAULT 0,
             flags INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (guild_id, name),
-            FOREIGN KEY (guild_id) REFERENCSE {Guild}(id)
+            FOREIGN KEY (guild_id) REFERENCES {Guild}(id)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        )
         """
+        await db.execute(query)
 
     @override
     @classmethod
@@ -112,11 +114,12 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
             BEFORE INSERT ON {TrackListDetails}
             BEGIN
                 CASE 
-                WHEN (NEW.Flags & {TrackListDetails.Flags.session} != 0)
+                WHEN (NEW.Flags & {TrackListDetails.Flags.session} != 0) THEN
                     DELETE * FROM {TrackListDetails}
                     WHERE guild_id = NEW.guild_id AND flags & {TrackListDetails.Flags.session} != 0
                     ORDER BY CAST(name AS INTEGER) ASC
                     LIMIT -1 OFFSET 3;
+                END
             END
             """
         ]
@@ -186,7 +189,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
 class TrackList(Table, schema_version=1, trigger_version=2, table_group=__package__):
     guild_id: int
     name: str
-    index: int # starting at 0, represents order in playlist
+    idx: int # starting at 0, represents order in playlist
     encoded: str # encoded string representing the track from lavalink
     # track_data: bytes
 
@@ -200,10 +203,10 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
         return True
 
     @classmethod
-    def from_wavelink(cls, track: Playable, guild_id: int, name: str, index: int=0):
+    def from_wavelink(cls, track: Playable, guild_id: int, name: str, idx: int=0):
         return TrackList(guild_id=guild_id, 
                          name=name,
-                         index=index,
+                         idx=idx,
                          encoded=track.encoded)
 
     async def to_wavelink(self, node: Node) -> Playable:
@@ -222,11 +225,12 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
         CREATE TABLE IF NOT EXISTS {TrackList}(
             guild_id INTEGER NOT NULL,
             name TEXT NOT NULL,
-            index INTEGER NOT NULL,
+            idx INTEGER NOT NULL,
             encoded TEXT NOT NULL,
-            UNIQUE (guild_id, name, index),
+            UNIQUE (guild_id, name, idx),
             FOREIGN KEY (guild_id, name) REFERENCES {TrackListDetails}(guild_id, name)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        )
         """
         await db.execute(query)
 
@@ -239,9 +243,9 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
             AFTER INSERT ON {TrackList}
             BEGIN
                 UPDATE Track
-                SET index = index + 1
+                SET idx = idx + 1
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) AND 
-                (index >= NEW.index) AND (rowid != NEW.rowid);
+                (idx >= NEW.idx) AND (rowid != NEW.rowid);
             END;
             """,
             f"""
@@ -249,22 +253,22 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
             AFTER DELETE ON {TrackList}
             BEGIN
                 UPDATE Track
-                SET index = index - 1
-                WHERE (guild_id = OLD.guild_id) AND (name = OLD.name) AND (index >= OLD.index);
+                SET idx = idx - 1
+                WHERE (guild_id = OLD.guild_id) AND (name = OLD.name) AND (idx >= OLD.idx);
                 END;
             """,
             f"""
             CREATE TRIGGER IF NOT EXISTS {TrackList}_shift_indices_after_update
-            AFTER UPDATE OF index ON {TrackList}
+            AFTER UPDATE OF idx ON {TrackList}
             BEGIN
                 UPDATE Track
-                SET index = index + 1
+                SET idx = idx + 1
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) 
-                AND (index >= NEW.index) AND (index < OLD.index) AND (rowid != OLD.rowid);
+                AND (idx >= NEW.idx) AND (idx < OLD.idx) AND (rowid != OLD.rowid);
                 UPDATE Track
-                SET index = index - 1
+                SET idx = idx - 1
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) 
-                AND (index > OLD.index) AND (index <= NEW.index) AND (rowid != OLD.rowid);
+                AND (idx > OLD.idx) AND (idx <= NEW.idx) AND (rowid != OLD.rowid);
             END
             """,
             f"""
@@ -283,32 +287,31 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
     @override
     async def insert(self, db: Connection) -> int:
         query = f"""
-        INSERT INTO {TrackList}(guild_id, name, index, encoded)
+        INSERT INTO {TrackList}(guild_id, name, idx, encoded)
         VALUES (
             :guild_id, 
             :name, 
             (
-                SELECT Coalesce(Max(index), 0)
+                SELECT Coalesce(Max(idx), 0)
                 FROM {TrackList} WHERE (guild_id = :guild_id) AND (name = :name)
             ), 
             :encoded
         )
-        RETURNING index
+        RETURNING idx
         """
         db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
         async with db.execute(query) as cur:
             res: TrackList = await cur.fetchone() # pyright: ignore [reportAssignmentType]
-        return res.index
+        return res.idx
 
-    @override
     @classmethod
-    async def selectWhere(cls, db: Connection, guild_id: int, name: str, index: int, **kwargs: dict[str, Any]) -> "TrackList":
+    async def selectWhere(cls, db: Connection, guild_id: int, name: str, idx: int, **kwargs: dict[str, Any]) -> "TrackList":
         query = f"""
-        SELECT * FROM {TrackList}(guild_id, name, index, encoded)
-        WHERE guild_id = ? AND name = ? AND index = ?
+        SELECT * FROM {TrackList}(guild_id, name, idx, encoded)
+        WHERE guild_id = ? AND name = ? AND idx = ?
         """
         db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
-        async with db.execute(query, (guild_id, name, index)) as cur:
+        async with db.execute(query, (guild_id, name, idx)) as cur:
             res = await cur.fetchone()
             assert isinstance(res, TrackList)
         return cast(TrackList, res)
@@ -316,9 +319,9 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
     @classmethod
     async def selectAllWhere(cls, db: Connection, guild_id: int, name: str) -> list["TrackList"]:
         query = f"""
-        SELECT * FROM {TrackList}(guild_id, name, index, encoded)
+        SELECT * FROM {TrackList}(guild_id, name, idx, encoded)
         WHERE guild_id = ? AND name = ?
-        ORDER BY index
+        ORDER BY idx
         """
         db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
         async with db.execute(query, (guild_id, name)) as cur:
@@ -334,13 +337,13 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
         return playable_tracks
 
     @classmethod
-    async def deleteWhere(cls, db: Connection, guild_id: int, name: str, index: int) -> TrackList:
+    async def deleteWhere(cls, db: Connection, guild_id: int, name: str, idx: int) -> TrackList:
         query = f"""
         SELECT * FROM {TrackList}{TrackList._columns}
-        WHERE guild_id = ? AND name = ? and index = ?
+        WHERE guild_id = ? AND name = ? and idx = ?
         RETURNING *
         """
-        async with db.execute(query, (guild_id, name, index)) as cur:
+        async with db.execute(query, (guild_id, name, idx)) as cur:
             res: TrackList = await cur.fetchone() # pyright: ignore [reportAssignmentType]
         return res
 

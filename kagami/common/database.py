@@ -471,13 +471,13 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
         raise TableSubclassMustImplement
         # return None
 
-    @classmethod
-    @abstractmethod
-    async def selectWhere(cls, db: aiosqlite.Connection, *args: tuple[Any, ...], **kwargs: dict[str, Any]) -> Any | None:
-        """
-        Select a row from the table given specific arguments
-        """
-        raise TableSubclassMustImplement
+    # @classmethod
+    # @abstractmethod
+    # async def selectWhere(cls, db: aiosqlite.Connection, *args: tuple[Any, ...], **kwargs: dict[str, Any]) -> Any | None:
+    #     """
+    #     Select a row from the table given specific arguments
+    #     """
+    #     raise TableSubclassMustImplement
 
     # noinspection PyMethodParameters
     # @classmethod
