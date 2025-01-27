@@ -68,7 +68,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
     class Flags(IntFlag):
         """Never change these, only add on to the end. They're used in the database so 1 must always be 1"""
         session = 1
-    _columns: ClassVar[str] = "(guild_id, name, start_index, flags)"
+    # _columns: ClassVar[str] = "(guild_id, name, start_index, flags)"
 
     guild_id: int
     name: str
@@ -112,14 +112,15 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
             f"""
             CREATE TRIGGER IF NOT EXISTS {TrackListDetails}_delete_old_sessions_before_insert
             BEFORE INSERT ON {TrackListDetails}
+            WHEN (NEW.Flags & {TrackListDetails.Flags.session} != 0)
             BEGIN
-                CASE 
-                WHEN (NEW.Flags & {TrackListDetails.Flags.session} != 0) THEN
-                    DELETE * FROM {TrackListDetails}
+                DELETE FROM {TrackListDetails}
+                WHERE name IN (
+                    SELECT name FROM {TrackListDetails}
                     WHERE guild_id = NEW.guild_id AND flags & {TrackListDetails.Flags.session} != 0
                     ORDER BY CAST(name AS INTEGER) ASC
-                    LIMIT -1 OFFSET 3;
-                END
+                    LIMIT -1 OFFSET 3
+                );
             END
             """
         ]
@@ -129,7 +130,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
     @classmethod
     async def selectWhereName(cls, db: Connection, guild_id: int, name: str) -> "TrackListDetails":
         query = f"""
-        SELECT * FROM {TrackListDetails}{TrackListDetails._columns}
+        SELECT * FROM {TrackListDetails}
         WHERE guild_id = ? AND name = ?
         """
         db.row_factory = TrackListDetails.row_factory # pyright: ignore[reportAttributeAccessIssue]
@@ -138,12 +139,13 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
         return res
 
     @classmethod
-    async def selectPriorSession(cls, db: Connection, guild_id: int) -> "TrackListDetails | None":
+    async def selectPriorSession(cls, db: Connection, guild_id: int) -> TrackListDetails | None:
         query = f"""
-        SELECT * FROM {TrackListDetails}{TrackListDetails._columns}
+        SELECT * FROM {TrackListDetails}
         WHERE guild_id = ? AND ((flags & {TrackListDetails.Flags.session}) == {TrackListDetails.Flags.session})
         ORDER BY CAST(name AS INTEGER) DESC
         """
+        # logger.debug(f"BITCHASS QUERY : {query}")
         db.row_factory = TrackListDetails.row_factory # pyright: ignore [reportAttributeAccessIssue]
         async with db.execute(query, (guild_id,)) as cur:
             res: TrackListDetails | None = await cur.fetchone() # pyright: ignore [reportAssignmentType]
@@ -152,7 +154,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
     @classmethod
     async def selectAllWhereFlag(cls, db: Connection, guild_id: int, flags: Flags) -> list["TrackListDetails"]:
         query = f"""
-        SELECT * FROM {TrackListDetails}{TrackListDetails._columns}
+        SELECT * FROM {TrackListDetails}
         WHERE guild_id = :guild_id AND ((flags & :flags) == :flags)
         """
         db.row_factory = TrackListDetails.row_factory # pyright: ignore [reportAttributeAccessIssue]
@@ -164,7 +166,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
     async def insert(self, db: Connection) -> None:
         self.validate_name()
         query = f"""
-        INSERT OR IGNORE INTO {TrackListDetails}{TrackListDetails._columns}
+        INSERT OR IGNORE INTO {TrackListDetails}
         VALUES (:guild_id, :name, :start_index, :flags)
         """
         await db.execute(query, self.asdict())
@@ -173,7 +175,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
     async def upsert(self, db: Connection) -> None:
         self.validate_name()
         query = f"""
-        INSERT {TrackListDetails}{TrackListDetails._columns}
+        INSERT {TrackListDetails}
         VALUES (:guild_id, :name, :start_index, :flags)
         ON CONFLICT (guild_id, name)
         DO UPDATE SET
@@ -228,7 +230,7 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
             idx INTEGER NOT NULL,
             encoded TEXT NOT NULL,
             UNIQUE (guild_id, name, idx),
-            FOREIGN KEY (guild_id, name) REFERENCES {TrackListDetails}(guild_id, name)
+            FOREIGN KEY (guild_id, name) REFERENCES {TrackListDetails} (guild_id, name)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
@@ -275,7 +277,7 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
             CREATE TRIGGER IF NOT EXISTS {TrackList}_insert_details_before_insert
             BEFORE INSERT ON {TrackList}
             BEGIN
-                INSERT INTO {TrackListDetails}(guild_id, name)
+                INSERT INTO {TrackListDetails} (guild_id, name)
                 VALUES(NEW.guild_id, NEW.name)
                 ON CONFLICT DO NOTHING;
             END
@@ -287,7 +289,7 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
     @override
     async def insert(self, db: Connection) -> int:
         query = f"""
-        INSERT INTO {TrackList}(guild_id, name, idx, encoded)
+        INSERT INTO {TrackList} (guild_id, name, idx, encoded)
         VALUES (
             :guild_id, 
             :name, 
@@ -305,9 +307,9 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
         return res.idx
 
     @classmethod
-    async def selectWhere(cls, db: Connection, guild_id: int, name: str, idx: int, **kwargs: dict[str, Any]) -> "TrackList":
+    async def selectWhere(cls, db: Connection, guild_id: int, name: str, idx: int) -> "TrackList":
         query = f"""
-        SELECT * FROM {TrackList}(guild_id, name, idx, encoded)
+        SELECT * FROM {TrackList} (guild_id, name, idx, encoded)
         WHERE guild_id = ? AND name = ? AND idx = ?
         """
         db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
@@ -319,7 +321,7 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
     @classmethod
     async def selectAllWhere(cls, db: Connection, guild_id: int, name: str) -> list["TrackList"]:
         query = f"""
-        SELECT * FROM {TrackList}(guild_id, name, idx, encoded)
+        SELECT * FROM {TrackList} (guild_id, name, idx, encoded)
         WHERE guild_id = ? AND name = ?
         ORDER BY idx
         """

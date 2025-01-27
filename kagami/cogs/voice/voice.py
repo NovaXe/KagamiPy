@@ -37,6 +37,10 @@ class PlayerSession(Player):
         self.autoplay = AutoPlayMode.partial
         self.status_bar: StatusBar | None = None
 
+    # @override
+    # def cleanup(self) -> None:
+    #     return super().cleanup()
+
     @override
     async def disconnect(self, **kwargs: Any) -> None:
         if self.status_bar:

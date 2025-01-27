@@ -144,8 +144,11 @@ class MusicCog(GroupCog, group_name="m"):
     #         await db.commit()
     
     async def session_new_tracklist(self, session: PlayerSession) -> None:
+        logger.debug("session_new_tracklist - pre assert")
+        logger.debug(f"session_new_tracklist - {session}")
         assert session.queue.history # because the history could be None since history is a queue but doesn't have a history of it's own
         assert session.guild
+        logger.debug("session_new_tracklist - post assert")
 
         tracks = list(session.queue.history) + list(session.queue)
         logger.debug(f"session_new_tracklist - session track count: {len(tracks)}")
@@ -574,8 +577,11 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, f"Session Volume: {old_volume} -> {session.volume}")
 
     @GroupCog.listener()
-    async def on_wavelink_websocket_close(self, payload: WebsocketClosedEventPayload) -> None:
+    async def on_wavelink_websocket_closed(self, payload: WebsocketClosedEventPayload) -> None:
+        logger.debug(f"wavelink_websocket_closed - enter")
         session = cast(PlayerSession, payload.player)
+        logger.debug(f"wavelink_websocket_closed - cast session")
+        logger.debug(f"wavelink_websocket_closed - {session}")
         await self.session_new_tracklist(session)
 
 
@@ -624,7 +630,7 @@ class MusicCog(GroupCog, group_name="m"):
         # leave channel if len(members) == 1 and memeber == bot
         # make bot leave when someone else leaves and now the bot is alone, that's it
         if member == self.bot.user:
-            await self.handle_bot_voice_state_update(before, after)
+            # await self.handle_bot_voice_state_update(before, after)
             return # ignoring self
         assert self.bot.user
         bot_id = self.bot.user.id
