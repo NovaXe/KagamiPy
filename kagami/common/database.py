@@ -344,13 +344,13 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
         """
         await db.execute(f"CREATE TABLE IF NOT EXISTS {cls.__tablename__}(rowid INTEGER PRIMARY KEY)")
 
-    @classmethod
-    @abstractmethod
-    async def alter_table(cls, db: aiosqlite.Connection) -> None:
-        """
-        Called during the setup phase if the table is marked as altered in the metadata
-        """
-        raise TableSubclassMustImplement
+    # @classmethod
+    # @abstractmethod
+    # async def alter_table(cls, db: aiosqlite.Connection) -> None:
+    #     """
+    #     Called during the setup phase if the table is marked as altered in the metadata
+    #     """
+    #     raise TableSubclassMustImplement
 
     @classmethod
     async def drop_table(cls, db: aiosqlite.Connection):
@@ -430,6 +430,7 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
         SELECT name FROM sqlite_master
         WHERE type = 'trigger' AND tbl_name = '{cls.__tablename__}'
         """
+        db.row_factory = None
         trigger_names = await db.execute_fetchall(query)
         for name in trigger_names:
             name = name[0]

@@ -1,6 +1,8 @@
+from __future__ import annotations
 from code import interact
 from typing import Any, Literal, cast, override, Callable, Awaitable
 import asyncio
+import time
 
 from urllib.parse import urlparse, parse_qs
 
@@ -15,6 +17,8 @@ from common.errors import CustomCheck
 from common.utils import acstr, ms_timestamp
 from common.types import MessageableGuildChannel
 from common.paginator import ScrollerState, Scroller
+
+from .db import TrackListDetails, TrackList, TrackListFlags
 
 logger = setup_logging(__name__)
 
@@ -32,6 +36,7 @@ class NoSession(CustomCheck):
 
 
 class PlayerSession(Player):
+    # _disconect_callback: Awaitable[[PlayerSession], None, None] | None = None
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.autoplay = AutoPlayMode.partial
@@ -41,10 +46,36 @@ class PlayerSession(Player):
     # def cleanup(self) -> None:
     #     return super().cleanup()
 
+    async def save_queue(self) -> None:
+        logger.debug("save_queue - pre assert")
+        logger.debug(f"save_queue - {self}")
+        # assert self.queue.history # because the history could be None since history is a queue but doesn't have a history of it's own
+        assert self.guild
+        logger.debug("save_queue - post assert")
+
+        history_tracks, history_length = (list(self.queue.history), len(self.queue.history)) if self.queue.history else ([], 0)
+
+        tracks = history_tracks + list(self.queue)
+        logger.debug(f"save_queue - self track count: {len(tracks)}")
+        current_index = history_length-1 if history_length > 0 else 0
+        logger.debug(f"save_queue - current index: {current_index}")
+        name = str(int(time.time()))
+        list_details = TrackListDetails(self.guild.id, name, start_index=current_index, flags=TrackListFlags.session)
+        logger.debug(f"save_queue - track list details: {list_details}")
+
+        assert isinstance(self.client, Kagami)
+        async with self.client.dbman.conn() as db:
+            logger.debug(f"save_queue - begin insert")
+            await list_details.insert(db)
+            await TrackList.insert_wavelink_tracks(db, tracks, guild_id=self.guild.id, name=name)
+            await db.commit()
+            logger.debug(f"save_queue - committed changes")
+
     @override
-    async def disconnect(self, **kwargs: Any) -> None:
+    async def disconnect(self, **kwargs: dict[str, Any]) -> None:
         if self.status_bar:
             await self.status_bar.kill()
+        await self.save_queue()
         return await super().disconnect(**kwargs)
 
     def shift_queue(self, shift: int) -> int:

@@ -63,20 +63,23 @@ class MusicSettings(Table, schema_version=1, trigger_version=1, table_group=__pa
         assert isinstance(result, MusicSettings)
         return result
 
+
+class TrackListFlags(IntFlag):
+    """Never change these, only add on to the end. They're used in the database so 1 must always be 1"""
+    session = 1
+
+
 @dataclass
-class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=__package__):
-    class Flags(IntFlag):
-        """Never change these, only add on to the end. They're used in the database so 1 must always be 1"""
-        session = 1
+class TrackListDetails(Table, schema_version=1, trigger_version=2, table_group=__package__):
     # _columns: ClassVar[str] = "(guild_id, name, start_index, flags)"
 
     guild_id: int
     name: str
     start_index: int=0
-    flags: Flags=Flags(0)
+    flags: TrackListFlags=TrackListFlags(0)
 
     def validate_name(self) -> None:
-        if self.flags & TrackListDetails.Flags.session and not self.name.isnumeric():
+        if self.flags & TrackListFlags.session and not self.name.isnumeric():
             logger.error(f"TrackList name should be numeric, found {self.name}")
             raise ValueError(f"TrackList name should be numeric, found {self.name}")
 
@@ -112,12 +115,12 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
             f"""
             CREATE TRIGGER IF NOT EXISTS {TrackListDetails}_delete_old_sessions_before_insert
             BEFORE INSERT ON {TrackListDetails}
-            WHEN (NEW.Flags & {TrackListDetails.Flags.session} != 0)
+            WHEN (NEW.flags & {TrackListFlags.session} != 0)
             BEGIN
                 DELETE FROM {TrackListDetails}
                 WHERE name IN (
                     SELECT name FROM {TrackListDetails}
-                    WHERE guild_id = NEW.guild_id AND flags & {TrackListDetails.Flags.session} != 0
+                    WHERE guild_id = NEW.guild_id AND (flags & {TrackListFlags.session} != 0)
                     ORDER BY CAST(name AS INTEGER) ASC
                     LIMIT -1 OFFSET 3
                 );
@@ -142,7 +145,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
     async def selectPriorSession(cls, db: Connection, guild_id: int) -> TrackListDetails | None:
         query = f"""
         SELECT * FROM {TrackListDetails}
-        WHERE guild_id = ? AND ((flags & {TrackListDetails.Flags.session}) == {TrackListDetails.Flags.session})
+        WHERE guild_id = ? AND ((flags & {TrackListFlags.session}) == {TrackListFlags.session})
         ORDER BY CAST(name AS INTEGER) DESC
         """
         # logger.debug(f"BITCHASS QUERY : {query}")
@@ -152,7 +155,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
         return res
 
     @classmethod
-    async def selectAllWhereFlag(cls, db: Connection, guild_id: int, flags: Flags) -> list["TrackListDetails"]:
+    async def selectAllWhereFlag(cls, db: Connection, guild_id: int, flags: TrackListFlags) -> list["TrackListDetails"]:
         query = f"""
         SELECT * FROM {TrackListDetails}
         WHERE guild_id = :guild_id AND ((flags & :flags) == :flags)
@@ -183,8 +186,6 @@ class TrackListDetails(Table, schema_version=1, trigger_version=1, table_group=_
             flags = :flags
         """
         await db.execute(query, self.asdict())
-
-
 
 
 @dataclass
@@ -219,7 +220,7 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
     async def insert_wavelink_tracks(cls, db: Connection, tracks: list[Playable], guild_id: int, name: str) -> None:
         for i, track in enumerate(tracks):
             await TrackList.from_wavelink(track, guild_id, name, i+1).insert(db)
-    
+
     @override
     @classmethod
     async def create_table(cls, db: Connection):
@@ -289,7 +290,7 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
     @override
     async def insert(self, db: Connection) -> int:
         query = f"""
-        INSERT INTO {TrackList} (guild_id, name, idx, encoded)
+        INSERT INTO {TrackList}
         VALUES (
             :guild_id, 
             :name, 
@@ -309,7 +310,7 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
     @classmethod
     async def selectWhere(cls, db: Connection, guild_id: int, name: str, idx: int) -> "TrackList":
         query = f"""
-        SELECT * FROM {TrackList} (guild_id, name, idx, encoded)
+        SELECT * FROM {TrackList}
         WHERE guild_id = ? AND name = ? AND idx = ?
         """
         db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
@@ -321,7 +322,7 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
     @classmethod
     async def selectAllWhere(cls, db: Connection, guild_id: int, name: str) -> list["TrackList"]:
         query = f"""
-        SELECT * FROM {TrackList} (guild_id, name, idx, encoded)
+        SELECT * FROM {TrackList}
         WHERE guild_id = ? AND name = ?
         ORDER BY idx
         """

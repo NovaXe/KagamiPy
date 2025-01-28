@@ -43,7 +43,7 @@ from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
 from common.types import MessageableGuildChannel
 from .voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, get_tracklist_callback
-from .db import TrackList, TrackListDetails
+from .db import TrackList, TrackListDetails, TrackListFlags
 from utils.depr_db_interface import Database
 from common.utils import acstr, ms_timestamp, secondsToTime, milliseconds_divmod
 
@@ -155,7 +155,7 @@ class MusicCog(GroupCog, group_name="m"):
         current_index = l-1 if (l:=len(session.queue.history)) > 0 else 0
         logger.debug(f"session_new_tracklist - current index: {current_index}")
         name = str(int(time.time()))
-        list_details = TrackListDetails(session.guild.id, name, start_index=current_index, flags=TrackListDetails.Flags.session)
+        list_details = TrackListDetails(session.guild.id, name, start_index=current_index, flags=TrackListFlags.session)
         logger.debug(f"session_new_tracklist - track list details: {list_details}")
 
         async with self.conn() as db:
@@ -615,7 +615,7 @@ class MusicCog(GroupCog, group_name="m"):
             logger.debug(f"voice_state_update - current index: {current_index}")
             epoch_seconds = int(time.time())
             name = f"{epoch_seconds}"
-            list_details = TrackListDetails(guild_id, name, start_index=current_index, flags=TrackListDetails.Flags.session)
+            list_details = TrackListDetails(guild_id, name, start_index=current_index, flags=TrackListFlags.session)
             logger.debug(f"voice_state_update - track list details: {list_details}")
 
             async with self.conn() as db:
