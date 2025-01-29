@@ -58,6 +58,9 @@ async def joinChannel(voice_channel: VocalGuildChannel) -> PlayerSession:
     voice_client = voice_channel.guild.voice_client
     if voice_client is None:
         voice_client = await voice_channel.connect(cls=PlayerSession)
+    elif not isinstance(voice_client, PlayerSession):
+        # await voice_client.disconnect(force=True)
+        voice_client = await voice_channel.connect(cls=PlayerSession)
     else:
         assert isinstance(voice_client, PlayerSession)
         if voice_channel != voice_client.channel:
@@ -102,6 +105,7 @@ class MusicCog(GroupCog, group_name="m"):
         self.config = bot.config
         self.dbman = bot.dbman
 
+    @override
     async def cog_load(self):
         await self.bot.dbman.setup(table_group=__package__,
                                    drop_tables=self.bot.config.drop_tables,
@@ -111,6 +115,12 @@ class MusicCog(GroupCog, group_name="m"):
         
         node = wavelink.Node(**self.bot.config.lavalink, client=self.bot) # pyright:ignore
         await wavelink.Pool.connect(nodes=[node])
+
+    @override
+    async def cog_unload(self):
+        for guild in self.bot.guilds:
+            if vc:=guild.voice_client:
+                await vc.disconnect(force=False)
 
     def conn(self) -> ConnectionContext:
         return self.bot.dbman.conn()

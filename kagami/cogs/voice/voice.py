@@ -34,7 +34,6 @@ class NoSession(CustomCheck):
     MESSAGE: str = "A voice session must be active to use this command"
 
 
-
 class PlayerSession(Player):
     # _disconect_callback: Awaitable[[PlayerSession], None, None] | None = None
     def __init__(self, *args: Any, **kwargs: Any):
@@ -62,6 +61,9 @@ class PlayerSession(Player):
         name = str(int(time.time()))
         list_details = TrackListDetails(self.guild.id, name, start_index=current_index, flags=TrackListFlags.session)
         logger.debug(f"save_queue - track list details: {list_details}")
+
+        if len(tracks) == 0:
+            return
 
         assert isinstance(self.client, Kagami)
         async with self.client.dbman.conn() as db:
