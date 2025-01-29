@@ -276,7 +276,7 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
     """
     _columns: String formatting utility - (column_a, column_b, ...)
     """
-    _columns: ClassVar[str] = ""
+    # _columns: ClassVar[str] = ""
     # @classmethod
     # def columns(cls, columns: str | None=None) -> str:
     #     "Utility for string formatting: (column_a, column_b, ...)"

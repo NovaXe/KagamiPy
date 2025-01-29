@@ -70,9 +70,8 @@ class TrackListFlags(IntFlag):
 
 
 @dataclass
-class TrackListDetails(Table, schema_version=1, trigger_version=2, table_group=__package__):
+class TrackListDetails(Table, schema_version=1, trigger_version=3, table_group=__package__):
     # _columns: ClassVar[str] = "(guild_id, name, start_index, flags)"
-
     guild_id: int
     name: str
     start_index: int=0
@@ -113,8 +112,8 @@ class TrackListDetails(Table, schema_version=1, trigger_version=2, table_group=_
             END
             """,
             f"""
-            CREATE TRIGGER IF NOT EXISTS {TrackListDetails}_delete_old_sessions_before_insert
-            BEFORE INSERT ON {TrackListDetails}
+            CREATE TRIGGER IF NOT EXISTS {TrackListDetails}_delete_old_sessions_after_insert
+            AFTER INSERT ON {TrackListDetails}
             WHEN (NEW.flags & {TrackListFlags.session} != 0)
             BEGIN
                 DELETE FROM {TrackListDetails}
@@ -169,7 +168,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=2, table_group=_
     async def insert(self, db: Connection) -> None:
         self.validate_name()
         query = f"""
-        INSERT OR IGNORE INTO {TrackListDetails}
+        INSERT OR IGNORE INTO {TrackListDetails} (guild_id, name, start_index, flags)
         VALUES (:guild_id, :name, :start_index, :flags)
         """
         await db.execute(query, self.asdict())
