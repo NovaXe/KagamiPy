@@ -110,7 +110,8 @@ class Scroller(ui.View):
             for child in self.children:
                 child.disabled = True
             try:
-                await self.message.edit(view=self, delete_after=self.timeout_delete_delay)
+                await self.message.edit(view=self)
+                await self.message.delete(delay=self.timeout_delete_delay)
             except discord.NotFound:
                 pass
 
