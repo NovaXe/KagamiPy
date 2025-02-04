@@ -124,10 +124,14 @@ class PlayerSession(Player):
             results = [results[0]]
         return results
 
-    async def play_next(self) -> None:
+    async def play_next(self) -> Playable | None:
         "Simple wrapper to get and play the next track in the queue"
-        track = await self.queue.get_wait()
-        await self.play(track)
+        if not self.queue.is_empty:
+            track = await self.queue.get_wait() 
+            await self.play(track)
+        else:
+            track = None
+        return track
 
     async def update_status_bar(self) -> None:
         # logger.debug("enter update status bar")
