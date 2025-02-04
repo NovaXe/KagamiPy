@@ -188,7 +188,7 @@ class TrackListDetails(Table, schema_version=1, trigger_version=3, table_group=_
 
 
 @dataclass
-class TrackList(Table, schema_version=1, trigger_version=2, table_group=__package__):
+class TrackList(Table, schema_version=1, trigger_version=3, table_group=__package__):
     guild_id: int
     name: str
     idx: int # starting at 0, represents order in playlist
@@ -244,7 +244,7 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
             CREATE TRIGGER IF NOT EXISTS {TrackList}_shift_indices_after_insert
             AFTER INSERT ON {TrackList}
             BEGIN
-                UPDATE Track
+                UPDATE {TrackList}
                 SET idx = idx + 1
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) AND 
                 (idx >= NEW.idx) AND (rowid != NEW.rowid);
@@ -254,7 +254,7 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
             CREATE TRIGGER IF NOT EXISTS {TrackList}_shift_indices_after_delete
             AFTER DELETE ON {TrackList}
             BEGIN
-                UPDATE Track
+                UPDATE {TrackList}
                 SET idx = idx - 1
                 WHERE (guild_id = OLD.guild_id) AND (name = OLD.name) AND (idx >= OLD.idx);
                 END;
@@ -263,11 +263,11 @@ class TrackList(Table, schema_version=1, trigger_version=2, table_group=__packag
             CREATE TRIGGER IF NOT EXISTS {TrackList}_shift_indices_after_update
             AFTER UPDATE OF idx ON {TrackList}
             BEGIN
-                UPDATE Track
+                UPDATE {TrackList}
                 SET idx = idx + 1
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) 
                 AND (idx >= NEW.idx) AND (idx < OLD.idx) AND (rowid != OLD.rowid);
-                UPDATE Track
+                UPDATE {TrackList}
                 SET idx = idx - 1
                 WHERE (guild_id = NEW.guild_id) AND (name = NEW.name) 
                 AND (idx > OLD.idx) AND (idx <= NEW.idx) AND (rowid != OLD.rowid);
