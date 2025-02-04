@@ -132,9 +132,9 @@ class MusicCog(GroupCog, group_name="m"):
         content = f"A previous session ended early on <t:{epoch_seconds}:D>, would you like to resume the session?"
         return await Confirmation.send(interaction, content)
 
-    async def session_queue_tracks(self, session: PlayerSession, tracks: list[Playable]) -> None:
-        async with self.conn() as db:
-            pass
+    # async def session_queue_tracks(self, session: PlayerSession, tracks: list[Playable]) -> None:
+    #     async with self.conn() as db:
+    #         pass
 
     # async def session_pop_track(self, session: PlayerSession, index: int) -> Playable | None:
     #     assert session.queue.history # because the history could be None since history is a queue but doesn't have a history of it's own
@@ -153,27 +153,27 @@ class MusicCog(GroupCog, group_name="m"):
     #         await details.insert(db)
     #         await db.commit()
     
-    async def session_new_tracklist(self, session: PlayerSession) -> None:
-        logger.debug("session_new_tracklist - pre assert")
-        logger.debug(f"session_new_tracklist - {session}")
-        assert session.queue.history # because the history could be None since history is a queue but doesn't have a history of it's own
-        assert session.guild
-        logger.debug("session_new_tracklist - post assert")
+    # async def session_new_tracklist(self, session: PlayerSession) -> None:
+    #     logger.debug("session_new_tracklist - pre assert")
+    #     logger.debug(f"session_new_tracklist - {session}")
+    #     assert session.queue.history # because the history could be None since history is a queue but doesn't have a history of it's own
+    #     assert session.guild
+    #     logger.debug("session_new_tracklist - post assert")
 
-        tracks = list(session.queue.history) + list(session.queue)
-        logger.debug(f"session_new_tracklist - session track count: {len(tracks)}")
-        current_index = l-1 if (l:=len(session.queue.history)) > 0 else 0
-        logger.debug(f"session_new_tracklist - current index: {current_index}")
-        name = str(int(time.time()))
-        list_details = TrackListDetails(session.guild.id, name, start_index=current_index, flags=TrackListFlags.session)
-        logger.debug(f"session_new_tracklist - track list details: {list_details}")
+    #     tracks = list(session.queue.history) + list(session.queue)
+    #     logger.debug(f"session_new_tracklist - session track count: {len(tracks)}")
+    #     current_index = l-1 if (l:=len(session.queue.history)) > 0 else 0
+    #     logger.debug(f"session_new_tracklist - current index: {current_index}")
+    #     name = str(int(time.time()))
+    #     list_details = TrackListDetails(session.guild.id, name, start_index=current_index, flags=TrackListFlags.session)
+    #     logger.debug(f"session_new_tracklist - track list details: {list_details}")
 
-        async with self.conn() as db:
-            logger.debug(f"session_new_tracklist - begin insert")
-            await list_details.insert(db)
-            await TrackList.insert_wavelink_tracks(db, tracks, guild_id=session.guild.id, name=name)
-            await db.commit()
-            logger.debug(f"session_new_tracklist - committed changes")
+    #     async with self.conn() as db:
+    #         logger.debug(f"session_new_tracklist - begin insert")
+    #         await list_details.insert(db)
+    #         await TrackList.insert_wavelink_tracks(db, tracks, guild_id=session.guild.id, name=name)
+    #         await db.commit()
+    #         logger.debug(f"session_new_tracklist - committed changes")
 
     # async def session_change_index(self, session: PlayerSession, delta: int=1) -> None:
     #     pass
@@ -243,16 +243,21 @@ class MusicCog(GroupCog, group_name="m"):
             details = None
             async with self.conn() as db:
                 details = await TrackListDetails.selectPriorSession(db, guild.id)
+                logger.debug(f"play - details:{details}")
             if details and await self.send_session_confirmation(interaction, int(details.name)): 
+                logger.debug(f"play - confirmation yes")
                 async with self.conn() as db:
                     playable_tracks = await TrackList.selectAllWavelink(db, wavelink.Pool.get_node(), guild_id=guild.id, name=details.name)
-                    session.queue.history._items = playable_tracks[:details.start_index]
-                    session.queue._items = playable_tracks[details.start_index:]
-                    await session.play_next()
+                    logger.debug(f"play - playable tracks : {len(playable_tracks)}")
+                    session.queue.history._items = playable_tracks[:details.start_index] if len(playable_tracks) > 0 else []
+                    session.queue._items = playable_tracks[details.start_index:] if (len(playable_tracks) - 1) > details.start_index else []
+                    track = await session.play_next()
+                    logger.debug(f"play - first track: {track}")
             else:
                 await respond(interaction, "let the playa be playin", delete_after=5)
                 if query is None:
                     return
+        logger.debug(f"play - post resumption")
 
         session = cast(PlayerSession, session)
         if query is None:
@@ -262,6 +267,7 @@ class MusicCog(GroupCog, group_name="m"):
 
         assert query is not None
         results = await session.search_and_queue(query)
+        logger.debug(f"play - {len(results)=}")
         if len(results) == 1:
             if session.current is not None:
                 await respond(interaction, f"Added {results[0]} to the queue", 
@@ -592,7 +598,8 @@ class MusicCog(GroupCog, group_name="m"):
         session = cast(PlayerSession, payload.player)
         logger.debug(f"wavelink_websocket_closed - cast session")
         logger.debug(f"wavelink_websocket_closed - {session}")
-        await self.session_new_tracklist(session)
+        # await self.session_new_tracklist(session)
+        await session.save_queue()
 
 
     @GroupCog.listener()
@@ -701,13 +708,13 @@ class Confirmation(ui.View):
         await self.on_timeout()
         self.stop()
     
-    @ui.button(label="yes", style=discord.ButtonStyle.green)
+    @ui.button(label="Yes", style=discord.ButtonStyle.green)
     async def yes(self, interaction: Interaction, button: ui.Button["Confirmation"]) -> None:
         await respond(interaction)
         self.value = True
         await self.done()
 
-    @ui.button(label="no", style=discord.ButtonStyle.green)
+    @ui.button(label="No", style=discord.ButtonStyle.red)
     async def no(self, interaction: Interaction, button: ui.Button["Confirmation"]) -> None:
         await respond(interaction)
         self.value = False
