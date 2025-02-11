@@ -8,6 +8,9 @@ from discord.ext import commands
 from discord import app_commands
 from bot import Kagami
 from common.interactions import respond
+from common.database import TableMetadata
+
+type Context = commands.Context[Kagami]
 
 
 class Admin(commands.Cog):
@@ -104,15 +107,25 @@ class Admin(commands.Cog):
 
     @commands.command(name="clear_global", description="clears the global command tree")
     @commands.is_owner()
-    async def clear_global(self, ctx: commands.Context):
+    async def clear_global(self, ctx: Context):
         self.bot.tree.clear_commands(guild=None)
         await ctx.send("Cleared the global command tree, the tree needs to be synced")
 
     @commands.command(name="clear_local", description="clears the local command tree")
     @commands.is_owner()
-    async def clear_local(self, ctx: commands.Context):
+    async def clear_local(self, ctx: Context):
         self.bot.tree.clear_commands(guild=ctx.guild)
         await ctx.send("Cleared the local command tree, the tree needs to be synced")
+
+    @commands.command(name="tablever")
+    @commands.is_owner()
+    async def tablever(self, ctx: Context, table_name: str) -> None:
+        async with self.bot.dbman.conn() as db:
+            res = await TableMetadata.selectData(db, table_name)
+            if res:
+                await ctx.send(f"Schema Version: {res.schema_version}, Trigger Version: {res.trigger_version}")
+            else:
+                await ctx.send(f"The query returned with nothing, there is no table with that name")
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
