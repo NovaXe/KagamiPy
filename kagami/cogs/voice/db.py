@@ -70,7 +70,7 @@ class TrackListFlags(IntFlag):
 
 
 @dataclass
-class TrackListDetails(Table, schema_version=1, trigger_version=3, table_group=__package__):
+class TrackListDetails(Table, schema_version=1, trigger_version=4, table_group=__package__):
     # _columns: ClassVar[str] = "(guild_id, name, start_index, flags)"
     guild_id: int
     name: str
@@ -117,11 +117,11 @@ class TrackListDetails(Table, schema_version=1, trigger_version=3, table_group=_
             WHEN (NEW.flags & {TrackListFlags.session} != 0)
             BEGIN
                 DELETE FROM {TrackListDetails}
-                WHERE name IN (
+                WHERE name NOT IN (
                     SELECT name FROM {TrackListDetails}
                     WHERE guild_id = NEW.guild_id AND (flags & {TrackListFlags.session} != 0)
                     ORDER BY CAST(name AS INTEGER) ASC
-                    LIMIT -1 OFFSET 3
+                    LIMIT 3
                 );
             END
             """
@@ -212,7 +212,10 @@ class TrackList(Table, schema_version=1, trigger_version=3, table_group=__packag
                          encoded=track.encoded)
 
     async def to_wavelink(self, node: Node) -> Playable:
-        data = await node.send(path="/v4/decodetrack", params={"encodedTrack": ...}) # pyright: ignore [reportAny]
+        logger.debug("to_wavelink - enter") # debug-dev
+        data = await node.send(path="v4/decodetrack", params={"encodedTrack": self.encoded}) # pyright: ignore [reportAny]
+        # sends a request to the REST endpoint on lavalink to decode the track, analogous to `GET /v4/decodetrack?encodedTrack=<BASE64>`
+        logger.debug("to_wavelink - exit") # debug-dev
         return Playable(data) # pyright: ignore [reportAny]
 
     @classmethod
@@ -294,7 +297,7 @@ class TrackList(Table, schema_version=1, trigger_version=3, table_group=__packag
             :guild_id, 
             :name, 
             (
-                SELECT Coalesce(Max(idx), 0)
+                SELECT Coalesce(Max(idx), -1) + 1
                 FROM {TrackList} WHERE (guild_id = :guild_id) AND (name = :name)
             ), 
             :encoded
@@ -302,7 +305,7 @@ class TrackList(Table, schema_version=1, trigger_version=3, table_group=__packag
         RETURNING idx
         """
         db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
-        async with db.execute(query) as cur:
+        async with db.execute(query, self.asdict()) as cur:
             res: TrackList = await cur.fetchone() # pyright: ignore [reportAssignmentType]
         return res.idx
 
@@ -332,16 +335,19 @@ class TrackList(Table, schema_version=1, trigger_version=3, table_group=__packag
     
     @classmethod
     async def selectAllWavelink(cls, db: Connection, node: Node, guild_id: int, name: str) -> list[Playable]:
+        logger.debug("selectAllWavelink - enter") # debug-dev
         tracks: list[TrackList] = await cls.selectAllWhere(db, guild_id, name)
+        logger.debug(f"selectAllWavelink - {len(tracks)=}") # debug-dev
         playable_tracks: list[Playable] = []
         for track in tracks:
             playable_tracks += [await track.to_wavelink(node)]
+        logger.debug(f"selectAllWavelink - {len(playable_tracks)=}") # debug-dev
         return playable_tracks
 
     @classmethod
     async def deleteWhere(cls, db: Connection, guild_id: int, name: str, idx: int) -> TrackList:
         query = f"""
-        SELECT * FROM {TrackList}{TrackList._columns}
+        SELECT * FROM {TrackList}
         WHERE guild_id = ? AND name = ? and idx = ?
         RETURNING *
         """

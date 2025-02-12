@@ -178,6 +178,26 @@ class MusicCog(GroupCog, group_name="m"):
     # async def session_change_index(self, session: PlayerSession, delta: int=1) -> None:
     #     pass
 
+    async def attempt_session_requeue(self, interaction: Interaction, session: PlayerSession) -> bool:
+        """
+        If the name wasn't clear, this attempts to find a previous session and requeue it's tracks if it exists
+        This method will not start playing if the player is paused
+        """
+        assert session.guild and session.queue.history
+        async with self.conn() as db:
+            details = await TrackListDetails.selectPriorSession(db, session.guild.id)
+            # logger.debug(f"attempt_session_resume - details:{details}") # debug-dev
+            if details and await self.send_session_confirmation(interaction, int(details.name)): 
+                # logger.debug(f"attempt_session_resume - confirmation yes") # debug-dev
+                playable_tracks = await TrackList.selectAllWavelink(db, wavelink.Pool.get_node(), guild_id=session.guild.id, name=details.name)
+                # logger.debug(f"attempt_session_resume - playable tracks : {len(playable_tracks)}") # debug-dev
+                session.queue.history._items = playable_tracks[:details.start_index] if len(playable_tracks) > 0 else []
+                session.queue._items = playable_tracks[details.start_index:] if (len(playable_tracks) - 1) > details.start_index else []
+                return True
+                # logger.debug(f"attempt_session_resume - first track: {track}") # debug-dev
+            else:
+                return False
+
     @app_commands.command(name="join", description="Starts a music session in the voice channel")
     @is_not_outsider()
     # @app_commands.guild_only()
@@ -198,23 +218,13 @@ class MusicCog(GroupCog, group_name="m"):
             raise errors.CustomCheck("Join or specify a channel to start a session")
         assert session.queue.history is not None
         
+        resumed = False
         if is_new_sesssion:
             logger.debug("m join : new session")
-            details = None
-            async with self.conn() as db:
-                details = await TrackListDetails.selectPriorSession(db, guild.id)
-            logger.debug(f"m join : details - {details}")
-            if details and await self.send_session_confirmation(interaction, int(details.name)): 
-                async with self.conn() as db:
-                    playable_tracks = await TrackList.selectAllWavelink(db, wavelink.Pool.get_node(), guild_id=guild.id, name=details.name)
-                    logger.debug(f"m join : track count - {len(playable_tracks)}")
-                    session.queue.history._items = playable_tracks[:details.start_index]
-                    session.queue._items = playable_tracks[details.start_index:]
-                    logger.debug(f"m join : modified queue and history")
-                    await session.play_next()
-                return
-            # if there isn't a previous session then it will give the normal playa be playing message
-        await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
+            resumed = await self.attempt_session_requeue(interaction, session)
+            await respond(interaction, f"Resumed the old session", delete_after=5) if resumed else ...
+        else:
+            await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
 
     @app_commands.command(name="leave", description="Ends the current session")
     @is_existing_session()
@@ -225,6 +235,8 @@ class MusicCog(GroupCog, group_name="m"):
         session = cast(PlayerSession, guild.voice_client)
         await session.disconnect()
         await respond(interaction, "the playa done playin", delete_after=5)
+
+
 
     @app_commands.command(name="play", description="Queue a track to be played in the voice channel")
     @app_commands.describe(query="search query / song link / playlist link")
@@ -237,27 +249,15 @@ class MusicCog(GroupCog, group_name="m"):
         assert user.voice and user.voice.channel
         session = guild.voice_client
 
+        resumed = False
         if not session:
             session = await joinChannel(user.voice.channel)
             assert session.queue.history is not None
             details = None
-            async with self.conn() as db:
-                details = await TrackListDetails.selectPriorSession(db, guild.id)
-                logger.debug(f"play - details:{details}")
-            if details and await self.send_session_confirmation(interaction, int(details.name)): 
-                logger.debug(f"play - confirmation yes")
-                async with self.conn() as db:
-                    playable_tracks = await TrackList.selectAllWavelink(db, wavelink.Pool.get_node(), guild_id=guild.id, name=details.name)
-                    logger.debug(f"play - playable tracks : {len(playable_tracks)}")
-                    session.queue.history._items = playable_tracks[:details.start_index] if len(playable_tracks) > 0 else []
-                    session.queue._items = playable_tracks[details.start_index:] if (len(playable_tracks) - 1) > details.start_index else []
-                    track = await session.play_next()
-                    logger.debug(f"play - first track: {track}")
-            else:
-                await respond(interaction, "let the playa be playin", delete_after=5)
-                if query is None:
-                    return
-        logger.debug(f"play - post resumption")
+            resumed = await self.attempt_session_requeue(interaction, session)
+            await respond(interaction, f"Resumed the old session", delete_after=5) if resumed else ...
+            track = await session.play_next()
+        logger.debug(f"play - post resumption") # debug-dev
 
         session = cast(PlayerSession, session)
         if query is None:
@@ -267,7 +267,7 @@ class MusicCog(GroupCog, group_name="m"):
 
         assert query is not None
         results = await session.search_and_queue(query)
-        logger.debug(f"play - {len(results)=}")
+        logger.debug(f"play - {len(results)=}") # debug-dev
         if len(results) == 1:
             if session.current is not None:
                 await respond(interaction, f"Added {results[0]} to the queue", 
