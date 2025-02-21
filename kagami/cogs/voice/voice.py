@@ -101,7 +101,8 @@ class PlayerSession(Player):
         assert self.queue.history is not None
         new_index = self.shift_queue(index)
         if new_index == 0 and index > 1:
-            await self.pause(True) # does not skip over the last track if multiple tracks are skipped
+            # await self.pause(True) 
+            pass # does not skip over the last track if multiple tracks are skipped, lets the last track play
         elif new_index == 0 and index == 1:
             await self.skip()
         elif len(self.queue.history) > 0:
