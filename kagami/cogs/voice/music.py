@@ -279,15 +279,14 @@ class MusicCog(GroupCog, group_name="m"):
                 await respond(interaction, f"Now playing {session.current}", 
                               delete_after=5)
         elif len(results) > 1: # many tracks returned
-            message = await respond(interaction, send_followup=True)
+            message = await respond(interaction, content="...", send_followup=True, ephemeral=True)
             guild = cast(discord.Guild, interaction.guild)
             session = cast(PlayerSession, guild.voice_client)
             user = cast(Member, interaction.user)
-
             scroller = Scroller(message, user, get_tracklist_callback(results, title=f"Queued {len(results)} tracks"))
+            await scroller.update(interaction)
             if session.current is None:
                 await session.play_next()
-            await scroller.update(interaction)
         else: # no tracks returned
             await respond(interaction, "I couldn't find any tracks that matched",
                           delete_after=5)
