@@ -100,7 +100,10 @@ class PlayerSession(Player):
     async def skipto(self, index: int) -> int:
         assert self.queue.history is not None
         new_index = self.shift_queue(index)
-        if len(self.queue.history) > 0:
+        if new_index == 0 and index != 0:
+            await self.pause(True)
+            # may need more behavior if this isn't enough
+        elif len(self.queue.history) > 0:
             await self.play(self.queue.history[-1], add_history=False)
         else:
             self.autoplay = AutoPlayMode.disabled
@@ -128,7 +131,9 @@ class PlayerSession(Player):
     async def play_next(self) -> Playable | None:
         "Simple wrapper to get and play the next track in the queue"
         if not self.queue.is_empty:
-            track = await self.queue.get_wait() 
+            track = self.queue.get()
+            # track = await self.queue.get_wait() 
+            # waiting is uneeded because i'm already checking if the queue is or isn't empty
             await self.play(track)
         else:
             track = None
@@ -472,8 +477,10 @@ class StatusBar(ui.View):
             results = await session.search_and_queue(modal.query.value)
             if len(results) == 1:
                 if session.current is None:
-                    track = await session.queue.get_wait()
-                    await session.play(track)
+                    await session.play_next()
+                    # track = await session.queue.get_wait()
+                    # await session.play(track)
+                    # get wait no longer used because playnext handles the logic
                     await respond(interaction, f"Now playing {track.title}", 
                                   send_followup=True, delete_after=5)
                 else:
@@ -487,7 +494,8 @@ class StatusBar(ui.View):
 
                 scroller = Scroller(message, user, get_tracklist_callback(results))
                 if session.current is None:
-                    track = await session.queue.get_wait()
+                    await session.play_next()
+                    # track = await session.queue.get_wait() # idfk why this was even here when it did nothing
                 await scroller.update(interaction)
             else:
                 await respond(interaction, "I couldn't find any tracks that matched",

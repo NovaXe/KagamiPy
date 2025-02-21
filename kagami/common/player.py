@@ -5,6 +5,7 @@ from common.responses import PersistentMessage
 from common.depr_context_vars import CVar
 from helpers.depr_music_helpers import Track
 from helpers.wavelink_utils import WavelinkTrack
+from wavelink import QueueMode
 
 class Player(wavelink.Player):
     class LoopType(Enum):
@@ -89,25 +90,23 @@ class Player(wavelink.Player):
         return self.current, self.position
 
     async def cycleQueue(self, count: int = 1):
+        assert self.queue.history is not None
         for i in range(abs(count)):
             if count > 0:
                 # Skip forward
-                if self.queue.count or self.queue.loop or self.queue.loop_all:
-                    track = await self.queue.get_wait()
-                    # track = self.queue.get()
+                if (not self.queue.is_empty) or self.queue.mode == (QueueMode.loop or QueueMode.loop_all):
+                    track = self.queue.get()
                     self.queue.history.put(track)
                 else:
                     total_skipped = i
-                    # self.halt()
                     break
             else:
                 # Skip Backward
-                if self.queue.history.count:
-                    track = self.queue.history.pop()
-                    self.queue.put_at_front(track)
+                if not self.queue.history.is_empty:
+                    track = self.queue.history.get_at(-1)
+                    self.queue.put_at(0, track)
                 else:
                     total_skipped = i
-                    # self.halt()
                     break
         else:
             total_skipped = abs(count)

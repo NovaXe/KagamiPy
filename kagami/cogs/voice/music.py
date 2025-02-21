@@ -223,13 +223,12 @@ class MusicCog(GroupCog, group_name="m"):
             raise errors.CustomCheck("Join or specify a channel to start a session")
         assert session.queue.history is not None
         
-        resumed = False
         if is_new_sesssion:
             logger.debug("m join : new session")
             track_count = await self.attempt_session_requeue(interaction, session)
             await respond(interaction, f"Resumed the old session", delete_after=5) if track_count > 0 else ...
-        else:
-            await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
+            return
+        await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
 
     @app_commands.command(name="leave", description="Ends the current session")
     @is_existing_session()
@@ -457,7 +456,12 @@ class MusicCog(GroupCog, group_name="m"):
         session = cast(PlayerSession, guild.voice_client)
         assert session.queue.history is not None
         queue_tracks = session.queue._items # pyright:ignore
-        history_tracks = session.queue.history._items # pyright:ignore
+        if (not session.queue.history.is_empty) and (session.current == session.queue.history[-1]): # ensures that you only will see history
+            history_tracks = session.queue.history._items[:-1]
+            magic_history_offset = 0
+        else:
+            history_tracks = session.queue.history._items # pyright:ignore
+            magic_history_offset = 1
         queue_length = len(queue_tracks)
         history_length = len(history_tracks)
 
@@ -491,7 +495,7 @@ class MusicCog(GroupCog, group_name="m"):
             # the history and queue pages must be shift by 5 to account for it
             history_slice = history_tracks[-5:]
             for i, track in enumerate(history_slice):
-                index = len(history_slice) * -1 + i + 1
+                index = len(history_slice) * -1 + i + magic_history_offset
                 temp = track_repr_index(track, index)
                 reps.append(temp)
             reps.append("-------")
@@ -508,7 +512,7 @@ class MusicCog(GroupCog, group_name="m"):
             first, last = (offset * ITEM_COUNT - 5), (offset * ITEM_COUNT + 5)
             history_slice = history_tracks[first:last]
             for i, track in enumerate(history_slice):
-                index = len(history_slice) * -1 + i + last + 1
+                index = len(history_slice) * -1 + i + last + magic_history_offset
                 temp = track_repr_index(track, index)
                 reps.append(temp)
             reps.append("-------")
