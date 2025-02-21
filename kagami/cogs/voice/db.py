@@ -212,16 +212,16 @@ class TrackList(Table, schema_version=1, trigger_version=3, table_group=__packag
                          encoded=track.encoded)
 
     async def to_wavelink(self, node: Node) -> Playable:
-        logger.debug("to_wavelink - enter") # debug-dev
+        # logger.debug("to_wavelink - enter") # debug-dev
         data = await node.send(path="v4/decodetrack", params={"encodedTrack": self.encoded}) # pyright: ignore [reportAny]
         # sends a request to the REST endpoint on lavalink to decode the track, analogous to `GET /v4/decodetrack?encodedTrack=<BASE64>`
-        logger.debug("to_wavelink - exit") # debug-dev
+        # logger.debug("to_wavelink - exit") # debug-dev
         return Playable(data) # pyright: ignore [reportAny]
 
     @classmethod
     async def insert_wavelink_tracks(cls, db: Connection, tracks: list[Playable], guild_id: int, name: str) -> None:
         for i, track in enumerate(tracks):
-            await TrackList.from_wavelink(track, guild_id, name, i+1).insert(db)
+            await TrackList.from_wavelink(track, guild_id, name, i).insert(db)
 
     @override
     @classmethod
@@ -290,7 +290,19 @@ class TrackList(Table, schema_version=1, trigger_version=3, table_group=__packag
             await db.execute(t)
 
     @override
-    async def insert(self, db: Connection) -> int:
+    async def insert(self, db: Connection, auto_index: bool=False):
+        query = f"""
+        INSERT INTO {TrackList}
+        VALUES (
+            :guild_id, 
+            :name, 
+            :idx, 
+            :encoded
+        )
+        """
+        await db.execute(query, self.asdict())
+
+    async def insertAuto(self, db: Connection) -> int:
         query = f"""
         INSERT INTO {TrackList}
         VALUES (
@@ -304,10 +316,10 @@ class TrackList(Table, schema_version=1, trigger_version=3, table_group=__packag
         )
         RETURNING idx
         """
-        db.row_factory = TrackList.row_factory # pyright: ignore[reportAttributeAccessIssue]
+        db.row_factory = None
         async with db.execute(query, self.asdict()) as cur:
-            res: TrackList = await cur.fetchone() # pyright: ignore [reportAssignmentType]
-        return res.idx
+            res = await cur.fetchone()
+        return res[0] if res else -1
 
     @classmethod
     async def selectWhere(cls, db: Connection, guild_id: int, name: str, idx: int) -> "TrackList":
@@ -320,6 +332,17 @@ class TrackList(Table, schema_version=1, trigger_version=3, table_group=__packag
             res = await cur.fetchone()
             assert isinstance(res, TrackList)
         return cast(TrackList, res)
+
+    @classmethod
+    async def selectTrackCountWhere(cls, db: Connection, guild_id: int, name: str) -> int:
+        query = f"""
+        SELECT COUNT(*) FROM {TrackList}
+        WHERE guild_id = ? AND name = ?
+        """
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, (guild_id, name)) as cur:
+            res = await cur.fetchone()
+        return res[0] if res else 0
 
     @classmethod
     async def selectAllWhere(cls, db: Connection, guild_id: int, name: str) -> list["TrackList"]:

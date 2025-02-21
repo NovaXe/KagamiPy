@@ -7,7 +7,7 @@ import time
 from urllib.parse import urlparse, parse_qs
 
 import discord
-from discord import VoiceClient, VoiceChannel, ui, ButtonStyle, TextStyle
+from discord import NotFound, VoiceClient, VoiceChannel, ui, ButtonStyle, TextStyle
 from wavelink import Player, AutoPlayMode, QueueMode, Playable, Search
 import wavelink
 from bot import Kagami
@@ -172,7 +172,7 @@ class SearchQueryModal(ui.Modal, title="Search Query"):
     async def on_submit(self, interaction: Interaction, /) -> None:
         await respond(interaction)
 
-def get_tracklist_callback(tracks: list[wavelink.Playable] | wavelink.Playlist) -> Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]]:
+def get_tracklist_callback(tracks: list[wavelink.Playable] | wavelink.Playlist, title: str | None=None) -> Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]]:
     async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
         ITEM_COUNT = 10
         first_page_index = 0
@@ -190,7 +190,8 @@ def get_tracklist_callback(tracks: list[wavelink.Playable] | wavelink.Playlist) 
             rep = repr(track, index)
             reps.append(rep)
         body = '\n'.join(reps)
-        header = f"{acstr('Index', W_INDEX)} {acstr('Title', W_TITLE)} - {acstr('Length', W_DURATION, just="r")}"
+        formatted_title = f"{title}\n" if title else ''
+        header = f"{formatted_title}{acstr('Index', W_INDEX)} {acstr('Title', W_TITLE)} - {acstr('Length', W_DURATION, just="r")}"
         content = f"```swift\n{header}\n-------\n{body}\n-------\nPage # ({first_page_index} : {offset} : {last_page_index})\n```"
         # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
         return content, first_page_index, last_page_index
@@ -357,11 +358,16 @@ class StatusBar(ui.View):
         new_content = self.get_content()
         if is_anything_changed or old_content != new_content:
             # logger.debug("editting status message")
-            await self.message.edit(content=new_content, view=self)
+            try:
+                await self.message.edit(content=new_content, view=self)
+            except discord.NotFound:
+                self.message = None
 
     async def kill(self) -> None:
-        if self.message is not None:
-            await self.message.delete()
+        try:
+            await self.message.delete() if self.message else ...
+        except discord.NotFound:
+            self.message = None
         self.stop()
 
     # First row begins here

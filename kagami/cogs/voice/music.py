@@ -125,11 +125,11 @@ class MusicCog(GroupCog, group_name="m"):
     def conn(self) -> ConnectionContext:
         return self.bot.dbman.conn()
 
-    async def send_session_confirmation(self, interaction: Interaction, epoch_seconds: int) -> bool:
+    async def send_session_confirmation(self, interaction: Interaction, epoch_seconds: int, count: int) -> bool:
         """
         time: epoch seconds converted to discord timestamp
         """
-        content = f"A previous session ended early on <t:{epoch_seconds}:D>, would you like to resume the session?"
+        content = f"A previous session of {count} tracks ended early on <t:{epoch_seconds}:D>, would you like to resume the session?"
         return await Confirmation.send(interaction, content)
 
     # async def session_queue_tracks(self, session: PlayerSession, tracks: list[Playable]) -> None:
@@ -178,25 +178,29 @@ class MusicCog(GroupCog, group_name="m"):
     # async def session_change_index(self, session: PlayerSession, delta: int=1) -> None:
     #     pass
 
-    async def attempt_session_requeue(self, interaction: Interaction, session: PlayerSession) -> bool:
+    async def attempt_session_requeue(self, interaction: Interaction, session: PlayerSession) -> int:
         """
         If the name wasn't clear, this attempts to find a previous session and requeue it's tracks if it exists
         This method will not start playing if the player is paused
         """
-        assert session.guild and session.queue.history
+        assert session.guild 
+        assert session.queue.history is not None
         async with self.conn() as db:
             details = await TrackListDetails.selectPriorSession(db, session.guild.id)
             # logger.debug(f"attempt_session_resume - details:{details}") # debug-dev
-            if details and await self.send_session_confirmation(interaction, int(details.name)): 
+            if not details: 
+                return 0
+            track_count = await TrackList.selectTrackCountWhere(db, session.guild.id, name=details.name)
+            if track_count > 0 and await self.send_session_confirmation(interaction, int(details.name), track_count): 
                 # logger.debug(f"attempt_session_resume - confirmation yes") # debug-dev
                 playable_tracks = await TrackList.selectAllWavelink(db, wavelink.Pool.get_node(), guild_id=session.guild.id, name=details.name)
                 # logger.debug(f"attempt_session_resume - playable tracks : {len(playable_tracks)}") # debug-dev
                 session.queue.history._items = playable_tracks[:details.start_index] if len(playable_tracks) > 0 else []
                 session.queue._items = playable_tracks[details.start_index:] if (len(playable_tracks) - 1) > details.start_index else []
-                return True
+                return track_count
                 # logger.debug(f"attempt_session_resume - first track: {track}") # debug-dev
             else:
-                return False
+                return 0
 
     @app_commands.command(name="join", description="Starts a music session in the voice channel")
     @is_not_outsider()
@@ -221,8 +225,8 @@ class MusicCog(GroupCog, group_name="m"):
         resumed = False
         if is_new_sesssion:
             logger.debug("m join : new session")
-            resumed = await self.attempt_session_requeue(interaction, session)
-            await respond(interaction, f"Resumed the old session", delete_after=5) if resumed else ...
+            track_count = await self.attempt_session_requeue(interaction, session)
+            await respond(interaction, f"Resumed the old session", delete_after=5) if track_count > 0 else ...
         else:
             await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
 
@@ -235,8 +239,6 @@ class MusicCog(GroupCog, group_name="m"):
         session = cast(PlayerSession, guild.voice_client)
         await session.disconnect()
         await respond(interaction, "the playa done playin", delete_after=5)
-
-
 
     @app_commands.command(name="play", description="Queue a track to be played in the voice channel")
     @app_commands.describe(query="search query / song link / playlist link")
@@ -253,22 +255,22 @@ class MusicCog(GroupCog, group_name="m"):
         if not session:
             session = await joinChannel(user.voice.channel)
             assert session.queue.history is not None
-            details = None
-            resumed = await self.attempt_session_requeue(interaction, session)
-            await respond(interaction, f"Resumed the old session", delete_after=5) if resumed else ...
-            track = await session.play_next()
-        logger.debug(f"play - post resumption") # debug-dev
+            track_count = await self.attempt_session_requeue(interaction, session)
+            if track_count > 0:
+                await respond(interaction, f"Requeued {track_count} tracks from the old session", send_followup=True, delete_after=5)
+                await session.play_next()
+        # logger.debug(f"play - post resumption") # debug-dev
 
         session = cast(PlayerSession, session)
         if query is None:
             await session.pause(False)
-            await respond(interaction, "let the playa beforth playin", delete_after=5)
+            await respond(interaction, "let the playa be playin", delete_after=5)
             return
 
         assert query is not None
         results = await session.search_and_queue(query)
-        logger.debug(f"play - {len(results)=}") # debug-dev
-        if len(results) == 1:
+        # logger.debug(f"play - {len(results)=}") # debug-dev
+        if len(results) == 1: # only a single track was returned
             if session.current is not None:
                 await respond(interaction, f"Added {results[0]} to the queue", 
                               send_followup=True, delete_after=5)
@@ -276,17 +278,17 @@ class MusicCog(GroupCog, group_name="m"):
                 await session.play_next()
                 await respond(interaction, f"Now playing {session.current}", 
                               send_followup=True, delete_after=5)
-        elif len(results) > 1:
+        elif len(results) > 1: # many tracks returned
             message = await respond(interaction, send_followup=True)
             guild = cast(discord.Guild, interaction.guild)
             session = cast(PlayerSession, guild.voice_client)
             user = cast(Member, interaction.user)
 
-            scroller = Scroller(message, user, get_tracklist_callback(results))
+            scroller = Scroller(message, user, get_tracklist_callback(results, title=f"Queued {len(results)} tracks"))
             if session.current is None:
-                track = await session.queue.get_wait()
+                await session.play_next()
             await scroller.update(interaction)
-        else:
+        else: # no tracks returned
             await respond(interaction, "I couldn't find any tracks that matched",
                           send_followup=True, delete_after=5)
         await session.update_status_bar()
