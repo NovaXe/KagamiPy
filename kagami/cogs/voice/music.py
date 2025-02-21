@@ -207,7 +207,7 @@ class MusicCog(GroupCog, group_name="m"):
     @is_not_outsider()
     # @app_commands.guild_only()
     async def join(self, interaction: Interaction, channel: VoiceChannel | None=None) -> None:
-        message = await respond(interaction)
+        await respond(interaction)
         guild = cast(discord.Guild, interaction.guild)
         user = cast(Member, interaction.user)
         session = guild.voice_client
@@ -226,8 +226,8 @@ class MusicCog(GroupCog, group_name="m"):
         if is_new_sesssion:
             logger.debug("m join : new session")
             track_count = await self.attempt_session_requeue(interaction, session)
-            await respond(interaction, f"Resumed the old session", delete_after=5) if track_count > 0 else ...
-            return
+            if track_count > 0:
+                await respond(interaction, f"Resumed the old session", delete_after=5, send_followup=True, ephemeral=True)
         await respond(interaction, f"let the playa be playin in {session.channel}", delete_after=5)
 
     @app_commands.command(name="leave", description="Ends the current session")
@@ -283,7 +283,7 @@ class MusicCog(GroupCog, group_name="m"):
             guild = cast(discord.Guild, interaction.guild)
             session = cast(PlayerSession, guild.voice_client)
             user = cast(Member, interaction.user)
-            scroller = Scroller(message, user, get_tracklist_callback(results, title=f"Queued {len(results)} tracks"))
+            scroller = Scroller(message, user, get_tracklist_callback(results, title=f"Queued {len(results)} tracks"), timeout=30)
             await scroller.update(interaction)
             if session.current is None:
                 await session.play_next()
@@ -351,7 +351,7 @@ class MusicCog(GroupCog, group_name="m"):
         await session.pause(previous_state)
 
     @app_commands.command(name="pop", description="Removes a track from the queue or history")
-    @app_commands.describe(extent="If specified, removes all tracks between both points")
+    @app_commands.describe(extent="Removes all tracks inclusively between both points")
     @is_existing_session()
     @is_not_outsider()
     async def pop(self, interaction: Interaction, index: int, extent: int | None=None) -> None:
@@ -359,27 +359,50 @@ class MusicCog(GroupCog, group_name="m"):
         guild = cast(discord.Guild, interaction.guild)
         session = cast(PlayerSession, guild.voice_client)
         assert session.queue.history is not None, "impossible"
-        if index > 0:
-            index = min(index, len(session.queue)) - 1
-            if extent:
-                extent = min(extent, len(session.queue)) - 1
-                a, b = min(index, extent), max(index, extent)
-                del session.queue[a:b + 1]
-                await respond(interaction, f"Removed {b-a} tracks from the queue")
-            else:
-                del session.queue[index]
-                await respond(interaction, f"Removed track {index} from the queue")
-        else:
-            index = max(index, -len(session.queue.history)) - 1
-            if extent:
-                extent = max(extent, -len(session.queue.history)) - 1
-                a, b = min(index, extent), max(index, extent)
-                del session.queue[a:b + 1]
-                await respond(interaction, f"Removed {b-a} tracks from the history")
-            else:
-                del session.queue.history[index]
-                await respond(interaction, f"Removed track {index} from the history")
 
+        def clamp_index(value: int) -> int:
+            assert session.queue.history is not None
+            if value > 0:
+                new = max(value, len(session.queue))
+            else:
+                new = max(value, -len(session.queue.history) + 1)
+            # shifted left because index=1 corresponds to the real index of 0 in the queue
+            # alongside this, the last element of the history (right side) is at position -1
+            return new - 1 
+
+
+        index = clamp_index(index)
+        extent = clamp_index(extent) if extent else index
+        
+        left, right = min(index, extent), max(index, extent)
+
+        # +1 gets added to right to include the element at that position 
+        if left > 0: # implies right > 0, b/c right > left
+            del session.queue[left:right+1]
+            if right == left:
+                content = f"Removed track `{left}` from the queue"
+            else:
+                # {'s' if right-left > 0 else ''}
+                content = f"Removed {right-left+1} tracks from the queue"
+        elif left < 0 and right > 0:
+            hc = len(session.queue.history[left:])
+            del session.queue.history[left:]
+            qc = len(session.queue[:right+1])
+            del session.queue[:right+1]
+            content = f"Removed {hc} track{'s' if hc > 1 else ''} from the history\n\
+                        and {qc} track{'s' if qc > 1 else ''} from the queue"
+        elif right < 0: # implies left < 0, b/c left < right
+            if right + 1 >= 0: # because slice(-x, 0) is []
+                del session.queue.history[left:]
+            else:
+                del session.queue.history[left:right+1]
+            if right == left:
+                content = f"Removed track `{left}` from the history"
+            else:
+                content = f"Removed {right-left+1} tracks from the history"
+        else:
+            content = "something impossible happned"
+        await respond(interaction, content)
 
     class SeekTranformer(Transformer):
         @override
