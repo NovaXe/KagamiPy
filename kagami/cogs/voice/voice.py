@@ -100,9 +100,10 @@ class PlayerSession(Player):
     async def skipto(self, index: int) -> int:
         assert self.queue.history is not None
         new_index = self.shift_queue(index)
-        if new_index == 0 and index != 0:
-            await self.pause(True)
-            # may need more behavior if this isn't enough
+        if new_index == 0 and index > 1:
+            await self.pause(True) # does not skip over the last track if multiple tracks are skipped
+        elif new_index == 0 and index == 1:
+            await self.skip()
         elif len(self.queue.history) > 0:
             await self.play(self.queue.history[-1], add_history=False)
         else:

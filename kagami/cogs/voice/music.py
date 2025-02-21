@@ -257,7 +257,7 @@ class MusicCog(GroupCog, group_name="m"):
             assert session.queue.history is not None
             track_count = await self.attempt_session_requeue(interaction, session)
             if track_count > 0:
-                await respond(interaction, f"Requeued {track_count} tracks from the old session", send_followup=True, delete_after=5)
+                await respond(interaction, f"Requeued {track_count} tracks from the old session", ephemeral=True, send_followup=True, delete_after=5)
                 await session.play_next()
         # logger.debug(f"play - post resumption") # debug-dev
 
@@ -273,11 +273,11 @@ class MusicCog(GroupCog, group_name="m"):
         if len(results) == 1: # only a single track was returned
             if session.current is not None:
                 await respond(interaction, f"Added {results[0]} to the queue", 
-                              send_followup=True, delete_after=5)
+                              delete_after=5)
             else:
                 await session.play_next()
                 await respond(interaction, f"Now playing {session.current}", 
-                              send_followup=True, delete_after=5)
+                              delete_after=5)
         elif len(results) > 1: # many tracks returned
             message = await respond(interaction, send_followup=True)
             guild = cast(discord.Guild, interaction.guild)
@@ -290,7 +290,7 @@ class MusicCog(GroupCog, group_name="m"):
             await scroller.update(interaction)
         else: # no tracks returned
             await respond(interaction, "I couldn't find any tracks that matched",
-                          send_followup=True, delete_after=5)
+                          delete_after=5)
         await session.update_status_bar()
 
     @app_commands.command(name="pause", description="Pauses the player")
@@ -699,7 +699,7 @@ class Confirmation(ui.View):
         assert interaction.guild_id is not None
         confirmation_view = Confirmation()
         message = await respond(interaction, view=confirmation_view, 
-                                content=content)
+                                content=content, send_followup=True, ephemeral=True)
         confirmation_view.message = message
         await confirmation_view.wait()
         return confirmation_view.value
