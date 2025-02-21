@@ -183,6 +183,7 @@ class MusicCog(GroupCog, group_name="m"):
         If the name wasn't clear, this attempts to find a previous session and requeue it's tracks if it exists
         This method will not start playing if the player is paused
         """
+        return 0 # temporarilly disable to get the update out with various fixes
         assert session.guild 
         assert session.queue.history is not None
         async with self.conn() as db:

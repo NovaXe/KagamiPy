@@ -46,6 +46,7 @@ class PlayerSession(Player):
     #     return super().cleanup()
 
     async def save_queue(self) -> None:
+        return # temporarilly disabled to get the update out
         logger.debug("save_queue - pre assert")
         logger.debug(f"save_queue - {self}")
         # assert self.queue.history # because the history could be None since history is a queue but doesn't have a history of it's own
