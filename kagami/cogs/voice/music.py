@@ -318,11 +318,12 @@ class MusicCog(GroupCog, group_name="m"):
         new_index = await session.skipto(count)
         new_title = session.current.title if session.current else "Nothing"
 
+        assert session.queue.history is not None
         previous_state = session.paused
         await session.pause(True)
         if new_index == 1:
             await respond(interaction, f"Skipped `{current_title}`", delete_after=5)
-        elif new_index == 0: # or new_index == -1
+        elif new_index == 0 and not session.queue.history.is_empty:
             await respond(interaction, f"Restarting `{current_title}`", delete_after=5)
         else:
             await respond(interaction, f"Skipped {new_index} tracks to `{new_title}`", delete_after=5)
@@ -363,7 +364,7 @@ class MusicCog(GroupCog, group_name="m"):
         def clamp_index(value: int) -> int:
             assert session.queue.history is not None
             if value > 0:
-                new = max(value, len(session.queue))
+                new = min(value, len(session.queue))
             else:
                 new = max(value, -len(session.queue.history) + 1)
             # shifted left because index=1 corresponds to the real index of 0 in the queue
@@ -377,27 +378,26 @@ class MusicCog(GroupCog, group_name="m"):
         left, right = min(index, extent), max(index, extent)
 
         # +1 gets added to right to include the element at that position 
-        if left > 0: # implies right > 0, b/c right > left
+        if left >= 0: # implies right > 0, b/c right > left
             del session.queue[left:right+1]
             if right == left:
-                content = f"Removed track `{left}` from the queue"
+                content = f"Removed track `{left+1}` from the queue"
             else:
                 # {'s' if right-left > 0 else ''}
                 content = f"Removed {right-left+1} tracks from the queue"
-        elif left < 0 and right > 0:
+        elif left < 0 and right >= 0:
             hc = len(session.queue.history[left:])
             del session.queue.history[left:]
             qc = len(session.queue[:right+1])
             del session.queue[:right+1]
-            content = f"Removed {hc} track{'s' if hc > 1 else ''} from the history\n\
-                        and {qc} track{'s' if qc > 1 else ''} from the queue"
-        elif right < 0: # implies left < 0, b/c left < right
+            content = f"Removed {hc} track{'s' if hc > 1 else ''} from the history\nand {qc} track{'s' if qc > 1 else ''} from the queue"
+        elif right <= 0: # implies left < 0, b/c left < right
             if right + 1 >= 0: # because slice(-x, 0) is []
                 del session.queue.history[left:]
             else:
                 del session.queue.history[left:right+1]
             if right == left:
-                content = f"Removed track `{left}` from the history"
+                content = f"Removed track `{left+1}` from the history"
             else:
                 content = f"Removed {right-left+1} tracks from the history"
         else:
