@@ -620,9 +620,9 @@ class MusicCog(GroupCog, group_name="m"):
         if voice_client:
             session = cast(PlayerSession, voice_client)
             return [
-                Choice(name=f"{session.volume+10}%", value=session.volume),
+                Choice(name=f"{session.volume+10}%", value=session.volume+10),
                 Choice(name=f"{session.volume}% ⬅️ Current", value=session.volume),
-                Choice(name=f"{session.volume-10}%", value=session.volume)
+                Choice(name=f"{max(session.volume-10, 0)}%", value=min(session.volume-10, 0))
             ]
         else:
             return []
