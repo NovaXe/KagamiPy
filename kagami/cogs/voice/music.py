@@ -99,6 +99,59 @@ def is_in_voice():
         return True
     return app_commands.check(predicate)
 
+class SeekTransformer(Transformer):
+    @override
+    async def autocomplete(self, interaction: discord.Interaction, value: str, /) -> list[Choice[str]]: # pyright: ignore [reportIncompatibleMethodOverride]
+        assert interaction.guild is not None
+        voice_client = interaction.guild.voice_client
+        logger.debug(f"seek_autocomplete - {value = }")
+        if voice_client is None:
+            return []
+        elif len(value) != 0 and value.isdigit():
+            stamp = ms_timestamp(max(0, int(value) * 1000))
+            return [Choice(name=stamp, value=value)]
+        elif len(value) != 0:
+            # logger.debug(f"seek_autocomplete - {len(value) = }")
+            return []
+        session = cast(PlayerSession, voice_client)
+        now = session.position
+        # return [Choice(name="test", value="test")]
+
+        # : list[Choice[int]] 
+        choices = []
+        for i in reversed(range(-10, 10+1, 5)):
+            stamp = ms_timestamp(max(0, now+i*1000))
+            logger.debug(f"seek_autocomplete - {stamp = }")
+            choice = Choice(name=f"{stamp} ({i:+})", value=str(now // 1000 + i))
+            choices += [choice]
+        logger.debug(f"seek_autocomplete - {choices = }")
+        return choices
+
+    @override
+    async def transform(self, interaction: Interaction, value: int | str) -> int: # pyright: ignore [reportIncompatibleMethodOverride]
+        assert interaction.guild is not None
+        voice_client = interaction.guild.voice_client
+        logger.debug(f"seek_transform - {value = }")
+        if not voice_client: 
+            raise NoSession
+
+        if isinstance(value, int) or value.isdigit():
+            seek_seconds = int(value)
+            if seek_seconds < 0:
+                raise errors.CustomCheck(f"Invalid Timestamp: {value}") 
+        else:
+            pattern = r"(?:(\d+):)?([0-5]?\d):([0-5]?\d)"
+            capture = re.match(pattern, value)
+            logger.debug(f"seek_transform - {capture = }")
+            if not capture:
+                raise errors.CustomCheck(f"Invalid Timestamp: {value}")
+            groups = capture.groups()
+            hours = int(groups[0]) if groups[0] else 0
+            minutes = int(groups[1])
+            seconds = int(groups[2])
+            seek_seconds = datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds).seconds
+        return seek_seconds
+
 class MusicCog(GroupCog, group_name="m"): 
     def __init__(self, bot: Kagami):
         self.bot = bot
@@ -404,53 +457,17 @@ class MusicCog(GroupCog, group_name="m"):
             content = "something impossible happned"
         await respond(interaction, content)
 
-    class SeekTranformer(Transformer):
-        @override
-        async def autocomplete(self, interaction: Interaction, current: str) -> list[Choice[int]]: # pyright: ignore [reportIncompatibleMethodOverride]
-            assert interaction.guild is not None
-            voice_client = interaction.guild.voice_client
-            if current or not voice_client:
-                return []
-            session = cast(PlayerSession, voice_client)
-            now = session.position
-                
-            choices: list[Choice[int]] = []
-            for i in reversed(range(-10, 10+1, 5)):
-                stamp = ms_timestamp(now+i*1000)
-                choices += [Choice(name=f"{stamp} ({i:+})", value = now // 1000 + i)]
-            return choices
-
-        @override
-        async def transform(self, interaction: Interaction, value: int | str) -> int: # pyright: ignore [reportIncompatibleMethodOverride]
-            assert interaction.guild is not None
-            voice_client = interaction.guild.voice_client
-            if not voice_client: 
-                raise NoSession
-
-            if isinstance(value, int) or value.isdigit():
-                seek_ms = int(value) * 1000
-                if seek_ms < 0:
-                    raise errors.CustomCheck(f"Invalid Timestamp: {value}") 
-            else:
-                pattern = r"(?:(\d+):)?([0-5]?\d):([0-5]?\d)"
-                capture = re.match(pattern, value)
-                if not capture:
-                    raise errors.CustomCheck(f"Invalid Timestamp: {value}")
-                hours, minutes, seconds = (int(c) for c in capture.groups()) # assumed that all elements are ints based off the pattern match
-                if not hours: hours = 0
-                seek_ms = datetime.timedelta(hours=hours, minutes=minutes, seconds=seconds).seconds * 1000
-            return seek_ms
-
     @app_commands.command(name="seek", description="seeks to the time in the track")
+    @app_commands.describe(time="A number of seconds or a timestamp in HH:MM:SS")
     @is_existing_session()
     @is_not_outsider()
-    async def seek(self, interaction: Interaction, seconds: Transform[int, SeekTranformer]) -> None:
+    async def seek(self, interaction: Interaction, time: Transform[int, SeekTransformer]) -> None:
         await respond(interaction, ephemeral=True)
         assert interaction.guild is not None
         voice_client = interaction.guild.voice_client
         session = cast(PlayerSession, voice_client)
-        await session.seek(seconds * 1000)
-        await respond(interaction, f"Seeked to {ms_timestamp(seconds*1000)}")
+        await session.seek(time * 1000)
+        await respond(interaction, f"Seeked to {ms_timestamp(time*1000)}")
 
     @app_commands.command(name="loop", description="Sets the loop mode of the queue")
     @is_existing_session()
@@ -602,7 +619,11 @@ class MusicCog(GroupCog, group_name="m"):
         voice_client = interaction.guild.voice_client
         if voice_client:
             session = cast(PlayerSession, voice_client)
-            return [Choice(name=str(session.volume), value=session.volume)]
+            return [
+                Choice(name=f"{session.volume+10}%", value=session.volume),
+                Choice(name=f"{session.volume}% ⬅️ Current", value=session.volume),
+                Choice(name=f"{session.volume-10}%", value=session.volume)
+            ]
         else:
             return []
 
