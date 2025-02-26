@@ -134,7 +134,6 @@ class SeekTransformer(Transformer):
         logger.debug(f"seek_transform - {value = }")
         if not voice_client: 
             raise NoSession
-
         if isinstance(value, int) or value.isdigit():
             seek_seconds = int(value)
             if seek_seconds < 0:
@@ -297,7 +296,7 @@ class MusicCog(GroupCog, group_name="m"):
     @app_commands.describe(query="search query / song link / playlist link")
     @is_not_outsider()
     @is_in_voice()
-    async def play(self, interaction: Interaction, query: str | None=None) -> None:
+    async def play(self, interaction: Interaction, query: str | None=None, position: app_commands.Range[int, 0] | None=None) -> None:
         await respond(interaction)
         guild = cast(discord.Guild, interaction.guild)
         user = cast(Member, interaction.user)
@@ -321,24 +320,33 @@ class MusicCog(GroupCog, group_name="m"):
             return
 
         assert query is not None
-        results = await session.search_and_queue(query)
+        results = await session.search_and_queue(query, position=position)
         # logger.debug(f"play - {len(results)=}") # debug-dev
         if len(results) == 1: # only a single track was returned
             if session.current is not None:
-                await respond(interaction, f"Added {results[0]} to the queue", 
-                              delete_after=5)
+                if position and position == 0:
+                    await session.play_next()
+                    await respond(interaction, f"Playing {results[0]}", 
+                                  delete_after=5)
+                elif position and position > 0:
+                    await respond(interaction, f"Added {results[0]} to the queue at position {position}", 
+                                  delete_after=5)
+                else:
+                    await respond(interaction, f"Added {results[0]} to the queue", 
+                                  delete_after=5)
             else:
                 await session.play_next()
-                await respond(interaction, f"Now playing {session.current}", 
+                await respond(interaction, f"Playing {session.current}", 
                               delete_after=5)
         elif len(results) > 1: # many tracks returned
             message = await respond(interaction, content="...", send_followup=True, ephemeral=True)
             guild = cast(discord.Guild, interaction.guild)
             session = cast(PlayerSession, guild.voice_client)
             user = cast(Member, interaction.user)
-            scroller = Scroller(message, user, get_tracklist_callback(results, title=f"Queued {len(results)} tracks"), timeout=30)
+            title = f"Queued {len(results)} tracks" if not position else f"Queued {len(results)} tracks at position {position}"
+            scroller = Scroller(message, user, get_tracklist_callback(results, title=title), timeout=30)
             await scroller.update(interaction)
-            if session.current is None:
+            if session.current is None or position == 0:
                 await session.play_next()
         else: # no tracks returned
             await respond(interaction, "I couldn't find any tracks that matched",

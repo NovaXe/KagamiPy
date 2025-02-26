@@ -116,18 +116,25 @@ class PlayerSession(Player):
             # await self.pause(True)
         return new_index
 
-    async def search_and_queue(self, query: str) -> list[Playable] | wavelink.Playlist:
+    async def search_and_queue(self, query: str, position: int | None=None) -> list[Playable] | wavelink.Playlist:
+        if position: position = min(max(1, position), len(self.queue)) - 1
+        # position 1 corresponds to the next track in the queue
+        # position 0 means play this shit right now, to be handled by the command that ran this method
         results: Search = await Playable.search(query)
         if isinstance(results, wavelink.Playlist):
             parsed_query = cast(str, urlparse(results.url).query)
             params = parse_qs(parsed_query)
             if "v" in params.items():
-                await self.queue.put_wait(results[results.selected])
+                r = results[results.selected]
+                self.queue.put_at(position, r) if position else self.queue.put(r)
+            elif position:
+                self.queue._items = self.queue[0:position] + list(results) + self.queue[position:]
             else:
-                await self.queue.put_wait(results)
+                self.queue.put(results)
         else:
-            await self.queue.put_wait(results[0])
-            results = [results[0]]
+            r = results[0]
+            self.queue.put_at(position-1, r) if position else self.queue.put(r)
+            results = [r]
         return results
 
     async def play_next(self) -> Playable | None:
