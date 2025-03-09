@@ -117,7 +117,7 @@ class PlayerSession(Player):
         return new_index
 
     async def search_and_queue(self, query: str, position: int | None=None) -> list[Playable] | wavelink.Playlist:
-        if position: position = min(max(1, position), len(self.queue)) - 1
+        if position: position = min(max(1, position), len(self.queue)) - 1 # (-1) turns this into an index
         # position 1 corresponds to the next track in the queue
         # position 0 means play this shit right now, to be handled by the command that ran this method
         results: Search = await Playable.search(query)
@@ -133,7 +133,7 @@ class PlayerSession(Player):
                 self.queue.put(results)
         else:
             r = results[0]
-            self.queue.put_at(position-1, r) if position else self.queue.put(r)
+            self.queue.put_at(position, r) if position else self.queue.put(r)
             results = [r]
         return results
 
