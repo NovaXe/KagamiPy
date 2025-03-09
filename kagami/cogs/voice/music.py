@@ -292,11 +292,7 @@ class MusicCog(GroupCog, group_name="m"):
         await session.disconnect()
         await respond(interaction, "the playa done playin", delete_after=5)
 
-    @app_commands.command(name="play", description="Queue a track to be played in the voice channel")
-    @app_commands.describe(query="search query / song link / playlist link")
-    @is_not_outsider()
-    @is_in_voice()
-    async def play(self, interaction: Interaction, query: str | None=None, position: app_commands.Range[int, 0] | None=None) -> None:
+    async def handle_play(self, interaction: Interaction, query: str|None=None, position: int|None=None) -> None:
         await respond(interaction)
         guild = cast(discord.Guild, interaction.guild)
         user = cast(Member, interaction.user)
@@ -352,6 +348,20 @@ class MusicCog(GroupCog, group_name="m"):
             await respond(interaction, "I couldn't find any tracks that matched",
                           delete_after=5)
         await session.update_status_bar()
+
+    @app_commands.command(name="play", description="Queue a track to be played in the voice channel")
+    @app_commands.describe(query="search query / song link / playlist link")
+    @is_not_outsider()
+    @is_in_voice()
+    async def play(self, interaction: Interaction, query: str | None=None) -> None:
+        await self.handle_play(interaction, query=query)
+
+    @app_commands.command(name="playat", description="Queue a track at a specific place in the queue")
+    @app_commands.describe(position="where in the queue to place the track, defaults to the end")
+    @is_not_outsider()
+    @is_in_voice()
+    async def play_at(self, interaction: Interaction, query: str, position: app_commands.Range[int, 0] | None=None) -> None:
+        await self.handle_play(interaction, query=query, position=position)
 
     @app_commands.command(name="pause", description="Pauses the player")
     @is_existing_session()
