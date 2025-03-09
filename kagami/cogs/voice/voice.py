@@ -3,6 +3,7 @@ from code import interact
 from typing import Any, Literal, cast, override, Callable, Awaitable
 import asyncio
 import time
+from math import ceil
 
 from urllib.parse import urlparse, parse_qs
 
@@ -117,7 +118,9 @@ class PlayerSession(Player):
         return new_index
 
     async def search_and_queue(self, query: str, position: int | None=None) -> list[Playable] | wavelink.Playlist:
+        logger.debug(f"search_and_queue - {position=}")
         if position: position = min(max(1, position), len(self.queue)) - 1 # (-1) turns this into an index
+        logger.debug(f"search_and_queue - {position=}")
         # position 1 corresponds to the next track in the queue
         # position 0 means play this shit right now, to be handled by the command that ran this method
         results: Search = await Playable.search(query)
@@ -133,7 +136,8 @@ class PlayerSession(Player):
                 self.queue.put(results)
         else:
             r = results[0]
-            self.queue.put_at(position, r) if position else self.queue.put(r)
+            logger.debug(f"search_and_queue - {bool(position)=}")
+            self.queue.put_at(position, r) if position is not None else self.queue.put(r)
             results = [r]
         return results
 
@@ -191,7 +195,8 @@ def get_tracklist_callback(tracks: list[wavelink.Playable] | wavelink.Playlist, 
     async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
         ITEM_COUNT = 10
         first_page_index = 0
-        last_page_index = len(tracks) // ITEM_COUNT
+        # last_page_index = len(tracks) // ITEM_COUNT
+        last_page_index = ceil(len(tracks) / ITEM_COUNT) - 1
         offset = max(min(state.offset, last_page_index), first_page_index)
         W_INDEX = 7
         W_TITLE = 60
@@ -200,7 +205,7 @@ def get_tracklist_callback(tracks: list[wavelink.Playable] | wavelink.Playlist, 
             return f"{acstr(index, W_INDEX, edges=("", ")"))} {acstr(track.title, W_TITLE)} - {acstr(ms_timestamp(track.length), W_DURATION, just="r")}"
 
         reps: list[str] = []
-        for slice_index, track in enumerate(tracks[offset:offset + ITEM_COUNT]):
+        for slice_index, track in enumerate(tracks[offset*ITEM_COUNT:offset*ITEM_COUNT + ITEM_COUNT]):
             index = (slice_index + offset * 10) + 1
             rep = repr(track, index)
             reps.append(rep)
