@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import IntEnum
 from inspect import getcallargs
+import queue
 from typing import (
     Literal, List, Callable, Any, cast, get_args, override
 )
@@ -299,7 +300,6 @@ class MusicCog(GroupCog, group_name="m"):
         assert user.voice and user.voice.channel
         session = guild.voice_client
 
-        resumed = False
         if not session:
             session = await joinChannel(user.voice.channel)
             assert session.queue.history is not None
@@ -319,27 +319,29 @@ class MusicCog(GroupCog, group_name="m"):
         results = await session.search_and_queue(query, position=position)
         # logger.debug(f"play - {len(results)=}") # debug-dev
         if len(results) == 1: # only a single track was returned
-            if session.current is not None:
-                if position and position == 0:
+            if session.current is not None and position is not None:
+                if position == 0:
                     await session.play_next()
-                    await respond(interaction, f"Playing {results[0]}", 
+                    await respond(interaction, f"Playing `{results[0]}`", 
                                   delete_after=5)
-                elif position and position > 0:
-                    await respond(interaction, f"Added {results[0]} to the queue at position {position}", 
+                elif position > 0:
+                    await respond(interaction, f"Added `{results[0]}` to the queue at position {position}", 
                                   delete_after=5)
                 else:
-                    await respond(interaction, f"Added {results[0]} to the queue", 
-                                  delete_after=5)
+                    raise ValueError(f"Impossible value, position cannot be {position}")
+            elif session.current is not None:
+                await respond(interaction, f"Added `{results[0]}` to the queue", 
+                              delete_after=5)
             else:
                 await session.play_next()
-                await respond(interaction, f"Playing {session.current}", 
+                await respond(interaction, f"Playing `{session.current}`", 
                               delete_after=5)
         elif len(results) > 1: # many tracks returned
             message = await respond(interaction, content="...", send_followup=True, ephemeral=True)
             guild = cast(discord.Guild, interaction.guild)
             session = cast(PlayerSession, guild.voice_client)
             user = cast(Member, interaction.user)
-            title = f"Queued {len(results)} tracks" if not position else f"Queued {len(results)} tracks at position {position}"
+            title = f"Queued {len(results)} tracks" if not position else f"Queued `{len(results)}` tracks at position {position}"
             scroller = Scroller(message, user, get_tracklist_callback(results, title=title), timeout=30)
             await scroller.update(interaction)
             if session.current is None or position == 0:
@@ -426,7 +428,7 @@ class MusicCog(GroupCog, group_name="m"):
     @app_commands.describe(extent="Removes all tracks inclusively between both points")
     @is_existing_session()
     @is_not_outsider()
-    async def pop(self, interaction: Interaction, index: int, extent: int | None=None) -> None:
+    async def pop(self, interaction: Interaction, position: int, extent: int | None=None) -> None:
         await respond(interaction, ephemeral=True)
         guild = cast(discord.Guild, interaction.guild)
         session = cast(PlayerSession, guild.voice_client)
@@ -443,12 +445,12 @@ class MusicCog(GroupCog, group_name="m"):
             return new - 1 
 
 
-        index = clamp_index(index)
-        extent = clamp_index(extent) if extent else index
+        position = clamp_index(position)
+        extent = clamp_index(extent) if extent is not None else position
         
-        left, right = min(index, extent), max(index, extent)
+        left, right = min(position, extent), max(position, extent)
 
-        # +1 gets added to right to include the element at that position 
+        # +1 gets added to right to include the element at that index 
         if left >= 0: # implies right > 0, b/c right > left
             del session.queue[left:right+1]
             if right == left:
@@ -474,6 +476,99 @@ class MusicCog(GroupCog, group_name="m"):
         else:
             content = "something impossible happned"
         await respond(interaction, content)
+
+    @app_commands.command(name="move", description="lets you move tracks around in the queue")
+    @app_commands.describe(extent="Selects all tracks inclusively between both points")
+    @is_existing_session()
+    @is_not_outsider()
+    async def move(self, interaction: Interaction, position: int, new_position: int, extent: int | None=None) -> None:
+        await respond(interaction, ephemeral=True)
+        guild = cast(discord.Guild, interaction.guild)
+        session = cast(PlayerSession, guild.voice_client)
+        assert session.queue.history is not None, "impossible"
+
+        def clamp_index(value: int) -> int:
+            assert session.queue.history is not None
+            if value > 0:
+                new = min(value, len(session.queue))
+            else:
+                new = max(value, -len(session.queue.history) + 1)
+            # shifted left because index=1 corresponds to the real index of 0 in the queue
+            # alongside this, the last element of the history (right side) is at position -1
+            return new - 1 
+
+
+        index = clamp_index(position)
+        # new_index = clamp_index(new_position)
+        new_index = new_position - 1
+        extent = clamp_index(extent) if extent is not None else index
+        
+        left, right = min(index, extent), max(index, extent)
+
+        # +1 gets added to right to include the element at that index 
+        history_items = []
+        queue_items = []
+        if left >= 0: # implies right > 0, b/c right > left
+            queue_items = session.queue[left:right+1]
+            del session.queue[left:right+1]
+            if right == left:
+                content = f"Moved track `{left+1}` from the queue"
+            else:
+                # {'s' if right-left > 0 else ''}
+                content = f"Moved {right-left+1} tracks from the queue"
+        elif left < 0 and right >= 0:
+            hc = len(session.queue.history[left:])
+            history_items = session.queue.history[left:]
+            del session.queue.history[left:]
+            qc = len(session.queue[:right+1])
+            queue_items = session.queue[:right+1]
+            del session.queue[:right+1]
+            content = f"Move {hc} track{'s' if hc > 1 else ''} from the history\nand {qc} track{'s' if qc > 1 else ''} from the queue"
+        elif right <= 0: # implies left < 0, b/c left < right
+            if right + 1 >= 0: # because slice(-x, 0) is []
+                history_items = session.queue.history[left:]
+                del session.queue.history[left:]
+            else:
+                history_items = session.queue.history[left:right+1]
+                del session.queue.history[left:right+1]
+            if right == left:
+                content = f"Moved track `{left+1}` from the history"
+            else:
+                content = f"Moved {right-left+1} tracks from the history"
+        else:
+            content = "something impossible happned"
+
+        content += f" to position {new_position}"
+        items = history_items + queue_items
+        # total_tracks = len(items)
+        if new_index < -1: # up to the last element of the history
+            temp = session.queue.history._items[new_index+1:]
+            session.queue.history._items = session.queue.history._items[:new_index + 1] + items[:-new_index]
+            session.queue._items = items[-new_index:] + temp + session.queue._items
+            # not sure if I need _items[:] (making a copy) when doing the concatonation
+            spans_history = len(items[:-(new_index + 1)]) > 0
+            spans_queue = len(items[-(new_index + 1):]) > 0
+            if spans_history and spans_queue:
+                content += f" spanning the queue and history"
+            elif spans_queue:
+                content += f" in the queue"
+            else:
+                content += f" in the history"
+        elif new_index < 0: # including the last element of the history
+            session.queue.history._items = session.queue.history._items + items[0:1]
+            session.queue._items = items[1:] + session.queue._items
+            spans_history = len(items[0:1]) > 0
+            spans_queue = len(items[1:]) > 0
+            if spans_history and spans_queue:
+                content += f" spanning the queue and history"
+            elif spans_queue:
+                content += f" in the queue"
+            else:
+                content += f" in the history"
+        else: # >= 0
+            session.queue._items = session.queue._items[:new_index] + items + session.queue._items[new_index:]
+            content += f" in the queue"
+        await respond(interaction, content, delete_after=8)
 
     @app_commands.command(name="seek", description="seeks to the time in the track")
     @app_commands.describe(time="A number of seconds or a timestamp in HH:MM:SS")
