@@ -45,7 +45,6 @@ from common.paginator import Scroller, ScrollerState
 from common.types import MessageableGuildChannel
 from .voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, get_tracklist_callback
 from .db import TrackList, TrackListDetails, TrackListFlags
-from utils.depr_db_interface import Database
 from common.utils import acstr, ms_timestamp, secondsToTime, milliseconds_divmod
 
 from cogs.voice import voice

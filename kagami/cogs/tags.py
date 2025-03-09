@@ -12,7 +12,6 @@ from discord.ext.commands import GroupCog
 
 from common import errors
 from common.utils import acstr
-from utils.depr_db_interface import Database
 from common.interactions import respond
 from typing import Literal, Union, List, Any
 from bot import Kagami
