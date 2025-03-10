@@ -1,10 +1,12 @@
-FROM python:3.11-slim
+FROM python:3.13.2-slim
 
 WORKDIR /kagami
 
 COPY . .
 #COPY requirements.txt .
+# RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
+#  --force-reinstall
 
 # COPY requirements.txt requirements.txt
 # pip install --update pip; \

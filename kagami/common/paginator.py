@@ -9,6 +9,7 @@ from discord import ButtonStyle, Interaction
 import discord.ui as ui
 from discord.ui import Item
 
+from bot import Kagami
 from common.logging import setup_logging
 from common.interactions import respond
 
@@ -24,10 +25,12 @@ class ScrollerState:
     def offset(self):
         return self.initial_offset + self.relative_offset
 
+type Interaction = discord.Interaction[Kagami]
 T_Callback = Callable[[Interaction, ScrollerState], list[str]]
+
 class Scroller(ui.View):
     def __init__(self, message: discord.Message, user: discord.User | discord.Member,
-                 page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int]]],
+                 page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]],
                 #  count_callback: Callable[[Interaction, ScrollerState], list[str]],
                 #  margin_callback: Callable[[Interaction, ScrollerState], list[str]],
                  initial_offset=0,
@@ -44,7 +47,7 @@ class Scroller(ui.View):
         self.user: discord.User = user
         self.initial_offset: int = initial_offset
         self.relative_offset: int = 0
-        self.page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int]]] = page_callback
+        self.page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]] = page_callback
 
     def __copy__(self):
         scroller = Scroller(
@@ -92,12 +95,14 @@ class Scroller(ui.View):
                 await self.view.update() 
         self.add_button(CustomButtom())
 
-    async def getPage(self, interaction: Interaction) -> tuple[str, int]:
-        content, last_index = await self.page_callback(interaction, self.state)
-        return content, last_index
+    async def getPage(self, interaction: Interaction) -> tuple[str, int, int]:
+        content, first_index, last_index = await self.page_callback(interaction, self.state)
+        return content, first_index, last_index
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
-        if interaction.user == self.user:
+        assert interaction.channel is not None
+        assert isinstance(interaction.user, discord.Member)
+        if interaction.user == self.user and interaction.channel.permissions_for(interaction.user).manage_messages:
             return True
         await respond(interaction, f"Only {self.user.mention} can use this view", ephemeral=True)
         return False
@@ -107,7 +112,8 @@ class Scroller(ui.View):
             for child in self.children:
                 child.disabled = True
             try:
-                await self.message.edit(view=self, delete_after=self.timeout_delete_delay)
+                await self.message.edit(view=self)
+                await self.message.delete(delay=self.timeout_delete_delay)
             except discord.NotFound:
                 pass
 
@@ -118,15 +124,21 @@ class Scroller(ui.View):
         await interaction.response.send_message(message)
 
     async def update(self, interaction: Interaction):
-        content, last_index = await self.getPage(interaction)
+        content, first_index, last_index = await self.getPage(interaction)
+        is_first = self.offset <= first_index
         is_last = self.offset >= last_index
+        # print(f"{is_first=}, {is_last=}, {self.offset=}")
 
-        self.first.disabled = self.offset == 0
-        self.prev.disabled = self.offset == 0
+        self.first.disabled = is_first
+        self.prev.disabled = is_first
+        # TODO add an is_first return value that the callbacks must handle
+        # this will allow for a queue with history to work properly as well
         self.next.disabled = is_last 
         self.last.disabled = is_last
         if is_last:
             self.relative_offset = last_index - self.initial_offset
+        if is_first:
+            self.relative_offset = first_index - self.initial_offset
         self.home.style = ButtonStyle.blurple 
 
         await self.message.edit(content=content, view=self) 
@@ -134,7 +146,7 @@ class Scroller(ui.View):
     @ui.button(emoji="⬆", custom_id="Scroller:first", row=0)
     async def first(self, interaction: Interaction, button: ui.Button):
         await respond(interaction)
-        self.relative_offset = 0 - self.initial_offset
+        self.relative_offset = -sys.maxsize
         await self.update(interaction)
 
     @ui.button(emoji="🔼", custom_id="Scroller:prev", row=0)

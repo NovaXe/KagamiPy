@@ -42,6 +42,22 @@ def acstr(string: str | Any, length: int, just: Literal["l", "r", "m"]="l", edge
         string = string[:right] + cont + edges[1]
     return string
 
+
+def milliseconds_divmod(milliseconds: int) -> tuple[int, int, int]:
+    seconds, ms = divmod(milliseconds, 1000)
+    minutes, s = divmod(seconds, 60)
+    hours, m = divmod(minutes, 60)
+    return hours, m, s
+
+def time_to_timestamp(hours: int, minutes: int, seconds: int) -> str:
+    if hours > 0:
+        return f"{hours:02}:{minutes:02}:{seconds:02}"
+    else:
+        return f"{minutes:02}:{seconds:02}"
+
+def ms_timestamp(milliseconds: int) -> str:
+    return time_to_timestamp(*milliseconds_divmod(milliseconds))
+
 def clamp(num, min_value, max_value):
     num = max(min(num, max_value), min_value)
     return num
