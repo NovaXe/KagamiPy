@@ -4,7 +4,9 @@ WORKDIR /kagami
 
 COPY . .
 #COPY requirements.txt .
+# RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
+#  --force-reinstall
 
 # COPY requirements.txt requirements.txt
 # pip install --update pip; \
