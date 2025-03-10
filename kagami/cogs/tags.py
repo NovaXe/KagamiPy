@@ -15,7 +15,6 @@ from common.utils import acstr
 from common.interactions import respond
 from typing import Literal, Union, List, Any
 from bot import Kagami
-from utils.pages import CustomRepr
 from common.database import Table, DatabaseManager
 from common.tables import Guild, GuildSettings, User
 from common.paginator import Scroller, ScrollerState
