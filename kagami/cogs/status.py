@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import (
-    Literal, List, Callable, Any
+    Literal, List, Callable, Any, cast
 )
 
 import aiosqlite
@@ -18,7 +18,6 @@ from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
-from utils.depr_db_interface import Database
 from common.utils import acstr
 
 logger = setup_logging(__name__)
@@ -33,7 +32,7 @@ def StatusType(IntEnum):
 class Status(Table, schema_version=1, trigger_version=1):
     name: str
     emoji: str
-    id: int=None
+    id: int|None=None
     
     def toDiscordActivity(self):
         emoji = discord.PartialEmoji.from_str(self.emoji) if self.emoji else None
@@ -52,13 +51,17 @@ class Status(Table, schema_version=1, trigger_version=1):
 
     async def insert(self, db: aiosqlite.Connection) -> "Status":
         query = f"""
-        INSERT OR IGNORE INTO {Status}(name, emoji)
+        INSERT OR IGNORE INTO {Status} (name, emoji)
         VALUES(:name, :emoji)
         """
         db.row_factory = None
-        await db.execute(query, self.asdict())
-        async with db.execute("SELECT last_insert_rowid()") as cur:
-            self.id = (await cur.fetchone())[0]
+        async with db.cursor() as cur:
+            await cur.execute(query, self.asdict())
+            self.id = cur.lastrowid 
+        # await db.execute(query, self.asdict())
+        # async with db.execute("SELECT last_insert_rowid()") as cur:
+        #     res = await cur.fetchone()
+        #     self.id = (await cur.fetchone())[0]
         return self
 
     @classmethod
@@ -77,7 +80,7 @@ class Status(Table, schema_version=1, trigger_version=1):
         SELECT * FROM {Status}
         WHERE id = ?
         """
-        db.row_factory = Status.row_factory
+        db.row_factory = Status.row_factory # pyright:ignore reportAttributeAccessIssue
         async with db.execute(query, (id,)) as cur:
             res = await cur.fetchone()
         return res
@@ -99,7 +102,7 @@ class Status(Table, schema_version=1, trigger_version=1):
         WHERE id = :id
         RETURNING *
         """
-        db.row_factory = Status.row_factory
+        db.row_factory = Status.row_factory # pyright:ignore reportAttributeAccessIssue
         async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
         return res
@@ -253,7 +256,7 @@ class StatusCog(GroupCog, name="status"):
     @app_commands.command(name="view-all", description="See a list of all saved statuses")
     async def view_all(self, interaction: Interaction):
         message = await respond(interaction)
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int]:
+        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
             dbman = self.bot.dbman
             offset = state.offset
             async with dbman.conn() as db:
@@ -271,7 +274,7 @@ class StatusCog(GroupCog, name="status"):
             header = f"{acstr('ID', 6)} {acstr('Status', 32)} {acstr('Emoji', 8)}"
             body = "\n".join(reps)
             content = f"```swift\n{header}\n---\n{body}\n---\n```"
-            return content, count // 10
+            return content, 0, (count -1 ) // 10
         scroller = Scroller(message=message, user=interaction.user, page_callback=callback)
         await scroller.update(interaction)
 

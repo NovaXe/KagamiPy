@@ -15,7 +15,6 @@ import discord.utils
 from discord.ext import commands
 from discord import app_commands
 
-from utils.ui import MessageReply
 from common.interactions import respond
 
 
@@ -135,7 +134,7 @@ class Fun(commands.Cog):
     async def msg_mirror_reactions(self, interaction: discord.Interaction, message: discord.Message):
         await respond(interaction, ephemeral=True)
         for reaction in message.reactions:
-            if interaction.user.id in (u.id for u in reaction.users()):
+            if interaction.user.id in [u.id async for u in reaction.users()]:
                 await message.add_reaction(reaction)
         await respond(interaction, content="I have mirrored your reactions on the message")
 
@@ -143,6 +142,18 @@ class Fun(commands.Cog):
     async def fish_react(self, interaction: discord.Interaction, message: discord.Message):
         await message.add_reaction("🐟")
         await interaction.response.send_message("Fish Reacted", ephemeral=True, delete_after=3)
+
+class MessageReply(discord.ui.Modal, title="Message Reply"):
+    def __init__(self, message: discord.Message):
+        super().__init__()
+        self.message = message
+
+    response = discord.ui.TextInput(label="Reply Text", style=discord.TextStyle.long)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await self.message.reply(f"{self.response}")
+        await respond(interaction, f"Replied to {self.message.author}", ephemeral=True, delete_after=3)
+        # await interaction.response.send_message(ephemeral=True)
 
 
 async def setup(bot):

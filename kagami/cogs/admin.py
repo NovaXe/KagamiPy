@@ -8,6 +8,9 @@ from discord.ext import commands
 from discord import app_commands
 from bot import Kagami
 from common.interactions import respond
+from common.database import TableMetadata
+
+type Context = commands.Context[Kagami]
 
 
 class Admin(commands.Cog):
@@ -53,37 +56,36 @@ class Admin(commands.Cog):
     @commands.command(name="reload_all", description="reloads all cogs")
     @commands.is_owner()
     async def reload_all_cogs(self, ctx):
-        for file in os.listdir("cogs"):
-            if file.endswith(".py"):
-                name = file[:-3]
-                await self.bot.reload_extension(f"cogs.{name}")
+        exts = list(self.bot.extensions.keys())
+        for ext in exts:
+            await self.bot.reload_extension(ext)
         await ctx.send("Reloaded all cogs")
+
+    @commands.command(name="list-ext")
+    @commands.is_owner()
+    async def list_ext(self, ctx):
+        await ctx.send(" ".join(self.bot.extensions))
 
     @commands.command(name="reload", description="reloads a  cog")
     @commands.is_owner()
     async def reload_cog(self, ctx, cog_name):
-        for file in os.listdir("cogs"):
-            if file.endswith(".py"):
-                name = file[:-3]
-                if name.lower() == cog_name.lower():
-                    await self.bot.reload_extension(f"cogs.{name}")
-                    break
+        name = f"cogs.{cog_name}"
+        if name in self.bot.extensions:
+            await self.bot.reload_extension(name)
+            await ctx.send(f"Reloaded cog: `{cog_name}`")
+        # for file in os.listdir("cogs"):
+        #     if file.endswith(".py"):
+        #         name = file[:-3]
+        #         if name.lower() == cog_name.lower():
+        #             await self.bot.reload_extension(f"cogs.{name}")
+        #             break
         else:
             await ctx.send(f"No cog with that name could be found")
             return
-        await ctx.send(f"Reloaded cog: `{cog_name}`")
     
     @commands.command(name="load")
-    async def load_cog(self, ctx, cog_name):
-        for file in os.listdir("cogs"):
-            if file.endswith(".py"):
-                name = file[:-3]
-                if name.lower() == cog_name.lower():
-                    await self.bot.load_extension(f"cogs.{name}")
-                    break
-        else:
-            await ctx.send(f"No cog with that name could be found")
-            return
+    async def load_cog(self, ctx, cog_name: str):
+        await self.bot.load_cog_extension(f"cogs.{cog_name}")
         await ctx.send(f"Loaded cog: `{cog_name}`")
         
     @commands.command(name="unload")
@@ -105,21 +107,25 @@ class Admin(commands.Cog):
 
     @commands.command(name="clear_global", description="clears the global command tree")
     @commands.is_owner()
-    async def clear_global(self, ctx: commands.Context):
+    async def clear_global(self, ctx: Context):
         self.bot.tree.clear_commands(guild=None)
         await ctx.send("Cleared the global command tree, the tree needs to be synced")
 
     @commands.command(name="clear_local", description="clears the local command tree")
     @commands.is_owner()
-    async def clear_local(self, ctx: commands.Context):
+    async def clear_local(self, ctx: Context):
         self.bot.tree.clear_commands(guild=ctx.guild)
         await ctx.send("Cleared the local command tree, the tree needs to be synced")
 
-    @commands.command(name="update_tables")
+    @commands.command(name="tablever")
     @commands.is_owner()
-    async def update_tables(self, ctx: commands.Context):
-        await self.bot.dbman.update_tables()
-        await ctx.send("Tables updated")
+    async def tablever(self, ctx: Context, table_name: str) -> None:
+        async with self.bot.dbman.conn() as db:
+            res = await TableMetadata.selectData(db, table_name)
+            if res:
+                await ctx.send(f"Schema Version: {res.schema_version}, Trigger Version: {res.trigger_version}")
+            else:
+                await ctx.send(f"The query returned with nothing, there is no table with that name")
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):

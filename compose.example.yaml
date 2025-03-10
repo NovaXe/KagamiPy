@@ -11,8 +11,7 @@ services:
       - 8077:8077
     restart: "unless-stopped"
   lavalink:
-    # pin the image version to Lavalink v3.7.8
-    image: ghcr.io/lavalink-devs/lavalink:3.7.8
+    image: ghcr.io/lavalink-devs/lavalink:4.0.8
     container_name: lavalink
     restart: 'unless-stopped'
     environment:

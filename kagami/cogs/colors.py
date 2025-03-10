@@ -20,7 +20,6 @@ from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
-from utils.depr_db_interface import Database
 from common.utils import acstr
 
 
