@@ -118,27 +118,29 @@ class PlayerSession(Player):
         return new_index
 
     async def search_and_queue(self, query: str, position: int | None=None) -> list[Playable] | wavelink.Playlist:
-        logger.debug(f"search_and_queue - {position=}")
+        # logger.debug(f"search_and_queue - {position=}")
         if position: position = min(max(1, position), len(self.queue)) - 1 # (-1) turns this into an index
-        logger.debug(f"search_and_queue - {position=}")
+        # logger.debug(f"search_and_queue - {position=}")
         # position 1 corresponds to the next track in the queue
         # position 0 means play this shit right now, to be handled by the command that ran this method
         results: Search = await Playable.search(query)
         if isinstance(results, wavelink.Playlist):
             parsed_query = cast(str, urlparse(results.url).query)
             params = parse_qs(parsed_query)
-            if "v" in params.items():
-                r = results[results.selected]
-                self.queue.put_at(position, r) if position else self.queue.put(r)
-            elif position:
-                self.queue._items = self.queue[0:position] + list(results) + self.queue[position:]
+            if position is None:
+                if "v" in params.items(): # isolates the specific video from the link
+                    self.queue.put(results[results.selected])
+                else:
+                    self.queue.put(results)
             else:
-                self.queue.put(results)
+                if "v" in params.items(): # isolates the specific video from the link
+                    self.queue.put_at(position, results[results.selected])
+                else:
+                    self.queue._items = self.queue._items[:position] + list(results) + self.queue._items[position:]
         else:
-            r = results[0]
-            logger.debug(f"search_and_queue - {bool(position)=}")
-            self.queue.put_at(position, r) if position is not None else self.queue.put(r)
-            results = [r]
+            # logger.debug(f"search_and_queue - {bool(position)=}")
+            self.queue.put_at(position, results[0]) if position is not None else self.queue.put(results[0])
+            results = [results[0]]
         return results
 
     async def play_next(self) -> Playable | None:

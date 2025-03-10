@@ -104,7 +104,7 @@ class SeekTransformer(Transformer):
     async def autocomplete(self, interaction: discord.Interaction, value: str, /) -> list[Choice[str]]: # pyright: ignore [reportIncompatibleMethodOverride]
         assert interaction.guild is not None
         voice_client = interaction.guild.voice_client
-        logger.debug(f"seek_autocomplete - {value = }")
+        # logger.debug(f"seek_autocomplete - {value = }")
         if voice_client is None:
             return []
         elif len(value) != 0 and value.isdigit():
@@ -121,17 +121,17 @@ class SeekTransformer(Transformer):
         choices = []
         for i in reversed(range(-10, 10+1, 5)):
             stamp = ms_timestamp(max(0, now+i*1000))
-            logger.debug(f"seek_autocomplete - {stamp = }")
+            # logger.debug(f"seek_autocomplete - {stamp = }")
             choice = Choice(name=f"{stamp} ({i:+})", value=str(now // 1000 + i))
             choices += [choice]
-        logger.debug(f"seek_autocomplete - {choices = }")
+        # logger.debug(f"seek_autocomplete - {choices = }")
         return choices
 
     @override
     async def transform(self, interaction: Interaction, value: int | str) -> int: # pyright: ignore [reportIncompatibleMethodOverride]
         assert interaction.guild is not None
         voice_client = interaction.guild.voice_client
-        logger.debug(f"seek_transform - {value = }")
+        # logger.debug(f"seek_transform - {value = }")
         if not voice_client: 
             raise NoSession
         if isinstance(value, int) or value.isdigit():
@@ -141,7 +141,7 @@ class SeekTransformer(Transformer):
         else:
             pattern = r"(?:(\d+):)?([0-5]?\d):([0-5]?\d)"
             capture = re.match(pattern, value)
-            logger.debug(f"seek_transform - {capture = }")
+            # logger.debug(f"seek_transform - {capture = }")
             if not capture:
                 raise errors.CustomCheck(f"Invalid Timestamp: {value}")
             groups = capture.groups()
@@ -276,7 +276,7 @@ class MusicCog(GroupCog, group_name="m"):
         assert session.queue.history is not None
         
         if is_new_sesssion:
-            logger.debug("m join : new session")
+            # logger.debug("m join : new session")
             track_count = await self.attempt_session_requeue(interaction, session)
             if track_count > 0:
                 await respond(interaction, f"Resumed the old session", delete_after=5, send_followup=True, ephemeral=True)
@@ -340,7 +340,7 @@ class MusicCog(GroupCog, group_name="m"):
             guild = cast(discord.Guild, interaction.guild)
             session = cast(PlayerSession, guild.voice_client)
             user = cast(Member, interaction.user)
-            title = f"Queued {len(results)} tracks" if not position else f"Queued `{len(results)}` tracks at position {position}"
+            title = f"Queued {len(results)} tracks" if not position else f"Queued {len(results)} tracks at position {position}"
             scroller = Scroller(message, user, get_tracklist_callback(results, title=title), timeout=30)
             await scroller.update(interaction)
             if session.current is None or position == 0:
@@ -361,7 +361,7 @@ class MusicCog(GroupCog, group_name="m"):
     @app_commands.describe(position="where in the queue to place the track, defaults to the end")
     @is_not_outsider()
     @is_in_voice()
-    async def play_at(self, interaction: Interaction, query: str, position: app_commands.Range[int, 0] | None=None) -> None:
+    async def playat(self, interaction: Interaction, query: str, position: app_commands.Range[int, 0] | None=None) -> None:
         await self.handle_play(interaction, query=query, position=position)
 
     @app_commands.command(name="pause", description="Pauses the player")
@@ -756,10 +756,10 @@ class MusicCog(GroupCog, group_name="m"):
 
     @GroupCog.listener()
     async def on_wavelink_websocket_closed(self, payload: WebsocketClosedEventPayload) -> None:
-        logger.debug(f"wavelink_websocket_closed - enter")
+        # logger.debug(f"wavelink_websocket_closed - enter")
         session = cast(PlayerSession, payload.player)
-        logger.debug(f"wavelink_websocket_closed - cast session")
-        logger.debug(f"wavelink_websocket_closed - {session}")
+        # # logger.debug(f"wavelink_websocket_closed - cast session")
+        # logger.debug(f"wavelink_websocket_closed - {session}")
         # await self.session_new_tracklist(session)
         await session.save_queue()
 
@@ -780,29 +780,29 @@ class MusicCog(GroupCog, group_name="m"):
 
     async def handle_bot_voice_state_update(self, before: VoiceState, after: VoiceState) -> None:
         if before.channel and not after.channel:
-            logger.debug("voice_state_update - Bot left a channel")
+            # logger.debug("voice_state_update - Bot left a channel")
             guild_id = before.channel.guild.id
             session = cast(PlayerSession, before.channel.guild.voice_client)
             if not session:
-                logger.debug("voice_state_update - No session, ignoring")
+                # logger.debug("voice_state_update - No session, ignoring")
                 return
 
             assert session.queue.history
             tracks = list(session.queue.history) + list(session.queue)
-            logger.debug(f"voice_state_update - session track count: {len(tracks)}")
+            # logger.debug(f"voice_state_update - session track count: {len(tracks)}")
             current_index = l-1 if (l:=len(session.queue.history)) > 0 else 0
-            logger.debug(f"voice_state_update - current index: {current_index}")
+            # logger.debug(f"voice_state_update - current index: {current_index}")
             epoch_seconds = int(time.time())
             name = f"{epoch_seconds}"
             list_details = TrackListDetails(guild_id, name, start_index=current_index, flags=TrackListFlags.session)
-            logger.debug(f"voice_state_update - track list details: {list_details}")
+            # logger.debug(f"voice_state_update - track list details: {list_details}")
 
             async with self.conn() as db:
-                logger.debug(f"voice_state_update - begin insert")
+                # logger.debug(f"voice_state_update - begin insert")
                 await list_details.insert(db)
                 await TrackList.insert_wavelink_tracks(db, tracks, guild_id=guild_id, name=name)
                 await db.commit()
-                logger.debug(f"voice_state_update - committed changes")
+                # logger.debug(f"voice_state_update - committed changes")
 
     @GroupCog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: VoiceState, after: VoiceState) -> None:
@@ -864,7 +864,8 @@ class Confirmation(ui.View):
             try:
                 await self.message.delete()
             except MessageNotFound as e:
-                logger.debug(f"Confirmation View on_timeout - {e}")
+                pass
+                # logger.debug(f"Confirmation View on_timeout - {e}")
     
     async def done(self) -> None:
         await self.on_timeout()
