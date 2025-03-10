@@ -46,8 +46,8 @@ class Configuration:
     db_name: str
     connection_pool_size: int
     lavalink: dict[str, str] | None=None
-    spotify: dict[str, str] | None=None
-    youtube: dict[str, str] | None=None
+    # spotify: dict[str, str] | None=None
+    # youtube: dict[str, str] | None=None
     ignore_schema_updates: bool=False
     ignore_trigger_updates: bool=False
     drop_tables: bool=False
@@ -108,14 +108,14 @@ class Configuration:
                 "uri": get("LAVALINK_URI"),
                 "password": get("LAVALINK_PASSWORD")
             },
-            youtube={
-                "email": get("YOUTUBE_EMAIL"),
-                "password": get("YOUTUBE_PASSWORD")
-            },
-            spotify={
-                "client_id": get("SPOTIFY_CLIENT_ID"),
-                "client_secret": get("SPOTIFY_CLIENT_SECRET")
-            },
+            # youtube={
+            #     "email": get("YOUTUBE_EMAIL"),
+            #     "password": get("YOUTUBE_PASSWORD")
+            # },
+            # spotify={
+            #     "client_id": get("SPOTIFY_CLIENT_ID"),
+            #     "client_secret": get("SPOTIFY_CLIENT_SECRET")
+            # },
             ignore_schema_updates=get("IGNORE_SCHEMA_UPDATES", bool, False),
             ignore_trigger_updates=get("IGNORE_TRIGGER_UPDATES", bool, False), 
             drop_tables=get("DROP_TABLES", bool, False),
