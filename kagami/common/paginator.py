@@ -100,7 +100,9 @@ class Scroller(ui.View):
         return content, first_index, last_index
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
-        if interaction.user == self.user:
+        assert interaction.channel is not None
+        assert isinstance(interaction.user, discord.Member)
+        if interaction.user == self.user and interaction.channel.permissions_for(interaction.user).manage_messages:
             return True
         await respond(interaction, f"Only {self.user.mention} can use this view", ephemeral=True)
         return False
