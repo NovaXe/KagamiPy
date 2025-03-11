@@ -13,6 +13,7 @@ from discord.ext.commands import GroupCog
 from discord.app_commands import Transform, Transformer, Group, Choice
 from common import errors
 from bot import Kagami
+from common.logging import setup_logging
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings
@@ -21,6 +22,9 @@ from common.utils import acstr
 from typing import (
     Literal, List, Callable, Any, override
 )
+
+logger = setup_logging(__name__)
+
 
 @dataclass
 class SentinelSettings(Table, schema_version=1, trigger_version=1):
@@ -116,10 +120,10 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1):
         return result
 
 @dataclass
-class Sentinel(Table, schema_version=1, trigger_version=1):
+class Sentinel(Table, schema_version=1, trigger_version=2):
     guild_id: int
     name: str
-    uses: int
+    uses: int = 0
     enabled: bool = True
 
     @classmethod
@@ -153,7 +157,7 @@ class Sentinel(Table, schema_version=1, trigger_version=1):
         CREATE TRIGGER IF NOT EXISTS {Sentinel}_insert_settings_before_insert
         BEFORE INSERT ON {Sentinel}
         BEGIN
-            INSERT INTO {Sentinel}(guild_id)
+            INSERT INTO {SentinelSettings}(guild_id)
             VALUES (NEW.guild_id)
             ON CONFLICT(guild_id) DO NOTHING;
         END;
@@ -262,7 +266,7 @@ class Sentinel(Table, schema_version=1, trigger_version=1):
 
     async def toggle(self, db: aiosqlite.Connection) -> "Sentinel":
         query = f"""
-        UPDATE {SentinelSuit}
+        UPDATE {Sentinel}
         SET
             enabled = NOT enabled
         WHERE
@@ -624,7 +628,7 @@ class SentinelResponse(Table, schema_version=1, trigger_version=1):
         return result
 
 @dataclass
-class SentinelSuit(Table, schema_version=1, trigger_version=1):
+class SentinelSuit(Table, schema_version=2, trigger_version=1):
     guild_id: int
     sentinel_name: str
     name: str
@@ -1732,8 +1736,11 @@ class Sentinels(GroupCog, name="s"):
         await respond(interaction, ephemeral=True)
         if sentinel is None: raise SentinelDoesNotExist
         async with self.conn() as db:
+            # logger.debug("toggle_sentinel - start toggle")
             await sentinel.toggle(db)
+            # logger.debug("toggle_sentinel - end toggle")
             await db.commit()
+            # logger.debug("toggle_sentinel - commit toggle")
         state = "enabled" if not sentinel.enabled else "disabled"
         await respond(interaction, f"The sentinel `{sentinel.name}` is now `{state}`")
 
