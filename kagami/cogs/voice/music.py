@@ -13,7 +13,8 @@ from math import ceil, floor, copysign
 import PIL as pillow
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote
+from pathlib import Path
 import aiosqlite
 import discord
 from discord.ext import commands, tasks
@@ -318,18 +319,23 @@ class MusicCog(GroupCog, group_name="m"):
         results = await session.search_and_queue(query, position=position)
         # logger.debug(f"play - {len(results)=}") # debug-dev
         if len(results) == 1: # only a single track was returned
+            track: Playable = results[0]
+            # logger.debug(f"handle_play - {track.title=} {track.source=} {track.identifier=}")
+            if track.source == "http":
+                track._title = unquote(Path(str(urlparse(track.uri).path)).name)
+
             if session.current is not None and position is not None:
                 if position == 0:
                     await session.play_next()
-                    await respond(interaction, f"Playing `{results[0]}`", 
+                    await respond(interaction, f"Playing `{track}`", 
                                   delete_after=5)
                 elif position > 0:
-                    await respond(interaction, f"Added `{results[0]}` to the queue at position {position}", 
+                    await respond(interaction, f"Added `{track}` to the queue at position {position}", 
                                   delete_after=5)
                 else:
                     raise ValueError(f"Impossible value, position cannot be {position}")
             elif session.current is not None:
-                await respond(interaction, f"Added `{results[0]}` to the queue", 
+                await respond(interaction, f"Added `{track}` to the queue", 
                               delete_after=5)
             else:
                 await session.play_next()
