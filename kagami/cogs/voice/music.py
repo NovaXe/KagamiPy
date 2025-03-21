@@ -153,6 +153,9 @@ class SeekTransformer(Transformer):
         return seek_seconds
 
 class MusicCog(GroupCog, group_name="m"): 
+    """
+    It does music, written on my ipad
+    """
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.config = bot.config
