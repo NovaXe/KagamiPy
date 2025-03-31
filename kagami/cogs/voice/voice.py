@@ -124,6 +124,8 @@ class PlayerSession(Player):
         # position 1 corresponds to the next track in the queue
         # position 0 means play this shit right now, to be handled by the command that ran this method
         results: Search = await Playable.search(query)
+        if len(results) == 0:
+            return []
         if isinstance(results, wavelink.Playlist):
             parsed_query = cast(str, urlparse(results.url).query)
             params = parse_qs(parsed_query)

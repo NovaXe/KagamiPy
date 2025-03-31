@@ -617,14 +617,14 @@ class ConnectionPool:
         self._debug_log("Closing")
         while not self._pool.empty():
             conn = await self._pool.get()
-            await conn.close() if conn else ...
+            await conn.close() if conn is not None else ...
             self._debug_log(f"Closed connection {id_repr(conn)}")
             # logger.debug(f"Connection closed by pool: {repr(self)} - conn: {conn_rep(conn)}")
         self._debug_log(f"Finished closing")
 
     async def _create_connection(self) -> aiosqlite.Connection:
         self._debug_log(f"Opening Connection")
-        conn = await aiosqlite.connect(self.db_path)
+        conn = await aiosqlite.connect(self.db_path, timeout=10)
         if log_sql_statements:
             await conn.set_trace_callback(lambda statement: logger.debug(format_statement(statement))) # pyright: ignore
         self._debug_log(f"Opened Connection: {id_repr(conn)}")
