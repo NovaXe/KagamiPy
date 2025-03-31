@@ -617,7 +617,7 @@ class ConnectionPool:
         self._debug_log("Closing")
         while not self._pool.empty():
             conn = await self._pool.get()
-            await conn.close() if conn else ...
+            await conn.close() if conn is not None else ...
             self._debug_log(f"Closed connection {id_repr(conn)}")
             # logger.debug(f"Connection closed by pool: {repr(self)} - conn: {conn_rep(conn)}")
         self._debug_log(f"Finished closing")
