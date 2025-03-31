@@ -1,6 +1,7 @@
 from __future__ import annotations
 from abc import abstractmethod
 import asyncio
+from cmath import polar
 from io import StringIO
 from pyclbr import Class
 import traceback
@@ -597,6 +598,7 @@ def id_repr(obj: object) -> str:
 class ConnectionPool:
     def __init__(self, db_path: str, pool_size: int):
         self.db_path: str = db_path
+        self.pool_size = pool_size
         self._pool: Queue[aiosqlite.Connection | None] = Queue(maxsize=pool_size)
         self._init_pool(pool_size)
 
@@ -606,6 +608,14 @@ class ConnectionPool:
 
     def _debug_log(self, message: str) -> None:
         logger.debug(f"{self.__class__.__name__} {repr(self)} - {message}")
+
+    async def reset(self):
+        self._debug_log("Reseting - Will close and re-init")
+        await self.close()
+        self._debug_log("Finished Closing step")
+        self._init_pool(self.pool_size)
+        self._debug_log("Re-initialized pool")
+        
 
     def _init_pool(self, pool_size: int) -> None:
         self._debug_log(f"Initializing")

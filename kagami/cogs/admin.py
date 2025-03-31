@@ -105,6 +105,11 @@ class Admin(commands.Cog):
         await ctx.send("Shutting Down")
         await self.bot.close()
 
+    @commands.command(name="resetpool")
+    async def reset_connection_pool(self, ctx):
+        await ctx.send("Resetting Pool")
+        await self.bot.dbman.pool.reset()
+
     @commands.command(name="clear_global", description="clears the global command tree")
     @commands.is_owner()
     async def clear_global(self, ctx: Context):
