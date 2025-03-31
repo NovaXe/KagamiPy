@@ -771,6 +771,18 @@ class SentinelSuit(Table, schema_version=2, trigger_version=1):
         """
         await db.execute(query, self.asdict())
 
+    @override
+    async def delete(self, db: aiosqlite.Connection) -> "SentinelSuit":
+        query = f"""
+        DELETE FROM {SentinelSuit} 
+        WHERE guild_id = :guild_id AND sentinel_name = :sentinel_name AND name = :name 
+        RETURNING *
+        """
+        db.row_factory = SentinelSuit.row_factory # pyright:ignore [reportAttributeAccessIssue]
+        async with db.execute(query, self.asdict()) as cur:
+            result: SentinelSuit = await cur.fetchone() # pyright:ignore [reportAssignmentType]
+        return result
+
     @classmethod
     @override
     async def selectValue(cls, db: aiosqlite.Connection, guild_id: int, sentinel_name: str, name: str) -> "SentinelSuit | None":
