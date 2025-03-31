@@ -624,7 +624,7 @@ class ConnectionPool:
 
     async def _create_connection(self) -> aiosqlite.Connection:
         self._debug_log(f"Opening Connection")
-        conn = await aiosqlite.connect(self.db_path)
+        conn = await aiosqlite.connect(self.db_path, timeout=10)
         if log_sql_statements:
             await conn.set_trace_callback(lambda statement: logger.debug(format_statement(statement))) # pyright: ignore
         self._debug_log(f"Opened Connection: {id_repr(conn)}")
