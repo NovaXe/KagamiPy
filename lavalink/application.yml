@@ -6,6 +6,8 @@ server: # REST and WS server
 plugins: # Plugin configurations
   youtube:
     enabled: true # Whether this source can be used.
+    oauth:
+      enabled: false
     allowSearch: true # Whether "ytsearch:" and "ytmsearch:" can be used.
     allowDirectVideoIds: true # Whether just video IDs can match. If false, only complete URLs will be loaded.
     allowDirectPlaylistIds: true # Whether just playlist IDs can match. If false, only complete URLs will be loaded.
@@ -36,7 +38,7 @@ plugins: # Plugin configurations
       deezer: false # Enable Deezer lyrics source
       youtube: false # Enable YouTube lyrics source
       yandexmusic: false # Enable Yandex Music lyrics source
-      vkmusic: true # Enable Vk Music lyrics source
+      vkmusic: false  # Enable Vk Music lyrics source
     spotify:
       clientId: "" # Specified in the .env file
       clientSecret: "" # Specified in the .env file
@@ -84,6 +86,7 @@ lavalink: # Plugin requirements
   plugins:
     - dependency: "dev.lavalink.youtube:youtube-plugin:1.11.5"
     # repository: "https://maven.lavalink.dev/releases"
+    # - dependency: "com.github.topi314.lavasearch:lavasearch-plugin:1.0.0"
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.4.2"
     # repository: "https://maven.lavalink.dev/releases" # this is optional for lavalink v4.0.0-beta.5 or greater
 
@@ -161,7 +164,10 @@ logging:
 
   level:
     root: INFO
-    lavalink: INFO
+    lavalink: DEBUG
+    # lavalink.server.io.SocketContext: TRACE
+    com.sedmelluq.discord.lavaplayer.tools.ExceptionTools: DEBUG
+    # dev.lavalink.youtube: DEBUG
 
   request:
     enabled: true
@@ -170,7 +176,6 @@ logging:
     includeQueryString: true
     includePayload: true
     maxPayloadLength: 10000
-
 
   logback:
     rollingpolicy:
