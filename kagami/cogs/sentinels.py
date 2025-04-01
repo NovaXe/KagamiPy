@@ -1725,6 +1725,7 @@ class Sentinels(GroupCog, name="s"):
             if weight is not None:
                 suit.weight = weight
             await suit.update(db)
+            await db.commit()
         await respond(interaction, f"Edited a response on suit `{suit.name}` for sentinel `{suit.sentinel_name}`")
 
 
