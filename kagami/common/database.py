@@ -689,6 +689,8 @@ class ConnectionContext:
             self._conn.row_factory = None
             if self.autocommit:
                 await self._conn.commit()
+            else:
+                await self._conn.rollback()
             await self.pool.release(self._conn)
             self._debug_log(f"Exiting: ({self.query_count}) queries, ({self._conn.total_changes}) changes")
             self._conn = None
