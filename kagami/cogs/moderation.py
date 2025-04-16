@@ -10,7 +10,6 @@ from typing import Literal
 class Moderation(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.config = bot.config
 
     @app_commands.command(name="purge", description="deletes a number of messages")
     @app_commands.default_permissions(manage_messages=True)

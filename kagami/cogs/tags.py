@@ -14,7 +14,7 @@ from common import errors
 from common.utils import acstr
 from common.interactions import respond
 from typing import Literal, Union, List, Any
-from bot import Kagami
+from bot import Kagami, config
 from common.database import Table, DatabaseManager
 from common.tables import Guild, GuildSettings, User
 from common.paginator import Scroller, ScrollerState
@@ -481,7 +481,6 @@ def json_to_discord_embed(json_str: str):
 class Tags(GroupCog, group_name="t"):
     def __init__(self, bot):
         self.bot: Kagami = bot
-        self.config = bot.config
         self.ctx_menus = [
             app_commands.ContextMenu(
                 name="Create Tag",
@@ -516,12 +515,12 @@ class Tags(GroupCog, group_name="t"):
 
     async def cog_load(self) -> None:
         await self.bot.dbman.setup(table_group=__name__,
-                                   drop_tables=self.bot.config.drop_tables,
-                                   drop_triggers=self.bot.config.drop_triggers,
-                                   ignore_schema_updates=self.bot.config.ignore_schema_updates,
-                                   ignore_trigger_updates=self.bot.config.ignore_trigger_updates)
-        # await self.database.init(drop=self.bot.config.drop_tables)
-        # if self.bot.config.migrate_data: await self.migrateData()
+                                   drop_tables=config.drop_tables,
+                                   drop_triggers=config.drop_triggers,
+                                   ignore_schema_updates=config.ignore_schema_updates,
+                                   ignore_trigger_updates=config.ignore_trigger_updates)
+        # await self.database.init(drop=config.drop_tables)
+        # if config.migrate_data: await self.migrateData()
 
     async def interaction_check(self, interaction: discord.Interaction[ClientT], /) -> bool:
         # await self.bot.database.upsertGuild(interaction.guild)
