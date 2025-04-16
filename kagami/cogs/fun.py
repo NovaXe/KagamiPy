@@ -17,11 +17,9 @@ from discord import app_commands
 
 from common.interactions import respond
 
-
 class Fun(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.config = bot.config
         self.ctx_menus = [
             app_commands.ContextMenu(
                 name="Reply",

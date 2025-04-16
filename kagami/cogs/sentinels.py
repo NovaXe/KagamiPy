@@ -12,7 +12,7 @@ from discord import app_commands, Interaction
 from discord.ext.commands import GroupCog
 from discord.app_commands import Transform, Transformer, Group, Choice
 from common import errors
-from bot import Kagami
+from bot import Kagami, config
 from common.logging import setup_logging
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
@@ -1314,17 +1314,16 @@ class SentinelSuitTransformer(Transformer):
 class Sentinels(GroupCog, name="s"):
     def __init__(self, bot: Kagami):
         self.bot: Kagami = bot
-        self.config = bot.config
 
     async def cog_load(self) -> None:
         await self.bot.dbman.setup(table_group=__name__,
-                                   drop_tables=self.bot.config.drop_tables,
-                                   drop_triggers=self.bot.config.drop_triggers,
-                                   ignore_schema_updates=self.bot.config.ignore_schema_updates,
-                                   ignore_trigger_updates=self.bot.config.ignore_trigger_updates)
+                                   drop_tables=config.drop_tables,
+                                   drop_triggers=config.drop_triggers,
+                                   ignore_schema_updates=config.ignore_schema_updates,
+                                   ignore_trigger_updates=config.ignore_trigger_updates)
         # await self.database.init(drop=self.config.drop_tables, schema_update=self.config.schema_update)
         # await self.database.init(drop=True)
-        # if self.bot.config.migrate_data: await self.migrateData()
+        # if config.migrate_data: await self.migrateData()
 
     async def cog_unload(self) -> None:
         pass

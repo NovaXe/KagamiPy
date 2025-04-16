@@ -11,7 +11,7 @@ from discord import app_commands, Interaction
 from discord.ext.commands import GroupCog
 from discord.app_commands import Transform, Transformer, Group, Choice, Range
 
-from bot import Kagami
+from bot import Kagami, config
 from common import errors
 from common.logging import setup_logging
 from common.interactions import respond
@@ -136,13 +136,12 @@ class Status(Table, schema_version=1, trigger_version=1):
 class StatusCog(GroupCog, name="status"): 
     def __init__(self, bot: Kagami):
         self.bot: Kagami = bot 
-        self.config = bot.config
 
     async def cog_load(self):
         await self.bot.dbman.setup(table_group=__name__, 
-                                   ignore_schema_updates=self.config.ignore_schema_updates,
-                                   ignore_trigger_updates=self.config.ignore_trigger_updates,
-                                   drop_tables=self.config.drop_tables)
+                                   ignore_schema_updates=config.ignore_schema_updates,
+                                   ignore_trigger_updates=config.ignore_trigger_updates,
+                                   drop_tables=config.drop_tables)
         if self.bot.is_ready():
             await self.on_ready()
     

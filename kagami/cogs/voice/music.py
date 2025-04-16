@@ -36,7 +36,7 @@ from discord import ButtonStyle
 import wavelink
 from wavelink import Playable, Search, TrackEndEventPayload, TrackStartEventPayload, WebsocketClosedEventPayload
 
-from bot import Kagami
+from bot import Kagami, config
 from common import errors
 from common.logging import setup_logging
 from common.interactions import respond
@@ -158,18 +158,19 @@ class MusicCog(GroupCog, group_name="m"):
     """
     def __init__(self, bot: Kagami):
         self.bot = bot
-        self.config = bot.config
         self.dbman = bot.dbman
 
     @override
     async def cog_load(self):
         await self.bot.dbman.setup(table_group=__package__,
-                                   drop_tables=self.bot.config.drop_tables,
-                                   drop_triggers=self.bot.config.drop_triggers,
-                                   ignore_schema_updates=self.bot.config.ignore_schema_updates,
-                                   ignore_trigger_updates=self.bot.config.ignore_trigger_updates)
+                                   drop_tables=config.drop_tables,
+                                   drop_triggers=config.drop_triggers,
+                                   ignore_schema_updates=config.ignore_schema_updates,
+                                   ignore_trigger_updates=config.ignore_trigger_updates)
         
-        node = wavelink.Node(**self.bot.config.lavalink, client=self.bot) # pyright:ignore
+        node = wavelink.Node(uri=config.lavalink_uri, 
+                             password=config.lavalink_password, 
+                             client=self.bot)
         await wavelink.Pool.connect(nodes=[node])
 
     @override

@@ -16,7 +16,6 @@ type Context = commands.Context[Kagami]
 class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot: Kagami = bot
-        self.config = bot.config
 
 
     # @commands.is_owner()
