@@ -7,6 +7,7 @@ from io import BytesIO
 from aiosqlite import Connection
 from PIL import Image, ImageFile
 
+import discord
 from discord import app_commands, Message, Guild
 
 from discord.ext import commands
@@ -47,14 +48,21 @@ class BotEmoji(Table, schema_version=1, trigger_version=1):
     #         image = Image.open(BytesIO(self.image_data))
     #     return image
 
-    def get_image(self) -> BytesIO | None:
+    def get_image_file(self) -> discord.File | None:
         if self.image_data is not None:
-            return BytesIO(self.image_data)
+            with BytesIO(self.image_data) as f:
+                file = discord.File(fp=f)
+            return file
         else:
             return None
 
-    def get_name(self) -> str:
-        return f"{self.prefix}_{self.name}"
+    # def get_name(self) -> str:
+    #     return f"{self.prefix}_{self.name}"
+
+    @classmethod
+    async def from_discord(cls, emoji: discord.Emoji) -> BotEmoji:
+        data = await emoji.read()
+        return BotEmoji(id=emoji.id, name=emoji.name, image_data=data)
 
     @classmethod
     async def create_table(cls, db: Connection):
@@ -97,7 +105,29 @@ class BotEmoji(Table, schema_version=1, trigger_version=1):
         """
         await db.execute(query, self.asdict())
 
+    @override
+    async def delete(self, db: Connection):
+        query = f"""
+            DELETE * FROM {BotEmoji}
+            WHERE id = ?
+        """
+        await db.execute(query, (self.id,))
+
+
+    @classmethod
+    async def deleteFromID(cls, db: Connection, id: int):
+        query = f"""
+            DELETE * FROM {BotEmoji}
+            WHERE id = ?
+        """
+        await db.execute(query, (id,))
+
+    @classmethod
+    async def insertFromDiscord(cls, db: Connection, emoji: discord.Emoji) -> BotEmoji:
+        converted = await BotEmoji.from_discord(emoji)
+        await converted.insert(db)
+        return converted
+
     
 
-        
 

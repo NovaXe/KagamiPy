@@ -1,10 +1,11 @@
 from __future__ import annotations
 from typing import override, cast
 from dataclasses import dataclass
+
 import aiosqlite
+from aiosqlite import Connection
 
 from io import BytesIO
-from aiosqlite import Connection
 from PIL import Image, ImageFile
 
 import discord
@@ -26,7 +27,7 @@ from common.emoji import BotEmoji
 type Interaction = discord.Interaction[Kagami]
 
 
-SWEDISH_FISH_PREFIX = "SF"
+FISH_PREFIX = "SF"
 
 @dataclass
 class SwedishFish(Table, schema_version=1, trigger_version=1):
@@ -35,7 +36,7 @@ class SwedishFish(Table, schema_version=1, trigger_version=1):
     value: int
 
     @classmethod
-    async def create_table(cls, db: aiosqlite.Connection):
+    async def create_table(cls, db: Connection):
         query = f"""
         CREATE TABLE IF NOT EXISTS {SwedishFish}(
             name TEXT NOT NULL,
@@ -47,7 +48,7 @@ class SwedishFish(Table, schema_version=1, trigger_version=1):
         await db.execute(query)
 
     @classmethod
-    async def create_triggers(cls, db: aiosqlite.Connection):
+    async def create_triggers(cls, db: Connection):
         triggers = [""]
         for trigger in triggers:
             await db.execute(trigger)
@@ -64,17 +65,17 @@ class SwedishFish(Table, schema_version=1, trigger_version=1):
         return res 
 
     @classmethod
-    async def selectLikeNames(cls, db: aiosqlite.Connection, name: str) -> list[str]:
+    async def selectLikeNames(cls, db: Connection, name: str) -> list[str]:
         query = f"""
         SELECT name FROM {SwedishFish}
         WHERE (name like ?)
         """
-        db.row_factory = aiosqlite.Row 
+        db.row_factory = Row 
         async with db.execute(query, (f"%{name}%",)) as cur:
             res = await cur.fetchall()
         return [row["name"] for row in res] 
 
-    async def upsert(self, db: aiosqlite.Connection) -> None:
+    async def upsert(self, db: Connection) -> None:
         query = f"""
             INSERT INTO {SwedishFish}(id, name, value)
             VALUES (:id, :name, :value)
@@ -83,10 +84,17 @@ class SwedishFish(Table, schema_version=1, trigger_version=1):
         """
         await db.execute(query, self.asdict())
 
+    async def delete(self, db: Connection) -> None:
+        query = f"""
+        DELETE * FROM {SwedishFish}
+        WHERE name = ?
+        """
+        await db.execute(query, (self.name,))
+
 
 class SwedishFishStatistics(Table, schema_version=1, trigger_version=1):
     @classmethod
-    async def create_table(cls, db: aiosqlite.Connection):
+    async def create_table(cls, db: Connection):
         query = f"""
         CREATE TABLE IF NOT EXISTS {SwedishFishStatistics}(
             user_id INTEGER NOT NULL,
@@ -127,11 +135,46 @@ class SwedishCog(GroupCog, group_name="sf"):
         self.dbman = bot.dbman
 
     @app_commands.command(name="add-new", description="adds a new fish")
-    async def add_new(self, interaction: Interaction, name: Transform[SwedishFish, FishTransformer], image: discord.Attachment):
+    @app_commands.rename(fish="new name")
+    async def add_new(self, interaction: Interaction, fish: Transform[SwedishFish | None, FishTransformer], image: discord.Attachment, value: int=0):
         await respond(interaction)
-        await self.bot.create_application_emoji
-        BotEmoji.upsert(
-        fish = SwedishFish(
+        if image.content_type not in ("JPEG", "PNG", "GIF", "WEBP"):
+            await respond(interaction, "Invalid Filetype")
+            return
+        
+        if fish is not None:
+            await respond(interaction, "There is already a fish with that name")
+            return
+
+        new_fish_name = interaction.namespace.fish
+        # elif image.size > 256_000: # bytes
+        #     await respond(interaction, "Image is larger than 256kB")
+        
+        image_data = await image.read()
+        emoji = await self.bot.create_application_emoji(name=f"{FISH_PREFIX}_{new_fish_name}", image=image_data)
+        new_fish = SwedishFish(name=new_fish_name, emoji_id=emoji.id, value=value)
+        
+        async with self.dbman.conn() as db:
+            await BotEmoji.insertFromDiscord(db, emoji)
+            await new_fish.upsert(db)
+            await db.commit()
+
+        await respond(interaction, f"Added fish: {new_fish_name}")
+
+    @app_commands.command(name="delete", description="deletes fish")
+    async def delete(self, interaction: Interaction, fish: Transform[SwedishFish | None, FishTransformer]) -> None:
+        await respond(interaction)
+
+        if fish is None:
+            await respond(interaction, "That fish does not exist")
+            return
+        
+        async with self.dbman.conn() as db:
+            await fish.delete(db)
+            await BotEmoji.deleteFromID(db, fish.emoji_id)
+            await db.commit()
+
+        await respond(interaction, f"Deleted fish: {fish.name}")
 
 
 
