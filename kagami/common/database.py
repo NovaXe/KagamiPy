@@ -293,16 +293,16 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
     #     logger.debug(f"{self.__class__.__name__} {repr(self)} - {message}")
 
 
-    @staticmethod
-    def group(name: str) -> Callable[[type], type]:
-        """
-        Decorator for specifying a group a table belongs to
-        table_group can also be set in the class initializer
-        """
-        def decorator(cls: type[Table]):
-            cls.__table_group__ = name
-            return cls
-        return decorator
+    # @staticmethod
+    # def group(name: str) -> Callable[[type], type]:
+    #     """
+    #     Decorator for specifying a group a table belongs to
+    #     table_group can also be set in the class initializer
+    #     """
+    #     def decorator(cls: type[Table]):
+    #         cls.__table_group__ = name
+    #         return cls
+    #     return decorator
 
     # def __init__(self, *args, **kwargs): pass
     @classmethod
