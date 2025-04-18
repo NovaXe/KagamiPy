@@ -37,7 +37,7 @@ class SwedishFish(Table, schema_version=1, trigger_version=1):
     @classmethod
     async def create_table(cls, db: Connection):
         query = f"""
-        CREATE TABLE IF NOT EXISTS {SwedishFish}(
+        CREATE TABLE IF NOT EXISTS {SwedishFish} (
             name TEXT NOT NULL,
             emoji_id INTEGER NOT NULL,
             UNIQUE (name),
@@ -55,7 +55,7 @@ class SwedishFish(Table, schema_version=1, trigger_version=1):
     @classmethod
     async def selectFromName(cls, db: Connection, name: str) -> SwedishFish:
         query = f"""
-        SELECT * FROM {SwedishFish}(name, emoji_id, value)
+        SELECT * FROM {SwedishFish}
         WHERE name = ?
         """
         db.row_factory = SwedishFish.row_factory
@@ -76,7 +76,7 @@ class SwedishFish(Table, schema_version=1, trigger_version=1):
 
     async def upsert(self, db: Connection) -> None:
         query = f"""
-            INSERT INTO {SwedishFish}(id, name, value)
+            INSERT INTO {SwedishFish} (id, name, value)
             VALUES (:id, :name, :value)
             ON CONFLICT (name)
             DO UPDATE SET id = :id, value = :value
@@ -95,7 +95,7 @@ class SwedishFishStatistics(Table, schema_version=1, trigger_version=1):
     @classmethod
     async def create_table(cls, db: Connection):
         query = f"""
-        CREATE TABLE IF NOT EXISTS {SwedishFishStatistics}(
+        CREATE TABLE IF NOT EXISTS {SwedishFishStatistics} (
             user_id INTEGER NOT NULL,
             guild_id INTEGER NOT NULL DEFAULT 0,
             fish_id INTEGER NOT NULL,

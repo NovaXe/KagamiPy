@@ -254,7 +254,7 @@ class BotEmoji(Table, schema_version=1, trigger_version=1):
         # )
         # """
         query = f"""
-            CREATE TABLE IF NOT EXISTS {BotEmoji}(
+            CREATE TABLE IF NOT EXISTS {BotEmoji} (
             id INTEGER NOT NULL,
             name TEXT NOT NULL,
             image_data BLOB,
@@ -267,7 +267,7 @@ class BotEmoji(Table, schema_version=1, trigger_version=1):
     @classmethod
     async def selectFromID(cls, db: Connection, id: int) -> BotEmoji:
         query = f"""
-        SELECT * FROM {BotEmoji}(id, name, image_data)
+        SELECT * FROM {BotEmoji}
         WHERE id = ?
         """
         db.row_factory = BotEmoji.row_factory # pyright: ignore[reportAttributeAccessIssue]
