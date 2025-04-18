@@ -12,6 +12,8 @@ from asyncio import Queue
 import aiosqlite, sqlite3
 from dataclasses import dataclass, asdict, astuple, fields
 
+from bot import config
+
 from common.logging import setup_logging
 from collections.abc import Generator, Iterable
 from typing import Any, Annotated, Callable, ClassVar, Protocol, Generic, cast, overload, override
@@ -740,8 +742,10 @@ class DatabaseManager(ManagerBase, metaclass=ManagerMeta, table_registry=TableRe
         self._debug_log(f"Initialized resources")
 
     async def setup(self, table_group: str | None=None,
-                    ignore_schema_updates: bool=False, ignore_trigger_updates: bool=False,
-                    drop_tables: bool=False, drop_triggers: bool=False):
+                    ignore_schema_updates: bool=config.ignore_schema_updates, 
+                    ignore_trigger_updates: bool=config.ignore_trigger_updates,
+                    drop_tables: bool=config.drop_tables, 
+                    drop_triggers: bool=config.drop_triggers):
         if not DatabaseManager.registry:
             return
         async with self.conn() as db:

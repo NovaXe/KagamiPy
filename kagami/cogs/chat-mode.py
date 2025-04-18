@@ -41,7 +41,7 @@ class SwedishFish(Table, schema_version=1, trigger_version=1):
             name TEXT NOT NULL,
             emoji_id INTEGER NOT NULL,
             UNIQUE (name),
-            FOREIGN KEY (emoji_id) REFERENCES {BotEmoji}.id
+            FOREIGN KEY (emoji_id) REFERENCES {BotEmoji}(id)
         )
         """
         await db.execute(query)
@@ -101,7 +101,7 @@ class SwedishFishStatistics(Table, schema_version=1, trigger_version=1):
             fish_id INTEGER NOT NULL,
             count INTEGER NOT NULL DEFAULT 0,
             UNIQUE (user_id, guild_id, fish_id),
-            FOREIGN KEY (fish_id) REFERENCES {SwedishFish}.emoji_id 
+            FOREIGN KEY (fish_id) REFERENCES {SwedishFish}(emoji_id)
                 ON UPDATE CASCADE ON DELETE CASCADE
         )
         """
@@ -134,11 +134,7 @@ class SwedishCog(GroupCog, group_name="sf"):
         self.dbman = bot.dbman
 
     async def cog_load(self) -> None:
-        await self.bot.dbman.setup(table_group=__name__,
-                                   drop_tables=config.drop_tables,
-                                   drop_triggers=config.drop_triggers,
-                                   ignore_schema_updates=config.ignore_schema_updates,
-                                   ignore_trigger_updates=config.ignore_trigger_updates)
+        await self.bot.dbman.setup(table_group=__name__)
 
     @app_commands.command(name="add-new", description="adds a new fish")
     @app_commands.rename(fish="new-name")

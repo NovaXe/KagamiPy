@@ -138,10 +138,7 @@ class StatusCog(GroupCog, name="status"):
         self.bot: Kagami = bot 
 
     async def cog_load(self):
-        await self.bot.dbman.setup(table_group=__name__, 
-                                   ignore_schema_updates=config.ignore_schema_updates,
-                                   ignore_trigger_updates=config.ignore_trigger_updates,
-                                   drop_tables=config.drop_tables)
+        await self.bot.dbman.setup(table_group=__name__)
         if self.bot.is_ready():
             await self.on_ready()
     

@@ -514,11 +514,7 @@ class Tags(GroupCog, group_name="t"):
             self.bot.tree.remove_command(ctx_menu.name, type=ctx_menu.type)
 
     async def cog_load(self) -> None:
-        await self.bot.dbman.setup(table_group=__name__,
-                                   drop_tables=config.drop_tables,
-                                   drop_triggers=config.drop_triggers,
-                                   ignore_schema_updates=config.ignore_schema_updates,
-                                   ignore_trigger_updates=config.ignore_trigger_updates)
+        await self.bot.dbman.setup(table_group=__name__)
         # await self.database.init(drop=config.drop_tables)
         # if config.migrate_data: await self.migrateData()
 

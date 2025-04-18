@@ -432,11 +432,7 @@ class ColorCog(GroupCog, name="color"):
     
     
     async def cog_load(self):
-        await self.bot.dbman.setup(table_group=__name__,
-                                   drop_tables=config.drop_tables,
-                                   drop_triggers=config.drop_triggers,
-                                   ignore_schema_updates=config.ignore_schema_updates,
-                                   ignore_trigger_updates=config.ignore_trigger_updates)
+        await self.bot.dbman.setup(table_group=__name__)
 
         pass
     
