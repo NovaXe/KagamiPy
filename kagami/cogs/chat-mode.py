@@ -20,8 +20,7 @@ from bot import Kagami, config
 from common.logging import setup_logging
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
-from common.tables import Guild, GuildSettings
-from common.emoji import BotEmoji
+from common.tables import Guild, GuildSettings, BotEmoji
 
 
 type Interaction = discord.Interaction[Kagami]
@@ -70,7 +69,7 @@ class SwedishFish(Table, schema_version=1, trigger_version=1):
         SELECT name FROM {SwedishFish}
         WHERE (name like ?)
         """
-        db.row_factory = Row 
+        db.row_factory = aiosqlite.Row 
         async with db.execute(query, (f"%{name}%",)) as cur:
             res = await cur.fetchall()
         return [row["name"] for row in res] 
@@ -102,7 +101,7 @@ class SwedishFishStatistics(Table, schema_version=1, trigger_version=1):
             fish_id INTEGER NOT NULL,
             count INTEGER NOT NULL DEFAULT 0,
             UNIQUE (user_id, guild_id, fish_id),
-            FOREIGN KEY (fish_id) REFERENCES {SwedishFish}.id 
+            FOREIGN KEY (fish_id) REFERENCES {SwedishFish}.emoji_id 
                 ON UPDATE CASCADE ON DELETE CASCADE
         )
         """
@@ -120,7 +119,7 @@ class FishTransformer(Transformer):
     async def autocomplete(self, interaction: Interaction, value: str) -> list[Choice[str]]: # pyright: ignore [reportIncompatibleMethodOverride]
         async with interaction.client.dbman.conn() as db:
             names = await SwedishFish.selectLikeNames(db, value)
-        choices = [Choice(name=name, value=value) for name in names][:25]
+        choices = [Choice(name=name, value=name) for name in names][:25]
         return choices
 
     async def transform(self, interaction: Interaction, value: str) -> SwedishFish: # pyright: ignore [reportIncompatibleMethodOverride]
@@ -133,6 +132,13 @@ class SwedishCog(GroupCog, group_name="sf"):
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.dbman = bot.dbman
+
+    async def cog_load(self) -> None:
+        await self.bot.dbman.setup(table_group=__name__,
+                                   drop_tables=config.drop_tables,
+                                   drop_triggers=config.drop_triggers,
+                                   ignore_schema_updates=config.ignore_schema_updates,
+                                   ignore_trigger_updates=config.ignore_trigger_updates)
 
     @app_commands.command(name="add-new", description="adds a new fish")
     @app_commands.rename(fish="new-name")
