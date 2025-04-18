@@ -43,7 +43,7 @@ class Kagami(commands.Bot):
         self.activity = discord.CustomActivity("Testing new things")
         self.raw_data = {}
         self.database = None
-        self.dbman: DatabaseManager | None = None
+        self.dbman: DatabaseManager = None
         self.changeCmdError()
         self.init_data()
         # self.restart_on_close = False
