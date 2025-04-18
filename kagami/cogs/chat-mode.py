@@ -135,7 +135,7 @@ class SwedishCog(GroupCog, group_name="sf"):
         self.dbman = bot.dbman
 
     @app_commands.command(name="add-new", description="adds a new fish")
-    @app_commands.rename(fish="new name")
+    @app_commands.rename(fish="new-name")
     async def add_new(self, interaction: Interaction, fish: Transform[SwedishFish | None, FishTransformer], image: discord.Attachment, value: int=0):
         await respond(interaction)
         if image.content_type not in ("JPEG", "PNG", "GIF", "WEBP"):
@@ -190,7 +190,7 @@ class ChatCog(GroupCog, group_name="chat"):
 
 
     @GroupCog.listener()
-    async def on_message(self):
+    async def on_message(self, message: discord.Message) -> None:
         pass
 
     async def chat_modes_autocomplete(self, interaction: Interaction, value: str) -> list[Choice[str]]:
@@ -208,5 +208,6 @@ class ChatCog(GroupCog, group_name="chat"):
 
 async def setup(bot: Kagami) -> None:
     await bot.add_cog(ChatCog(bot))
+    await bot.add_cog(SwedishCog(bot))
 
 

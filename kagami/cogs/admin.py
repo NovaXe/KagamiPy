@@ -6,7 +6,7 @@ import traceback
 import discord.utils
 from discord.ext import commands
 from discord import app_commands
-from bot import Kagami
+from bot import Kagami, config
 from common.interactions import respond
 from common.database import TableMetadata
 
@@ -45,6 +45,12 @@ class Admin(commands.Cog):
     async def sync_command_tree(self, ctx):
         await self.bot.tree.sync()
         await ctx.send("Command Tree Synced", ephemeral=True)
+
+    @commands.command(name="sync-admin", description="syncs the command tree")
+    @commands.is_owner()
+    async def sync_command_tree(self, ctx):
+        await self.bot.tree.sync(guild=discord.Object(config.admin_guild_id))
+        await ctx.send("Synced Admin Guild Commands", ephemeral=True)
 
     @commands.command(name="ping", description="checks the latency")
     @commands.is_owner()
