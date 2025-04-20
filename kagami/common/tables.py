@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import cast, override
 import discord
+from discord.ext import commands
 
 from common.database import Table, ManagerMeta
 from dataclasses import dataclass
@@ -243,6 +244,18 @@ class BotEmoji(Table, schema_version=1, trigger_version=1):
             return file
         else:
             return None
+
+    async def fetch_discord(self, bot: commands.Bot) -> discord.Emoji | None:
+        emoji = await bot.fetch_application_emoji(self.id)
+        return emoji
+
+    async def to_discord(self, bot: commands.Bot) -> discord.Emoji:
+        emoji = await bot.create_application_emoji(name=self.name, image=self.image_data)
+        return emoji
+
+    async def delete_discord(self, bot: commands.Bot) -> None:
+        emoji = await self.fetch_discord(bot)
+        await emoji.delete() if emoji else ...
 
     # def get_name(self) -> str:
     #     return f"{self.prefix}_{self.name}"
