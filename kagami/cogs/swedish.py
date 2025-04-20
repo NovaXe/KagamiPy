@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import override, cast, final
 from dataclasses import dataclass
+import random
+import math
 
 import aiosqlite
 from aiosqlite import Connection
@@ -12,6 +14,7 @@ import discord
 from discord import app_commands, Message, Guild
 from discord.app_commands import Choice, Transformer, Transform
 
+from discord.app_commands.models import app_command_option_factory
 from discord.ext import commands
 from discord.ext.commands import GroupCog, Cog
 
@@ -26,14 +29,78 @@ logger = setup_logging(__name__)
 
 type Interaction = discord.Interaction[Kagami]
 
-
 FISH_PREFIX = "sf"
+
+@dataclass
+class SwedishFishSettings(Table, schema_version=1, trigger_version=1):
+    guild_id: int
+    channel_id: int
+    wallet_enabled: bool=True
+    reactions_enabled: bool=False
+
+    @classmethod
+    async def create_table(cls, db: Connection):
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {SwedishFishSettings}(
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            wallet_enabled INTEGER NOT NULL DEFAULT 1,
+            reactions_enabled INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, channel_id),
+            FOREIGN KEY (guild_id) REFERENCES {Guild}(id)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+        )
+        """
+        await db.execute(query)
+
+    @classmethod
+    @override
+    async def create_triggers(cls, db: Connection):
+        triggers = [
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {SwedishFishSettings}_insert_guild_before_insert
+            BEFORE INSERT ON {SwedishFishSettings}
+            BEGIN
+                INSERT INTO {Guild}(id)
+                VALUES (NEW.guild_id)
+                ON CONFLICT(id) DO NOTHING;
+            END;
+            """
+        ]
+        for trigger in triggers:
+            await db.execute(trigger)
+
+    
+    async def upsert(self, db: Connection) -> None:
+        query = f"""
+        INSERT INTO {SwedishFishSettings} (guild_id, channel_id, wallet_enabled, reactions_enabled)
+        VALUES (:guild_id, :channel_id, :wallet_enabled, :reactions_enabled)
+        ON CONFLICT (guild_id, channel_id)
+        DO UPDATE SET wallet_enabled = :wallet_enabled AND reactions_enabled = :reactions_enabled
+        """
+        await db.execute(query, self.asdict())
+
+    async def select(self, db: Connection) -> SwedishFishSettings | None:
+        query = f"""
+        SELECT * FROM {SwedishFishSettings}
+        WHERE guild_id = :guild_id AND channel_id = :channel_id
+        """
+        db.row_factory = SwedishFishSettings.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res
+
 
 @dataclass
 class SwedishFish(Table, schema_version=2, trigger_version=1):
     name: str
     emoji_id: int
     value: int=0
+
+    def probability(self) -> float:
+        CF = 0.99
+        R = random.random() * 0.10 + 0.95
+        return max(math.pow(2, 1-self.value)* R, 1) * CF
 
     @classmethod
     async def create_table(cls, db: Connection):
@@ -43,7 +110,7 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
             emoji_id INTEGER NOT NULL,
             value INTEGER NOT NULL DEFAULT 0,
             UNIQUE (name),
-            FOREIGN KEY (emoji_id) REFERENCES {BotEmoji}(id)
+            FOREIGN KEY (emoji_id) REFERENCES {BotEmoji}(id),
         )
         """
         await db.execute(query)
@@ -92,29 +159,53 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
         """
         await db.execute(query, (self.name,))
 
+@dataclass
+class FishWallet(Table, schema_version=1, trigger_version=1):
+    user_id: int
+    guild_id: int
+    fish_id: int
+    count: int=0
 
-class SwedishFishStatistics(Table, schema_version=1, trigger_version=1):
     @classmethod
     async def create_table(cls, db: Connection):
         query = f"""
-        CREATE TABLE IF NOT EXISTS {SwedishFishStatistics} (
+        CREATE TABLE IF NOT EXISTS {FishWallet} (
             user_id INTEGER NOT NULL,
             guild_id INTEGER NOT NULL DEFAULT 0,
             fish_id INTEGER NOT NULL,
             count INTEGER NOT NULL DEFAULT 0,
             UNIQUE (user_id, guild_id, fish_id),
             FOREIGN KEY (fish_id) REFERENCES {SwedishFish}(emoji_id)
-                ON UPDATE CASCADE ON DELETE CASCADE,
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
             FOREIGN KEY (user_id) REFERENCES {User}(id)
-                ON UPDATE CASCADE ON DELETE CASCADE
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+            FOREIGN KEY (guild_id) REFERENCES {SwedishFishSettings}(guild_id)
+                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
         await db.execute(query)
 
+    @classmethod
+    @override
+    async def create_triggers(cls, db: aiosqlite.Connection):
+        triggers = [
+            f"""
+            CREATE TRIGGER IF NOT EXISTS {FishWallet}_insert_settings_before_insert
+            BEFORE INSERT ON {FishWallet}
+            BEGIN
+                INSERT INTO {SwedishFishSettings}(id)
+                VALUES (NEW.guild_id)
+                ON CONFLICT(id) DO NOTHING;
+            END;
+            """
+        ]
+        for trigger in triggers:
+            await db.execute(trigger)
+
     @override
     async def upsert(self, db: aiosqlite.Connection) -> None:
         query = f"""
-        INSERT INTO {SwedishFishStatistics} (user_id, guild_id, fish_id, count)
+        INSERT INTO {FishWallet} (user_id, guild_id, fish_id, count)
         VALUES (:user_id, guild_id, fish_id, count)
         ON CONFLICT (user_id, guild_id, fish_id)
         DO UPDATE SET count = :count
@@ -122,13 +213,13 @@ class SwedishFishStatistics(Table, schema_version=1, trigger_version=1):
         return await super().insert(db)
 
     @classmethod
-    async def selectAll(cls, db: Connection, user_id: int, guild_id: int=0, fish_id: int=0) -> list[SwedishFishStatistics]:
+    async def selectAll(cls, db: Connection, user_id: int, guild_id: int=0, fish_id: int=0) -> list[FishWallet]:
         """
         guild_id == 0 gives across all servers
         fish_id == 0 gives all fish
         """
         query = f"""
-        SELECT * FROM {SwedishFishStatistics}
+        SELECT * FROM {FishWallet}
         WHERE user_id = :user_id
         AND CASE WHEN :guild_id != 0
             THEN guild_id = :guild_id
@@ -140,17 +231,17 @@ class SwedishFishStatistics(Table, schema_version=1, trigger_version=1):
             END
         """
         params = {"user_id": user_id, "guild_id" : guild_id, "fish_id": fish_id}
-        db.row_factory = SwedishFishStatistics.row_factory
+        db.row_factory = FishWallet.row_factory
         async with db.execute(query, params) as cur:
             res = await cur.fetchall()
         return res
     
-    async def select(self, db: Connection) -> SwedishFishStatistics:
+    async def select(self, db: Connection) -> FishWallet:
         """
         Returns an updated version of the current row
         """
         query = f"""
-        SELECT * FROM {SwedishFishStatistics}
+        SELECT * FROM {FishWallet}
         WHERE user_id = :user_id
         AND CASE WHEN :guild_id != 0
             THEN guild_id = :guild_id
@@ -161,10 +252,35 @@ class SwedishFishStatistics(Table, schema_version=1, trigger_version=1):
             ELSE 1
             END
         """
-        db.row_factory = SwedishFishStatistics.row_factory
+        db.row_factory = FishWallet.row_factory
         async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
         return res
+
+    async def totalValue(self, db: Connection) -> int:
+        """
+        Gives the total value based off of the current row instance details
+        Follows similar selection rules from selectAll
+        """
+        query = f"""
+        SELECT fw.fish_id, fw.count, sf.value, (fw.count * sf.vlaue) as t_value
+        SELECT Coalesce(value) FROM {FishWallet} as fw
+        INNER JOIN {SwedishFish} as sf
+            ON fw.fish_id = sf.emoji_id
+        WHERE user_id = :user_id
+        AND CASE WHEN :guild_id != 0
+            THEN guild_id = :guild_id
+            ELSE 1
+            END
+        AND CASE WHEN :fish_id != 0
+            THEN fish_id = :fish_id
+            ELSE 1
+            END
+        """
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res["t_value"] if res else 0
 
 
 class FishTransformer(Transformer):
@@ -194,9 +310,8 @@ class SwedishAdmin(GroupCog, group_name="sf"):
         await self.bot.dbman.setup(table_group=__name__)
 
 
-    @app_commands.command(name="add-new", description="adds a new fish")
-    @app_commands.rename(fish="new-name")
-    async def add_new(self, interaction: Interaction, fish: Transform[SwedishFish | None, FishTransformer], image: discord.Attachment, value: int):
+    @app_commands.command(name="add", description="adds a new fish")
+    async def add(self, interaction: Interaction, name: Transform[SwedishFish | None, FishTransformer], image: discord.Attachment, value: int):
         await respond(interaction)
         logger.debug(f"add_new: {image.content_type=}")
         if image.content_type is None:
@@ -211,11 +326,11 @@ class SwedishAdmin(GroupCog, group_name="sf"):
             await respond(interaction, f"Invalid file type: {ct_fields[1]} is not {", ".join(VALID_FILE_TYPES[:-1])} or {VALID_FILE_TYPES[-1]}")
             return
         
-        if fish is not None:
+        if name is not None:
             await respond(interaction, "There is already a fish with that name")
             return
 
-        new_fish_name = interaction.namespace["new-name"]
+        new_fish_name = interaction.namespace["name"]
         # elif image.size > 256_000: # bytes
         #     await respond(interaction, "Image is larger than 256kB")
         
@@ -233,6 +348,15 @@ class SwedishAdmin(GroupCog, group_name="sf"):
             await new_fish.upsert(db)
             await db.commit()
         await respond(interaction, f"Added Swedish Fish: {new_fish_name}")
+
+    @app_commands.command(name="edit", description="edits an existing fish")
+    async def edit(self, interaction: Interaction, fish: Transform[SwedishFish | None, FishTransformer], image: discord.Attachment | None=None, value: int | None=None) -> None:
+        await respond(interaction)
+        if image is not None:
+
+
+
+
 
     @app_commands.command(name="delete", description="deletes fish")
     async def delete(self, interaction: Interaction, fish: Transform[SwedishFish | None, FishTransformer]) -> None:
@@ -266,14 +390,12 @@ class Swedish(GroupCog, group_name="swedish-fish"):
     async def cog_load(self) -> None:
         pass
 
-    @GroupCog.listener()
+
     async def on_message(self, message: discord.Message) -> None:
         assert message.guild is not None
         async with self.dbman.conn() as db:
             states = {mode: await ChatMode(mode, message.guild.id).select(db) for mode in CHAT_MODES}
 
-            if states["fish"]:
-                await message.add_reaction("🐟")
             if states["swedish fish"]:
                 pass
             if states["reddit"]:
