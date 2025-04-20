@@ -11,7 +11,7 @@ from io import BytesIO
 from PIL import Image, ImageFile
 
 import discord
-from discord import app_commands, Message, Guild
+from discord import app_commands, Message, Guild, channel
 from discord.app_commands import Choice, Transformer, Transform
 
 from discord.app_commands.models import app_command_option_factory
@@ -90,6 +90,17 @@ class SwedishFishSettings(Table, schema_version=1, trigger_version=1):
             res = await cur.fetchone()
         return res
 
+    @classmethod
+    async def selectCurrent(cls, db: Connection, guild_id: int, channel_id: int) -> SwedishFishSettings:
+        channel_settings = await SwedishFishSettings(guild_id, channel_id).select(db)
+        guild_settings = await SwedishFishSettings(guild_id, 0).select(db)
+        settings = SwedishFishSettings(guild_id, channel_id)
+        if channel_settings is not None:
+            settings = channel_settings
+        elif guild_settings is not None:
+            settings = guild_settings
+        return settings
+
 
 @dataclass
 class SwedishFish(Table, schema_version=2, trigger_version=1):
@@ -101,6 +112,13 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
         CF = 0.99
         R = random.random() * 0.10 + 0.95
         return max(math.pow(2, 1-self.value)* R, 1) * CF
+
+    def roll(self) -> bool:
+        return random.random() <= self.probability()
+
+    async def get_emoji(self, db: Connection) -> BotEmoji | None:
+        "The same as calling BotEmoji.selectFromID"
+        return await BotEmoji.selectFromID(db, self.emoji_id)
 
     @classmethod
     async def create_table(cls, db: Connection):
@@ -142,6 +160,37 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
         async with db.execute(query, (f"%{name}%",)) as cur:
             res = await cur.fetchall()
         return [row["name"] for row in res] 
+
+    @classmethod
+    async def selectAll(cls, db: Connection) -> list[SwedishFish]:
+        query = f"""
+        SELECT * FROM {SwedishFish}
+        """
+        db.row_factory = SwedishFish.row_factory
+        res = await db.execute_fetchall(query)
+        return res
+
+    @classmethod
+    async def gamble(cls, db: Connection) -> list[SwedishFish]:
+        query = f"""
+        SELECT * FROM {SwedishFish}
+        """
+        db.row_factory = SwedishFish.row_factory
+        fish: SwedishFish
+        out: list[SwedishFish] = []
+        async with db.execute(query) as cur:
+            async for fish in cur:
+                out.append(fish) if fish.roll() else ...
+        return out
+
+    # @classmethod
+    # async def gamble(cls, db: Connection) -> list[tuple()]
+    #     query = f"""
+    #     SELECT emoji_id, emoji_name, 
+    #     FROM {SwedishFish} as sf
+    #     INNER JOIN {BotEmoji} as be
+    #         ON sf.emoji_id = be.id
+    #     """
 
     async def upsert(self, db: Connection) -> None:
         query = f"""
@@ -239,6 +288,8 @@ class FishWallet(Table, schema_version=1, trigger_version=1):
     async def select(self, db: Connection) -> FishWallet:
         """
         Returns an updated version of the current row
+        guild_id == 0 => all servers
+        fish_id == => all fish
         """
         query = f"""
         SELECT * FROM {FishWallet}
@@ -374,12 +425,6 @@ class SwedishAdmin(GroupCog, group_name="sf"):
         await respond(interaction, f"Deleted fish: {fish.name}")
 
 
-CHAT_MODES = ("fish", "swedish fish", "reddit")
-
-
-async def get_sf_reaction(message: discord.Message) -> str
-    pass
-
 
 class Swedish(GroupCog, group_name="swedish-fish"): 
     def __init__(self, bot: Kagami):
@@ -393,35 +438,59 @@ class Swedish(GroupCog, group_name="swedish-fish"):
 
     async def on_message(self, message: discord.Message) -> None:
         assert message.guild is not None
+        default_settings = SwedishFishSettings(message.guild.id, 0)
         async with self.dbman.conn() as db:
-            states = {mode: await ChatMode(mode, message.guild.id).select(db) for mode in CHAT_MODES}
-
-            if states["swedish fish"]:
-                pass
-            if states["reddit"]:
-                pass
+            settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
+            #  or default_settings
+            successes = await SwedishFish.gamble(db)
+            if settings.wallet_enabled:    
+                # successes = await SwedishFish.gamble(db)
+                for s in successes:
+                    default = FishWallet(message.author.id, message.guild.id, s.emoji_id)
+                    old = await default.select(db) or default
+                    old.count +=1 
+                    await old.upsert(db)
+            if settings.reactions_enabled:
+                for s in successes:
+                    bot_emoji = await s.get_emoji(db)
+                    if bot_emoji is None:
+                        raise ValueError(f"Swedish Fish {s.name} is registered with emoji {s.emoji_id} which does not exist in {BotEmoji}")
+                    try:
+                        emoji = await bot_emoji.fetch_discord(self.bot)
+                        await message.add_reaction(emoji)
+                    except discord.HTTPException as e:
+                        logger.error(f"Discord emoji for swedish fish {s.name} with id {s.emoji_id} could not be retrieved") 
         
 
-    # async def chat_modes_autocomplete(self, interaction: Interaction, value: str) -> list[Choice[str]]:
-    #     choices = [Choice(name=mode, value=mode) for mode in CHAT_MODES][:25]
-    #     return choices
-
-
-    # @app_commands.autocomplete(mode=chat_modes_autocomplete)
-    @app_commands.command(name="mode", description="toggle a chat mode") 
-    @app_commands.choices(mode=[Choice(name=mode, value=mode) for mode in CHAT_MODES][:25])
-    async def mode(self, interaction: Interaction, mode: Choice[str]) -> None:
+    @app_commands.command(name="toggle-reactions", description="toggles the visible reactions, users can still collect fish")
+    async def toggle_reactions(self, interaction: Interaction, guildwide: bool=True) -> None:
         await respond(interaction)
         assert interaction.guild is not None
+        assert interaction.channel is not None
+        channel_id = 0 if guildwide else interaction.channel.id
+        default = SwedishFishSettings(interaction.guild.id, channel_id)
         async with self.dbman.conn() as db:
-            state = ChatMode(mode.name, interaction.guild.id, False)
-            state = new if (new:=await state.select(db)) else state
-            state.enabled = not bool(state.enabled)
+            state = await default.select(db) or default
+            state.reactions_enabled = not state.reactions_enabled
             await state.upsert(db)
             await db.commit()
-        r = "enabled" if state.enabled else "disabled"
-        await respond(interaction, f"{mode} mode is now {r}")
-    
+        r = "enabled, you can now see the fish" if state.wallet_enabled else "disabled, you can no longer see the fish"
+        await respond(interaction, f"The reactions have been {r}")
+
+    @app_commands.command(name="toggle-wallet", description="this toggles the wallet that allows users to collect fish, but reactions can still show up")
+    async def toggle_reactions(self, interaction: Interaction, guildwide: bool=True) -> None:
+        await respond(interaction)
+        assert interaction.guild is not None
+        assert interaction.channel is not None
+        channel_id = 0 if guildwide else interaction.channel.id
+        default = SwedishFishSettings(interaction.guild.id, channel_id)
+        async with self.dbman.conn() as db:
+            state = await default.select(db) or default
+            state.wallet_enabled = not state.wallet_enabled
+            await state.upsert(db)
+            await db.commit()
+        r = "enabled, you can collect fish again" if state.wallet_enabled else "disabled, no more collecting fish"
+        await respond(interaction, f"The wallet has been {r}")
 
 
 async def setup(bot: Kagami) -> None:
