@@ -180,7 +180,7 @@ class User(Table, schema_version=1, trigger_version=1):
 @dataclass
 class PersistentSettings(Table, schema_version=1, trigger_version=1):
     key: str
-    value: str | int | float
+    value: str | int | float | bool
     
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
@@ -211,6 +211,16 @@ class PersistentSettings(Table, schema_version=1, trigger_version=1):
         async with db.execute(query, (key,)) as cur:
             res = await cur.fetchone()
         return res[0] if res else default_value
+
+    async def select(self, db: aiosqlite.Connection) -> PersistentSettings | None:
+        query = f"""
+        SELECT * FROM {PersistentSettings}
+        WHERE key = :key
+        """
+        db.row_factory = PersistentSettings.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res
 
 
 @dataclass
