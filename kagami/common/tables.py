@@ -245,7 +245,7 @@ class BotEmoji(Table, schema_version=1, trigger_version=1):
         else:
             return None
 
-    async def fetch_discord(self, bot: commands.Bot) -> discord.Emoji | None:
+    async def fetch_discord(self, bot: commands.Bot) -> discord.Emoji:
         emoji = await bot.fetch_application_emoji(self.id)
         return emoji
 
@@ -288,7 +288,7 @@ class BotEmoji(Table, schema_version=1, trigger_version=1):
         await db.execute(query)
 
     @classmethod
-    async def selectFromID(cls, db: Connection, id: int) -> BotEmoji:
+    async def selectFromID(cls, db: Connection, id: int) -> BotEmoji | None:
         query = f"""
         SELECT * FROM {BotEmoji}
         WHERE id = ?
