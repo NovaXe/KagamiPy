@@ -16,6 +16,7 @@ type Context = commands.Context[Kagami]
 class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot: Kagami = bot
+        self.last_cog: str | None=None
 
 
     # @commands.is_owner()
@@ -71,9 +72,17 @@ class Admin(commands.Cog):
     async def list_ext(self, ctx):
         await ctx.send(" ".join(self.bot.extensions))
 
-    @commands.command(name="reload", description="reloads a  cog")
+    @commands.command(name="reload", description="reloads a cog")
     @commands.is_owner()
-    async def reload_cog(self, ctx, cog_name):
+    async def reload_cog(self, ctx, cog_name=None):
+        if cog_name is not None:
+            self.last_cog = cog_name
+        elif self.last_cog is not None:
+            cog_name = self.last_cog
+        else:
+            await ctx.send(f"Specify a cog to reload")
+            return
+
         name = f"cogs.{cog_name}"
         if name in self.bot.extensions:
             await self.bot.reload_extension(name)
