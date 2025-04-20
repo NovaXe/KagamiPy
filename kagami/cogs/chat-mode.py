@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import override, cast
+from typing import override, cast, final
 from dataclasses import dataclass
 
 import aiosqlite
@@ -17,22 +17,23 @@ from discord.ext.commands import GroupCog, Cog
 
 from bot import Kagami, config
 
-from common.logging import setup_logging
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, BotEmoji
 
+from common.logging import setup_logging
+logger = setup_logging(__name__)
 
 type Interaction = discord.Interaction[Kagami]
 
 
-FISH_PREFIX = "SF"
+FISH_PREFIX = "sf"
 
 @dataclass
-class SwedishFish(Table, schema_version=1, trigger_version=1):
+class SwedishFish(Table, schema_version=2, trigger_version=1):
     name: str
     emoji_id: int
-    value: int
+    value: int=0
 
     @classmethod
     async def create_table(cls, db: Connection):
@@ -40,6 +41,7 @@ class SwedishFish(Table, schema_version=1, trigger_version=1):
         CREATE TABLE IF NOT EXISTS {SwedishFish} (
             name TEXT NOT NULL,
             emoji_id INTEGER NOT NULL,
+            value INTEGER NOT NULL DEFAULT 0,
             UNIQUE (name),
             FOREIGN KEY (emoji_id) REFERENCES {BotEmoji}(id)
         )
@@ -76,16 +78,16 @@ class SwedishFish(Table, schema_version=1, trigger_version=1):
 
     async def upsert(self, db: Connection) -> None:
         query = f"""
-            INSERT INTO {SwedishFish} (id, name, value)
-            VALUES (:id, :name, :value)
+            INSERT INTO {SwedishFish} (name, emoji_id, value)
+            VALUES (:name, :emoji_id, :value)
             ON CONFLICT (name)
-            DO UPDATE SET id = :id, value = :value
+            DO UPDATE SET emoji_id = :emoji_id, value = :value
         """
         await db.execute(query, self.asdict())
 
     async def delete(self, db: Connection) -> None:
         query = f"""
-        DELETE * FROM {SwedishFish}
+        DELETE FROM {SwedishFish}
         WHERE name = ?
         """
         await db.execute(query, (self.name,))
@@ -127,6 +129,8 @@ class FishTransformer(Transformer):
             result = await SwedishFish.selectFromName(db, value)
         return result
 
+VALID_FILE_TYPES = ("png", "jpg", "jpeg", "webp")
+
 @app_commands.guilds(discord.Object(config.admin_guild_id))
 class SwedishCog(GroupCog, group_name="sf"):
     def __init__(self, bot: Kagami):
@@ -136,32 +140,46 @@ class SwedishCog(GroupCog, group_name="sf"):
     async def cog_load(self) -> None:
         await self.bot.dbman.setup(table_group=__name__)
 
+
     @app_commands.command(name="add-new", description="adds a new fish")
     @app_commands.rename(fish="new-name")
     async def add_new(self, interaction: Interaction, fish: Transform[SwedishFish | None, FishTransformer], image: discord.Attachment, value: int=0):
         await respond(interaction)
-        if image.content_type not in ("JPEG", "PNG", "GIF", "WEBP"):
-            await respond(interaction, "Invalid Filetype")
+        logger.debug(f"add_new: {image.content_type=}")
+        if image.content_type is None:
+            await respond(interaction, "Missing or unknown content type")
+            return
+        ct_fields = image.content_type.split("/")
+
+        if ct_fields[0] != "image":
+            await respond(interaction, f"Invalid content type: {ct_fields[0]} is not image")
+            return
+        elif ct_fields[1].lower() not in VALID_FILE_TYPES:
+            await respond(interaction, f"Invalid file type: {ct_fields[1]} is not {", ".join(VALID_FILE_TYPES[:-1])} or {VALID_FILE_TYPES[-1]}")
             return
         
         if fish is not None:
             await respond(interaction, "There is already a fish with that name")
             return
 
-        new_fish_name = interaction.namespace.fish
+        new_fish_name = interaction.namespace["new-name"]
         # elif image.size > 256_000: # bytes
         #     await respond(interaction, "Image is larger than 256kB")
         
         image_data = await image.read()
-        emoji = await self.bot.create_application_emoji(name=f"{FISH_PREFIX}_{new_fish_name}", image=image_data)
+        try:
+            emoji = await self.bot.create_application_emoji(name=f"{FISH_PREFIX}_{new_fish_name}", image=image_data)
+        except discord.HTTPException as e:
+            await respond(interaction, f"`{e.text}`")
+            return
+            
         new_fish = SwedishFish(name=new_fish_name, emoji_id=emoji.id, value=value)
         
         async with self.dbman.conn() as db:
             await BotEmoji.insertFromDiscord(db, emoji)
             await new_fish.upsert(db)
             await db.commit()
-
-        await respond(interaction, f"Added fish: {new_fish_name}")
+        await respond(interaction, f"Added Swedish Fish: {new_fish_name}")
 
     @app_commands.command(name="delete", description="deletes fish")
     async def delete(self, interaction: Interaction, fish: Transform[SwedishFish | None, FishTransformer]) -> None:

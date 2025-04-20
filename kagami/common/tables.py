@@ -278,7 +278,7 @@ class BotEmoji(Table, schema_version=1, trigger_version=1):
     @override
     async def insert(self, db: Connection):
         query = f"""
-            INSERT OR IGNORE INTO {BotEmoji} (id, name, group, image_data)
+            INSERT OR IGNORE INTO {BotEmoji} (id, name, image_data)
             VALUES (:id, :name, :image_data)
         """
         await db.execute(query, self.asdict())
@@ -286,8 +286,8 @@ class BotEmoji(Table, schema_version=1, trigger_version=1):
     @override
     async def delete(self, db: Connection):
         query = f"""
-            DELETE * FROM {BotEmoji}
-            WHERE id = ?
+        DELETE FROM {BotEmoji}
+        WHERE id = ?
         """
         await db.execute(query, (self.id,))
 
@@ -295,7 +295,7 @@ class BotEmoji(Table, schema_version=1, trigger_version=1):
     @classmethod
     async def deleteFromID(cls, db: Connection, id: int):
         query = f"""
-            DELETE * FROM {BotEmoji}
+            DELETE FROM {BotEmoji}
             WHERE id = ?
         """
         await db.execute(query, (id,))
