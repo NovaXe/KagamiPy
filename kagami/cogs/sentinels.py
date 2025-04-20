@@ -27,7 +27,7 @@ logger = setup_logging(__name__)
 
 
 @dataclass
-class SentinelSettings(Table, schema_version=1, trigger_version=1):
+class SentinelSettings(Table, schema_version=1, trigger_version=2):
     guild_id: int
     local_enabled: bool = True
     global_enabled: bool = False
@@ -62,7 +62,7 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1):
             CREATE TRIGGER IF NOT EXISTS {SentinelSettings}_insert_guild_before_insert
             BEFORE INSERT ON {SentinelSettings}
             BEGIN
-                INSERT INTO Guild(id)
+                INSERT INTO {Guild}(id)
                 VALUES (NEW.guild_id)
                 ON CONFLICT(id) DO NOTHING;
             END;
@@ -120,7 +120,7 @@ class SentinelSettings(Table, schema_version=1, trigger_version=1):
         return result
 
 @dataclass
-class Sentinel(Table, schema_version=1, trigger_version=2):
+class Sentinel(Table, schema_version=1, trigger_version=3):
     guild_id: int
     name: str
     uses: int = 0
@@ -135,7 +135,7 @@ class Sentinel(Table, schema_version=1, trigger_version=2):
         uses INTEGER DEFAULT 0,
         enabled INTEGER DEFAULT 1,
         PRIMARY KEY(guild_id, name),
-        FOREIGN KEY(guild_id) REFERENCES {Sentinel}(guild_id) 
+        FOREIGN KEY(guild_id) REFERENCES {SentinelSettings}(guild_id) 
             ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
         """
