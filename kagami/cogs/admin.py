@@ -49,7 +49,7 @@ class Admin(commands.Cog):
 
     @commands.command(name="sync-admin", description="syncs the command tree")
     @commands.is_owner()
-    async def sync_command_tree(self, ctx):
+    async def sync_admin_guild(self, ctx):
         await self.bot.tree.sync(guild=discord.Object(config.admin_guild_id))
         await ctx.send("Synced Admin Guild Commands", ephemeral=True)
 

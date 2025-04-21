@@ -116,9 +116,12 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
     def roll(self) -> bool:
         return random.random() <= self.probability()
 
-    async def get_emoji(self, db: Connection) -> BotEmoji | None:
+    async def get_emoji(self, db: Connection) -> BotEmoji:
         "The same as calling BotEmoji.selectFromID"
-        return await BotEmoji.selectFromID(db, self.emoji_id)
+        emoji = await BotEmoji.selectFromID(db, self.emoji_id)
+        if emoji is None:
+            raise ValueError(f"Swedish Fish `{self.name}` is missing an emoji, {self.emoji_id} does not exist in {BotEmoji}")
+        return emoji
 
     @classmethod
     async def create_table(cls, db: Connection):
@@ -128,7 +131,7 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
             emoji_id INTEGER NOT NULL,
             value INTEGER NOT NULL DEFAULT 0,
             UNIQUE (name),
-            FOREIGN KEY (emoji_id) REFERENCES {BotEmoji}(id),
+            FOREIGN KEY (emoji_id) REFERENCES {BotEmoji}(id)
         )
         """
         await db.execute(query)
@@ -209,10 +212,10 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
         await db.execute(query, (self.name,))
 
 @dataclass
-class FishWallet(Table, schema_version=1, trigger_version=1):
+class FishWallet(Table, schema_version=2, trigger_version=1):
     user_id: int
     guild_id: int
-    fish_id: int
+    fish_name: int
     count: int=0
 
     @classmethod
@@ -221,10 +224,10 @@ class FishWallet(Table, schema_version=1, trigger_version=1):
         CREATE TABLE IF NOT EXISTS {FishWallet} (
             user_id INTEGER NOT NULL,
             guild_id INTEGER NOT NULL DEFAULT 0,
-            fish_id INTEGER NOT NULL,
+            fish_name INTEGER NOT NULL,
             count INTEGER NOT NULL DEFAULT 0,
-            UNIQUE (user_id, guild_id, fish_id),
-            FOREIGN KEY (fish_id) REFERENCES {SwedishFish}(emoji_id)
+            UNIQUE (user_id, guild_id, fish_name),
+            FOREIGN KEY (fish_name) REFERENCES {SwedishFish}(name)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
             FOREIGN KEY (user_id) REFERENCES {User}(id)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
@@ -254,18 +257,18 @@ class FishWallet(Table, schema_version=1, trigger_version=1):
     @override
     async def upsert(self, db: aiosqlite.Connection) -> None:
         query = f"""
-        INSERT INTO {FishWallet} (user_id, guild_id, fish_id, count)
-        VALUES (:user_id, guild_id, fish_id, count)
-        ON CONFLICT (user_id, guild_id, fish_id)
+        INSERT INTO {FishWallet} (user_id, guild_id, fish_name, count)
+        VALUES (:user_id, guild_id, fish_name, count)
+        ON CONFLICT (user_id, guild_id, fish_name)
         DO UPDATE SET count = :count
         """
         return await super().insert(db)
 
     @classmethod
-    async def selectAll(cls, db: Connection, user_id: int, guild_id: int=0, fish_id: int=0) -> list[FishWallet]:
+    async def selectAll(cls, db: Connection, user_id: int, guild_id: int=0, fish_name: str | None=None) -> list[FishWallet]:
         """
         guild_id == 0 gives across all servers
-        fish_id == 0 gives all fish
+        fish_name is None gives all fish
         """
         query = f"""
         SELECT * FROM {FishWallet}
@@ -274,12 +277,12 @@ class FishWallet(Table, schema_version=1, trigger_version=1):
             THEN guild_id = :guild_id
             ELSE 1
             END
-        AND CASE WHEN :fish_id != 0
-            THEN fish_id = :fish_id
+        AND CASE WHEN :fish_name IS NOT NULL
+            THEN fish_name = :fish_name
             ELSE 1
             END
         """
-        params = {"user_id": user_id, "guild_id" : guild_id, "fish_id": fish_id}
+        params = {"user_id": user_id, "guild_id" : guild_id, "fish_name": fish_name}
         db.row_factory = FishWallet.row_factory
         async with db.execute(query, params) as cur:
             res = await cur.fetchall()
@@ -289,7 +292,7 @@ class FishWallet(Table, schema_version=1, trigger_version=1):
         """
         Returns an updated version of the current row
         guild_id == 0 => all servers
-        fish_id == => all fish
+        fish_name is None => all fish
         """
         query = f"""
         SELECT * FROM {FishWallet}
@@ -298,8 +301,8 @@ class FishWallet(Table, schema_version=1, trigger_version=1):
             THEN guild_id = :guild_id
             ELSE 1
             END
-        AND CASE WHEN :fish_id != 0
-            THEN fish_id = :fish_id
+        AND CASE WHEN :fish_name IS NOT NULL
+            THEN fish_name = :fish_name
             ELSE 1
             END
         """
@@ -314,17 +317,17 @@ class FishWallet(Table, schema_version=1, trigger_version=1):
         Follows similar selection rules from selectAll
         """
         query = f"""
-        SELECT fw.fish_id, fw.count, sf.value, (fw.count * sf.vlaue) as t_value
+        SELECT fw.fish_name, fw.count, sf.value, (fw.count * sf.vlaue) as t_value
         SELECT Coalesce(value) FROM {FishWallet} as fw
         INNER JOIN {SwedishFish} as sf
-            ON fw.fish_id = sf.emoji_id
+            ON fw.fish_name = sf.name
         WHERE user_id = :user_id
         AND CASE WHEN :guild_id != 0
             THEN guild_id = :guild_id
             ELSE 1
             END
-        AND CASE WHEN :fish_id != 0
-            THEN fish_id = :fish_id
+        AND CASE WHEN :fish_name IS NOT NULL
+            THEN fish_name = :fish_name
             ELSE 1
             END
         """
@@ -403,10 +406,22 @@ class SwedishAdmin(GroupCog, group_name="sf"):
     @app_commands.command(name="edit", description="edits an existing fish")
     async def edit(self, interaction: Interaction, fish: Transform[SwedishFish | None, FishTransformer], image: discord.Attachment | None=None, value: int | None=None) -> None:
         await respond(interaction)
-        if image is not None:
+        if fish is None:
+            await respond(interaction, "There is no fish with that name")
+            return
+        async with self.dbman.conn() as db:
+            if image is not None:
+                old_emoji = await fish.get_emoji(db)
+                image_data = await image.read()
+                await old_emoji.delete_discord(self.bot)
+                await old_emoji.delete(db)
+                emoji = await self.bot.create_application_emoji(name=f"{FISH_PREFIX}_{fish.name}", image=image_data)
+                await BotEmoji.insertFromDiscord(db, emoji)
+                fish.emoji_id = emoji.id
+            fish.value = value if value else fish.value
+            await fish.upsert(db)
 
-
-
+        await respond(interaction, f"Editted the fish")
 
 
     @app_commands.command(name="delete", description="deletes fish")
@@ -453,8 +468,6 @@ class Swedish(GroupCog, group_name="swedish-fish"):
             if settings.reactions_enabled:
                 for s in successes:
                     bot_emoji = await s.get_emoji(db)
-                    if bot_emoji is None:
-                        raise ValueError(f"Swedish Fish {s.name} is registered with emoji {s.emoji_id} which does not exist in {BotEmoji}")
                     try:
                         emoji = await bot_emoji.fetch_discord(self.bot)
                         await message.add_reaction(emoji)
