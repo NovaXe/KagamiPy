@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import override, cast, final
+from typing import override, cast, final, Any
 from dataclasses import dataclass
 import random
 import math
@@ -110,6 +110,25 @@ class SwedishFishSettings(Table, schema_version=1, trigger_version=1):
             settings = guild_settings
         return settings
 
+def prob_exp(value: float) -> float:
+    CF = 0.99
+    R = random.random() * 0.10 + 0.95
+    return min(math.pow(2, 1-value)* R, 1) * CF
+
+def prob_quad(value: float) -> float:
+    CF = 0.99
+    R = random.random() * 0.10 + 0.95
+    return min(math.pow(value, -2)* R, 1) * CF
+
+def prob_threehalfs(value: float) -> float:
+    CF = 0.99
+    R = random.random() * 0.10 + 0.95
+    return min(math.pow(value, -1.5)* R, 1) * CF
+
+def prob_fourfifths(value: float) -> float:
+    CF = 0.99
+    R = random.random() * 0.10 + 0.95
+    return min(math.pow(value, -1.25)* R, 1) * CF
 
 @dataclass
 class SwedishFish(Table, schema_version=2, trigger_version=1):
@@ -117,10 +136,10 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
     emoji_id: int
     value: int=0
 
+    
+
     def probability(self) -> float:
-        CF = 0.99
-        R = random.random() * 0.10 + 0.95
-        return min(math.pow(2, 1-self.value)* R, 1) * CF
+        return prob_threehalfs(self.value)
 
     def roll(self) -> bool:
         r = random.random()
@@ -179,6 +198,7 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
     async def selectAll(cls, db: Connection) -> list[SwedishFish]:
         query = f"""
         SELECT * FROM {SwedishFish}
+        ORDER BY value
         """
         db.row_factory = SwedishFish.row_factory
         res = await db.execute_fetchall(query)
@@ -226,7 +246,7 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
 class FishWallet(Table, schema_version=4, trigger_version=6):
     user_id: int
     guild_id: int
-    fish_name: str
+    fish_name: str | None
     count: int=0
 
     @classmethod
@@ -303,6 +323,36 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
             res = await cur.fetchall()
         return res
     
+    async def list(self, db: Connection) -> list[aiosqlite.Row]:
+        """
+        Returns data from the querying the pseudo row instance,
+        name, emoji_name, emoji_id, value, count, total
+        """
+        query = f"""
+        SELECT 
+            sf.name as name, 
+            be.name as emoji_name,
+            be.id as emoji_id,
+            sf.value as value,
+            fw.count as count,
+            sf.value * fw.count as total
+        FROM {FishWallet} AS fw
+        INNER JOIN {SwedishFish} AS sf
+            ON sf.name = fw.fish_name
+        INNER JOIN {BotEmoji} AS be
+            ON sf.emoji_id = be.id
+        WHERE (:guild_id = 0 OR guild_id = :guild_id)
+        AND (:user_id = 0 OR user_id = :user_id)
+        ORDER BY sf.value
+        """
+        db.row_factory = aiosqlite.Row
+        logger.debug(f"FishWalle.list(self): {self=}")
+        async with db.execute(query, self.asdict()) as cur:
+            rows = await cur.fetchall()
+        logger.debug(f"FishWallet.list(self): {len(list(rows))=}")
+        return list(rows)
+
+    
     async def select(self, db: Connection) -> FishWallet | None:
         """
         Returns an updated version of the current row
@@ -322,12 +372,14 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
 
     async def totalValue(self, db: Connection) -> int:
         """
+        DOESN"T WORK
         Gives the total value based off of the current row instance details
         Follows similar selection rules from selectAll
         """
+        raise NotImplemented
         query = f"""
-        SELECT fw.fish_name, fw.count, sf.value, (fw.count * sf.vlaue) as t_value
-        SELECT Coalesce(value) FROM {FishWallet} as fw
+        SELECT fw.fish_name, fw.count, sf.value, fw.count * sf.value as value, Sum(value) as t_value
+        FROM {FishWallet} as fw
         INNER JOIN {SwedishFish} as sf
             ON fw.fish_name = sf.name
         WHERE user_id = :user_id
@@ -423,6 +475,7 @@ class SwedishAdmin(GroupCog, group_name="sf"):
                 fish.emoji_id = emoji.id
             fish.value = value if value else fish.value
             await fish.upsert(db)
+            await db.commit()
 
         await respond(interaction, f"Editted the fish")
 
@@ -570,6 +623,32 @@ class Swedish(GroupCog, group_name="swedish-fish"):
         content = f"Current Settings => wallet: {settings.wallet_enabled}, reactions: {settings.reactions_enabled}" + \
                   f"\nDetails (channel, guild) => wallet: ({csw}, {guild_settings.wallet_enabled}), reactions: ({csr}, {guild_settings.reactions_enabled})"
         await respond(interaction, content)
+
+    @app_commands.command(name="wallet", description="Shows your fish wallet")
+    async def wallet(self, interaction: Interaction) -> None:
+        await respond(interaction)
+        assert interaction.guild is not None
+        assert interaction.channel is not None
+        async with self.dbman.conn() as db:
+            wallet = await FishWallet(interaction.user.id, interaction.guild.id, None).list(db)
+            # total = await FishWallet(interaction.user.id, interaction.guild.id, None).totalValue(db)
+
+        uname = interaction.user.name
+        pname = f"{uname}'s" if not uname.lower().endswith(("s", "z", "x")) else f"{uname}'"
+        c1 = f"{pname} Wallet"
+        c2 = len(c1) * "-"
+        content = f"`{c1}`\n`{c2}`"
+        content += f"\n`emoji - name : value * count = total`"
+        total = 0
+        for row in wallet:
+            rep = f"{discord.PartialEmoji.from_str(f"<:{row["emoji_name"]}:{row["emoji_id"]}>")} - `{row["name"]} : {row["value"]} * {row["count"]} = {row["total"]}`"
+            content += f"\n{rep}"
+            total += row["total"]
+        content += f"\n`{c2}`\n`Net Worth: {total}`"
+        await respond(interaction, content)
+
+        
+
 
 
 
