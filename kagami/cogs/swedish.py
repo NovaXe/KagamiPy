@@ -111,10 +111,12 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
     def probability(self) -> float:
         CF = 0.99
         R = random.random() * 0.10 + 0.95
-        return max(math.pow(2, 1-self.value)* R, 1) * CF
+        return min(math.pow(2, 1-self.value)* R, 1) * CF
 
     def roll(self) -> bool:
-        return random.random() <= self.probability()
+        r = random.random()
+        logger.debug(f"roll prob: ({r}, {self.probability()})")
+        return r <= self.probability()
 
     async def get_emoji(self, db: Connection) -> BotEmoji:
         "The same as calling BotEmoji.selectFromID"
@@ -212,10 +214,10 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
         await db.execute(query, (self.name,))
 
 @dataclass
-class FishWallet(Table, schema_version=2, trigger_version=1):
+class FishWallet(Table, schema_version=4, trigger_version=6):
     user_id: int
     guild_id: int
-    fish_name: int
+    fish_name: str
     count: int=0
 
     @classmethod
@@ -224,13 +226,13 @@ class FishWallet(Table, schema_version=2, trigger_version=1):
         CREATE TABLE IF NOT EXISTS {FishWallet} (
             user_id INTEGER NOT NULL,
             guild_id INTEGER NOT NULL DEFAULT 0,
-            fish_name INTEGER NOT NULL,
+            fish_name TEXT NOT NULL,
             count INTEGER NOT NULL DEFAULT 0,
             UNIQUE (user_id, guild_id, fish_name),
             FOREIGN KEY (fish_name) REFERENCES {SwedishFish}(name)
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+                ON UPDATE CASCADE ON DELETE CASCADE 
             FOREIGN KEY (user_id) REFERENCES {User}(id)
-                ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+                ON UPDATE CASCADE ON DELETE CASCADE
             FOREIGN KEY (guild_id) REFERENCES {SwedishFishSettings}(guild_id)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
@@ -245,11 +247,11 @@ class FishWallet(Table, schema_version=2, trigger_version=1):
             CREATE TRIGGER IF NOT EXISTS {FishWallet}_insert_settings_before_insert
             BEFORE INSERT ON {FishWallet}
             BEGIN
-                INSERT INTO {SwedishFishSettings}(id)
-                VALUES (NEW.guild_id)
-                ON CONFLICT(id) DO NOTHING;
+                INSERT OR IGNORE INTO {SwedishFishSettings}(guild_id, channel_id)
+                VALUES (NEW.guild_id, 0);
             END;
             """
+            # ON CONFLICT(guild_id, channel_id) DO NOTHING;
         ]
         for trigger in triggers:
             await db.execute(trigger)
@@ -258,11 +260,11 @@ class FishWallet(Table, schema_version=2, trigger_version=1):
     async def upsert(self, db: aiosqlite.Connection) -> None:
         query = f"""
         INSERT INTO {FishWallet} (user_id, guild_id, fish_name, count)
-        VALUES (:user_id, guild_id, fish_name, count)
+        VALUES (:user_id, :guild_id, :fish_name, :count)
         ON CONFLICT (user_id, guild_id, fish_name)
         DO UPDATE SET count = :count
         """
-        return await super().insert(db)
+        await db.execute(query, self.asdict())
 
     @classmethod
     async def selectAll(cls, db: Connection, user_id: int, guild_id: int=0, fish_name: str | None=None) -> list[FishWallet]:
@@ -270,17 +272,21 @@ class FishWallet(Table, schema_version=2, trigger_version=1):
         guild_id == 0 gives across all servers
         fish_name is None gives all fish
         """
+        # SELECT * FROM {FishWallet}
+        # WHERE user_id = :user_id
+        # AND CASE WHEN :guild_id != 0
+        #          THEN guild_id == :guild_id
+        #          ELSE 1
+        #     END
+        # AND CASE WHEN :fish_name IS NOT NULL
+        #          THEN fish_name == :fish_name
+        #          ELSE 1
+        #     END
         query = f"""
         SELECT * FROM {FishWallet}
         WHERE user_id = :user_id
-        AND CASE WHEN :guild_id != 0
-            THEN guild_id = :guild_id
-            ELSE 1
-            END
-        AND CASE WHEN :fish_name IS NOT NULL
-            THEN fish_name = :fish_name
-            ELSE 1
-            END
+        AND (:guild_id == 0 OR guild_id = :guild_id)
+        AND (:fish_name IS NULL OR fish_name = :fish_name)
         """
         params = {"user_id": user_id, "guild_id" : guild_id, "fish_name": fish_name}
         db.row_factory = FishWallet.row_factory
@@ -288,7 +294,7 @@ class FishWallet(Table, schema_version=2, trigger_version=1):
             res = await cur.fetchall()
         return res
     
-    async def select(self, db: Connection) -> FishWallet:
+    async def select(self, db: Connection) -> FishWallet | None:
         """
         Returns an updated version of the current row
         guild_id == 0 => all servers
@@ -297,14 +303,8 @@ class FishWallet(Table, schema_version=2, trigger_version=1):
         query = f"""
         SELECT * FROM {FishWallet}
         WHERE user_id = :user_id
-        AND CASE WHEN :guild_id != 0
-            THEN guild_id = :guild_id
-            ELSE 1
-            END
-        AND CASE WHEN :fish_name IS NOT NULL
-            THEN fish_name = :fish_name
-            ELSE 1
-            END
+        AND (:guild_id == 0 OR guild_id = :guild_id)
+        AND (:fish_name IS NULL OR fish_name = :fish_name)
         """
         db.row_factory = FishWallet.row_factory
         async with db.execute(query, self.asdict()) as cur:
@@ -322,14 +322,8 @@ class FishWallet(Table, schema_version=2, trigger_version=1):
         INNER JOIN {SwedishFish} as sf
             ON fw.fish_name = sf.name
         WHERE user_id = :user_id
-        AND CASE WHEN :guild_id != 0
-            THEN guild_id = :guild_id
-            ELSE 1
-            END
-        AND CASE WHEN :fish_name IS NOT NULL
-            THEN fish_name = :fish_name
-            ELSE 1
-            END
+        AND (:guild_id == 0 OR guild_id = :guild_id)
+        AND (:fish_name IS NULL OR fish_name = :fish_name)
         """
         db.row_factory = aiosqlite.Row
         async with db.execute(query, self.asdict()) as cur:
@@ -439,6 +433,17 @@ class SwedishAdmin(GroupCog, group_name="sf"):
 
         await respond(interaction, f"Deleted fish: {fish.name}")
 
+    @app_commands.command(name="list", description="lists the fish in chat")
+    async def list(self, interaction: Interaction) -> None:
+        await respond(interaction)
+        async with self.dbman.conn() as db:
+            all_fish = await SwedishFish.selectAll(db)
+        out: list[str] = []
+        for fish in all_fish:
+            emoji = await (await fish.get_emoji(db)).fetch_discord(self.bot)
+            out.append(f"{emoji} - {fish.name} - {fish.value}")
+        await respond(interaction, "\n".join(out))
+
 
 
 class Swedish(GroupCog, group_name="swedish-fish"): 
@@ -448,58 +453,70 @@ class Swedish(GroupCog, group_name="swedish-fish"):
 
     @override
     async def cog_load(self) -> None:
-        pass
+        await self.dbman.setup(__name__)
 
-
+    @GroupCog.listener()
     async def on_message(self, message: discord.Message) -> None:
         assert message.guild is not None
-        default_settings = SwedishFishSettings(message.guild.id, 0)
+        logger.debug("on_message: enter")
         async with self.dbman.conn() as db:
             settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
+            logger.debug(f"on_message: settings: {settings}")
             #  or default_settings
             successes = await SwedishFish.gamble(db)
+            logger.debug(f"on_message: success_count: {len(successes)}")
             if settings.wallet_enabled:    
+                logger.debug(f"on_message: wallet enabled")
                 # successes = await SwedishFish.gamble(db)
                 for s in successes:
-                    default = FishWallet(message.author.id, message.guild.id, s.emoji_id)
+                    default = FishWallet(message.author.id, message.guild.id, s.name)
                     old = await default.select(db) or default
-                    old.count +=1 
+                    logger.debug(f"on_message: old: {old}")
+                    old.count += 1 
                     await old.upsert(db)
+                    logger.debug("on_message: upserted increment")
             if settings.reactions_enabled:
+                logger.debug(f"on_message: reactions_enabled")
                 for s in successes:
                     bot_emoji = await s.get_emoji(db)
                     try:
                         emoji = await bot_emoji.fetch_discord(self.bot)
                         await message.add_reaction(emoji)
+                        logger.debug(f"on_message: added reaction: {emoji.name}")
                     except discord.HTTPException as e:
                         logger.error(f"Discord emoji for swedish fish {s.name} with id {s.emoji_id} could not be retrieved") 
+            await db.commit()
         
 
     @app_commands.command(name="toggle-reactions", description="toggles the visible reactions, users can still collect fish")
-    async def toggle_reactions(self, interaction: Interaction, guildwide: bool=True) -> None:
+    async def toggle_reactions(self, interaction: Interaction, channel_only: bool=False) -> None:
         await respond(interaction)
         assert interaction.guild is not None
         assert interaction.channel is not None
-        channel_id = 0 if guildwide else interaction.channel.id
+        channel_id = 0 if not channel_only else interaction.channel.id
         default = SwedishFishSettings(interaction.guild.id, channel_id)
         async with self.dbman.conn() as db:
-            state = await default.select(db) or default
-            state.reactions_enabled = not state.reactions_enabled
+            state = await default.select(db)
+            if state is None:
+                state = default
+            state.reactions_enabled = not bool(state.reactions_enabled)
             await state.upsert(db)
             await db.commit()
-        r = "enabled, you can now see the fish" if state.wallet_enabled else "disabled, you can no longer see the fish"
+        r = "enabled, you can now see the fish" if state.reactions_enabled else "disabled, you can no longer see the fish"
         await respond(interaction, f"The reactions have been {r}")
 
     @app_commands.command(name="toggle-wallet", description="this toggles the wallet that allows users to collect fish, but reactions can still show up")
-    async def toggle_reactions(self, interaction: Interaction, guildwide: bool=True) -> None:
+    async def toggle_wallet(self, interaction: Interaction, channel_only: bool=False) -> None:
         await respond(interaction)
         assert interaction.guild is not None
         assert interaction.channel is not None
-        channel_id = 0 if guildwide else interaction.channel.id
+        channel_id = 0 if not channel_only else interaction.channel.id
         default = SwedishFishSettings(interaction.guild.id, channel_id)
         async with self.dbman.conn() as db:
-            state = await default.select(db) or default
-            state.wallet_enabled = not state.wallet_enabled
+            state = await default.select(db)
+            if state is None:
+                state = default
+            state.wallet_enabled = not bool(state.wallet_enabled)
             await state.upsert(db)
             await db.commit()
         r = "enabled, you can collect fish again" if state.wallet_enabled else "disabled, no more collecting fish"
