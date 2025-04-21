@@ -27,7 +27,7 @@ logger = setup_logging(__name__)
 type Interaction = discord.Interaction[Kagami]
 
 @dataclass
-class ChatMode(Table, schema_version=1, trigger_version=1):
+class ChatMode(Table, schema_version=2, trigger_version=1):
     name: str
     guild_id: int
     enabled: bool=False
@@ -39,7 +39,8 @@ class ChatMode(Table, schema_version=1, trigger_version=1):
         CREATE TABLE IF NOT EXISTS {ChatMode} (
             name TEXT NOT NULL,
             guild_id INTEGER NOT NULL,
-            enabled INTEGER NOT NULL DEFAULT 0
+            enabled INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (name, guild_id)
         )
         """
         await db.execute(query)
@@ -65,7 +66,17 @@ class ChatMode(Table, schema_version=1, trigger_version=1):
             res = await cur.fetchall()
         return res
 
-CHAT_MODES = ("fish", "reddit")
+    async def upsert(self, db: Connection) -> None:
+        query = f"""
+        INSERT INTO {ChatMode} (name, guild_id, enabled)
+        VALUES (:name, :guild_id, :enabled)
+        ON CONFLICT (name, guild_id)
+        DO UPDATE SET enabled = :enabled
+        """
+        await db.execute(query, self.asdict())
+
+# CHAT_MODES = ("fish", "reddit")
+CHAT_MODES = ("fish",)
 
 class SimpleReactionModes(GroupCog, group_name="chat"): 
     def __init__(self, bot: Kagami):
@@ -74,17 +85,17 @@ class SimpleReactionModes(GroupCog, group_name="chat"):
 
     @override
     async def cog_load(self) -> None:
-        pass
+        await self.dbman.setup(__name__)
 
     @GroupCog.listener()
     async def on_message(self, message: discord.Message) -> None:
         assert message.guild is not None
         async with self.dbman.conn() as db:
             states = {mode: await ChatMode(mode, message.guild.id).select(db) for mode in CHAT_MODES}
-
-            if states["fish"]:
+            logger.debug(f"on_message: states: {states}")
+            if states["fish"].enabled:
                 await message.add_reaction("🐟")
-            if states["reddit"]:
+            if states["reddit"].enabled:
                 pass
         
 
@@ -106,7 +117,7 @@ class SimpleReactionModes(GroupCog, group_name="chat"):
             await state.upsert(db)
             await db.commit()
         r = "enabled" if state.enabled else "disabled"
-        await respond(interaction, f"{mode} mode is now {r}")
+        await respond(interaction, f"{mode.name} mode is now {r}")
     
 
 
