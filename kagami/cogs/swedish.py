@@ -519,6 +519,8 @@ class Swedish(GroupCog, group_name="swedish-fish"):
 
     @GroupCog.listener()
     async def on_message(self, message: discord.Message) -> None:
+        if message.webhook_id is not None:
+            return
         assert message.guild is not None
         logger.debug("on_message: enter")
         async with self.dbman.conn() as db:
@@ -537,7 +539,7 @@ class Swedish(GroupCog, group_name="swedish-fish"):
                     old.count += 1 
                     await old.upsert(db)
                     logger.debug("on_message: upserted increment")
-            if settings.reactions_enabled:
+            if settings.reactions_enabled and message.author != self.bot.user:
                 logger.debug(f"on_message: reactions_enabled")
                 for s in successes:
                     bot_emoji = await s.get_emoji(db)
