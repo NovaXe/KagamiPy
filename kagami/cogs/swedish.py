@@ -76,7 +76,16 @@ class SwedishFishSettings(Table, schema_version=1, trigger_version=1):
         INSERT INTO {SwedishFishSettings} (guild_id, channel_id, wallet_enabled, reactions_enabled)
         VALUES (:guild_id, :channel_id, :wallet_enabled, :reactions_enabled)
         ON CONFLICT (guild_id, channel_id)
-        DO UPDATE SET wallet_enabled = :wallet_enabled AND reactions_enabled = :reactions_enabled
+        DO UPDATE SET 
+            wallet_enabled = :wallet_enabled, 
+            reactions_enabled = :reactions_enabled
+        """
+        await db.execute(query, self.asdict())
+
+    async def delete(self, db: Connection) -> None:
+        query = f"""
+        DELETE FROM {SwedishFishSettings}
+        WHERE guild_id = :guild_id AND channel_id = :channel_id
         """
         await db.execute(query, self.asdict())
 
@@ -491,40 +500,82 @@ class Swedish(GroupCog, group_name="swedish-fish"):
     @app_commands.command(name="toggle-reactions", description="toggles the visible reactions, users can still collect fish")
     async def toggle_reactions(self, interaction: Interaction, channel_only: bool=False) -> None:
         await respond(interaction)
+        logger.debug(f"toggle_reactions: enter")
         assert interaction.guild is not None
         assert interaction.channel is not None
-        channel_id = 0 if not channel_only else interaction.channel.id
+        channel_id = interaction.channel.id if channel_only else 0
         default = SwedishFishSettings(interaction.guild.id, channel_id)
+        logger.debug(f"toggle_reactions: default: {default}")
         async with self.dbman.conn() as db:
             state = await default.select(db)
+            logger.debug(f"toggle_reactions: old_state: {state}")
             if state is None:
                 state = default
-            state.reactions_enabled = not bool(state.reactions_enabled)
+                logger.debug(f"toggle_reactions: state was none, now default, state: {state}")
+            state.reactions_enabled = not state.reactions_enabled
+            logger.debug(f"toggle_reactions: new_state: {state}")
             await state.upsert(db)
+            logger.debug(f"toggle_reactions: upserted")
             await db.commit()
+
         r = "enabled, you can now see the fish" if state.reactions_enabled else "disabled, you can no longer see the fish"
         await respond(interaction, f"The reactions have been {r}")
 
     @app_commands.command(name="toggle-wallet", description="this toggles the wallet that allows users to collect fish, but reactions can still show up")
     async def toggle_wallet(self, interaction: Interaction, channel_only: bool=False) -> None:
         await respond(interaction)
+        logger.debug(f"toggle_wallet: enter")
         assert interaction.guild is not None
         assert interaction.channel is not None
-        channel_id = 0 if not channel_only else interaction.channel.id
+        channel_id = interaction.channel.id if channel_only else 0
         default = SwedishFishSettings(interaction.guild.id, channel_id)
+        logger.debug(f"toggle_wallet: default: {default}")
         async with self.dbman.conn() as db:
             state = await default.select(db)
+            logger.debug(f"toggle_wallet: old_state: {state}")
             if state is None:
                 state = default
-            state.wallet_enabled = not bool(state.wallet_enabled)
+                logger.debug(f"toggle_wallet: state was none, now default, state: {state}")
+            state.wallet_enabled = not state.wallet_enabled
+            logger.debug(f"toggle_wallet: new_state: {state}")
             await state.upsert(db)
+            logger.debug(f"toggle_wallet: upserted")
             await db.commit()
         r = "enabled, you can collect fish again" if state.wallet_enabled else "disabled, no more collecting fish"
         await respond(interaction, f"The wallet has been {r}")
+
+    @app_commands.command(name="clear-channel-settings", description="Clear the settings for this channel")
+    async def clear_settings(self, interaction: Interaction) -> None:
+        await respond(interaction)
+        assert interaction.guild is not None
+        assert interaction.channel is not None
+        async with self.dbman.conn() as db:
+            settings = await SwedishFishSettings(interaction.guild.id, interaction.channel.id).select(db)
+            if settings is not None:
+                await settings.delete(db)
+                await db.commit()
+
+    @app_commands.command(name="settings", description="Queries the settings for the guild and channel")
+    async def query_settings(self, interaction: Interaction) -> None:
+        await respond(interaction)
+        assert interaction.guild is not None
+        assert interaction.channel is not None
+        async with self.dbman.conn() as db:
+            default = SwedishFishSettings(interaction.guild.id, channel_id=0)
+            guild_settings = await default.select(db) or default
+            channel_settings = await SwedishFishSettings(interaction.guild.id, channel_id=interaction.channel.id).select(db)
+            settings = await SwedishFishSettings.selectCurrent(db, interaction.guild.id, interaction.channel.id)
+        csw = channel_settings.wallet_enabled if channel_settings else ""
+        csr = channel_settings.reactions_enabled if channel_settings else ""
+        content = f"Current Settings => wallet: {settings.wallet_enabled}, reactions: {settings.reactions_enabled}" + \
+                  f"\nDetails (channel, guild) => wallet: ({csw}, {guild_settings.wallet_enabled}), reactions: ({csr}, {guild_settings.reactions_enabled})"
+        await respond(interaction, content)
+
 
 
 async def setup(bot: Kagami) -> None:
     await bot.add_cog(Swedish(bot))
     await bot.add_cog(SwedishAdmin(bot))
+
 
 
