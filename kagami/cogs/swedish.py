@@ -136,8 +136,6 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
     emoji_id: int
     value: int=0
 
-    
-
     def probability(self) -> float:
         return prob_threehalfs(self.value)
 
@@ -370,30 +368,48 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
             res = await cur.fetchone()
         return res
 
-    async def totalValue(self, db: Connection) -> int:
+    async def netValue(self, db: Connection, limit: int=10, offset: int=0) -> list[aiosqlite.Row]:
         """
-        DOESN"T WORK
-        Gives the total value based off of the current row instance details
+        Gives the net worth of each user as specific by the pseudo row
         Follows similar selection rules from selectAll
         """
-        raise NotImplemented
         query = f"""
-        SELECT fw.fish_name, fw.count, sf.value, fw.count * sf.value as value, Sum(value) as t_value
+        SELECT user_id, Sum(fw.count * sf.value) as total
         FROM {FishWallet} as fw
         INNER JOIN {SwedishFish} as sf
             ON fw.fish_name = sf.name
-        WHERE user_id = :user_id
-        AND (:guild_id == 0 OR guild_id = :guild_id)
+        WHERE (:user_id = 0 OR user_id = :user_id)
+        AND (:guild_id = 0 OR guild_id = :guild_id)
+        AND (:fish_name IS NULL OR fish_name = :fish_name)
+        GROUP BY user_id
+        ORDER BY total DESC
+        LIMIT :limit OFFSET :offset
+        """
+        db.row_factory = aiosqlite.Row
+        params = self.asdict()
+        params.update({"limit": limit, "offset": offset})
+        async with db.execute(query, params) as cur:
+            rows = await cur.fetchall()
+        return list(rows)
+
+    async def totalValue(self, db: Connection) -> int:
+        """
+        Give the total wealth across all users in the pseudo row query
+        Follows similar selection rules from selectAll
+        """
+        query = f"""
+        SELECT Sum(fw.count * sf.value) as total
+        FROM {FishWallet} as fw
+        INNER JOIN {SwedishFish} as sf
+            ON fw.fish_name = sf.name
+        WHERE (:guild_id = 0 OR guild_id = :guild_id)
         AND (:fish_name IS NULL OR fish_name = :fish_name)
         """
         db.row_factory = aiosqlite.Row
         async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
-        return res["t_value"] if res else 0
+        return res["total"] if res is not None else 0 
 
-
-class FishTransformer(Transformer):
-    pass
 
 class FishTransformer(Transformer):
     async def autocomplete(self, interaction: Interaction, value: str) -> list[Choice[str]]: # pyright: ignore [reportIncompatibleMethodOverride]
@@ -410,14 +426,13 @@ class FishTransformer(Transformer):
 VALID_FILE_TYPES = ("png", "jpg", "jpeg", "webp")
 
 @app_commands.guilds(discord.Object(config.admin_guild_id))
-class SwedishAdmin(GroupCog, group_name="sf"):
+class SwedishControl(GroupCog, group_name="sf"):
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.dbman = bot.dbman
 
     async def cog_load(self) -> None:
-        await self.bot.dbman.setup(table_group=__name__)
-
+        pass
 
     @app_commands.command(name="add", description="adds a new fish")
     async def add(self, interaction: Interaction, name: Transform[SwedishFish | None, FishTransformer], image: discord.Attachment, value: int):
@@ -506,51 +521,10 @@ class SwedishAdmin(GroupCog, group_name="sf"):
             out.append(f"{emoji} - {fish.name} - {fish.value}")
         await respond(interaction, "\n".join(out))
 
-
-
-class Swedish(GroupCog, group_name="swedish-fish"): 
+class SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.dbman = bot.dbman
-
-    @override
-    async def cog_load(self) -> None:
-        await self.dbman.setup(__name__)
-
-    @GroupCog.listener()
-    async def on_message(self, message: discord.Message) -> None:
-        if message.webhook_id is not None:
-            return
-        assert message.guild is not None
-        logger.debug("on_message: enter")
-        async with self.dbman.conn() as db:
-            settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
-            logger.debug(f"on_message: settings: {settings}")
-            #  or default_settings
-            successes = await SwedishFish.gamble(db)
-            logger.debug(f"on_message: success_count: {len(successes)}")
-            if settings.wallet_enabled:    
-                logger.debug(f"on_message: wallet enabled")
-                # successes = await SwedishFish.gamble(db)
-                for s in successes:
-                    default = FishWallet(message.author.id, message.guild.id, s.name)
-                    old = await default.select(db) or default
-                    logger.debug(f"on_message: old: {old}")
-                    old.count += 1 
-                    await old.upsert(db)
-                    logger.debug("on_message: upserted increment")
-            if settings.reactions_enabled and message.author != self.bot.user:
-                logger.debug(f"on_message: reactions_enabled")
-                for s in successes:
-                    bot_emoji = await s.get_emoji(db)
-                    try:
-                        emoji = await bot_emoji.fetch_discord(self.bot)
-                        await message.add_reaction(emoji)
-                        logger.debug(f"on_message: added reaction: {emoji.name}")
-                    except discord.HTTPException as e:
-                        logger.error(f"Discord emoji for swedish fish {s.name} with id {s.emoji_id} could not be retrieved") 
-            await db.commit()
-        
 
     @app_commands.command(name="toggle-reactions", description="toggles the visible reactions, users can still collect fish")
     async def toggle_reactions(self, interaction: Interaction, channel_only: bool=False) -> None:
@@ -626,18 +600,63 @@ class Swedish(GroupCog, group_name="swedish-fish"):
                   f"\nDetails (channel, guild) => wallet: ({csw}, {guild_settings.wallet_enabled}), reactions: ({csr}, {guild_settings.reactions_enabled})"
         await respond(interaction, content)
 
+class Swedish(GroupCog, group_name="fish"): 
+    def __init__(self, bot: Kagami):
+        self.bot = bot
+        self.dbman = bot.dbman
+
+    @GroupCog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        if message.webhook_id is not None:
+            return
+        assert message.guild is not None
+        logger.debug("on_message: enter")
+        async with self.dbman.conn() as db:
+            settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
+            logger.debug(f"on_message: settings: {settings}")
+            #  or default_settings
+            successes = await SwedishFish.gamble(db)
+            logger.debug(f"on_message: success_count: {len(successes)}")
+            if settings.wallet_enabled:    
+                logger.debug(f"on_message: wallet enabled")
+                # successes = await SwedishFish.gamble(db)
+                for s in successes:
+                    default = FishWallet(message.author.id, message.guild.id, s.name)
+                    old = await default.select(db) or default
+                    logger.debug(f"on_message: old: {old}")
+                    old.count += 1 
+                    await old.upsert(db)
+                    logger.debug("on_message: upserted increment")
+            if settings.reactions_enabled and message.author != self.bot.user:
+                logger.debug(f"on_message: reactions_enabled")
+                for s in successes:
+                    bot_emoji = await s.get_emoji(db)
+                    try:
+                        emoji = await bot_emoji.fetch_discord(self.bot)
+                        await message.add_reaction(emoji)
+                        logger.debug(f"on_message: added reaction: {emoji.name}")
+                    except discord.HTTPException as e:
+                        logger.error(f"Discord emoji for swedish fish {s.name} with id {s.emoji_id} could not be retrieved") 
+            await db.commit()
+        
+
+
     @app_commands.command(name="wallet", description="Shows your fish wallet")
-    async def wallet(self, interaction: Interaction) -> None:
+    @app_commands.rename(all_servers="global")
+    @app_commands.describe(all_servers="If true, displays your wallet across all servers the bot is on")
+    async def wallet(self, interaction: Interaction, all_servers: bool=False) -> None:
         await respond(interaction)
         assert interaction.guild is not None
         assert interaction.channel is not None
+        guild_id = 0 if all_servers else interaction.guild.id
         async with self.dbman.conn() as db:
-            wallet = await FishWallet(interaction.user.id, interaction.guild.id, None).list(db)
+            wallet = await FishWallet(interaction.user.id, guild_id, None).list(db)
             # total = await FishWallet(interaction.user.id, interaction.guild.id, None).totalValue(db)
 
         uname = interaction.user.name
         pname = f"{uname}'s" if not uname.lower().endswith(("s", "z", "x")) else f"{uname}'"
-        c1 = f"{pname} Wallet"
+        ws = f"{interaction.guild.name}" if not all_servers else "Globally"
+        c1 = f"{pname} Wallet ({ws})"
         c2 = len(c1) * "-"
         content = f"`{c1}`\n`{c2}`"
         content += f"\n`emoji - name : value * count = total`"
@@ -649,14 +668,48 @@ class Swedish(GroupCog, group_name="swedish-fish"):
         content += f"\n`{c2}`\n`Net Worth: {total}`"
         await respond(interaction, content)
 
-        
+    
+    @app_commands.command(name="top", description="Shows the most valuable users")
+    @app_commands.describe(all_servers="Shows the most valuable users across all servers")
+    @app_commands.rename(all_servers="global")
+    async def top(self, interaction: Interaction, all_servers: bool=False) -> None:
+        await respond(interaction)
+        assert interaction.guild is not None
+        assert interaction.channel is not None
+        async with self.dbman.conn() as db:
+            guild_id = 0 if all_servers else interaction.guild.id
+            # wallet = await FishWallet(0, guild_id, None).list(db)
+            top = await FishWallet(0, guild_id, None).netValue(db)
+            total = await FishWallet(0, guild_id, None).totalValue(db)
+            # total = await FishWallet(interaction.user.id, interaction.guild.id, None).totalValue(db)
+        uname = interaction.user.name
+        pname = f"{uname}'s" if not uname.lower().endswith(("s", "z", "x")) else f"{uname}'"
+        ws = f"{interaction.guild.name}" if not all_servers else "Globally"
+        c1 = f"Fishiest Fiends ({ws})"
+        c2 = len(c1) * "-"
+        content = f"`{c1}`\n`{c2}`"
+        content += f"\n`user - net worth`"
+        page_total = 0
+        for row in top:
+            # rep = f"{discord.PartialEmoji.from_str(f"<:{row["emoji_name"]}:{row["emoji_id"]}>")} - `{row["name"]} : {row["value"]} * {row["count"]} = {row["total"]}`"
+            try:
+                user = await self.bot.fetch_user(row["user_id"])
+            except discord.NotFound:
+                continue
+            rep = f"`{user.name} - {row["total"]}`"
+            content += f"\n{rep}"
+            page_total += row["total"]
+        content += f"\n`{c2}`\n`Page Wealth / Global Wealth: {page_total} / {total}`"
+        await respond(interaction, content)
 
 
 
 
 async def setup(bot: Kagami) -> None:
     await bot.add_cog(Swedish(bot))
-    await bot.add_cog(SwedishAdmin(bot))
+    await bot.add_cog(SwedishGuildAdmin(bot))
+    await bot.add_cog(SwedishControl(bot))
+    await bot.dbman.setup(__name__)
 
 
 

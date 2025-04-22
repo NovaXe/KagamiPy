@@ -66,14 +66,14 @@ class Fun(commands.Cog):
         await self.bot.change_presence(activity=new_activity)
         await respond(interaction, f"Changed status to: `{new_activity}`", ephemeral=True, delete_after=3)
 
-    @app_commands.command(name="fish", description="fish reacts all")
-    async def fish_all(self, interaction: discord.Interaction):
-        await respond(interaction)
-        assert ("enabled" in self.fish_all.__dict__)
-        new_state = not self.fish_all.enabled.get(interaction.guild_id, False)
-        self.fish_all.enabled[interaction.guild_id] = new_state
-        await respond(interaction, f"Fish Mode: {'On' if new_state else 'Off'}")
-    fish_all.enabled = {}
+    # @app_commands.command(name="fish", description="fish reacts all")
+    # async def fish_all(self, interaction: discord.Interaction):
+    #     await respond(interaction)
+    #     assert ("enabled" in self.fish_all.__dict__)
+    #     new_state = not self.fish_all.enabled.get(interaction.guild_id, False)
+    #     self.fish_all.enabled[interaction.guild_id] = new_state
+    #     await respond(interaction, f"Fish Mode: {'On' if new_state else 'Off'}")
+    # fish_all.enabled = {}
 
     @app_commands.command(name='timeout', description='sever mutes someone in vc')
     async def timeout_user(self, interaction: discord.Interaction, member: discord.Member):
