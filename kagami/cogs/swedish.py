@@ -521,6 +521,7 @@ class SwedishControl(GroupCog, group_name="sf"):
             out.append(f"{emoji} - {fish.name} - {fish.value}")
         await respond(interaction, "\n".join(out))
 
+@app_commands.default_permissions(manage_expressions=True)
 class SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
     def __init__(self, bot: Kagami):
         self.bot = bot
