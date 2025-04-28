@@ -426,7 +426,7 @@ class FishTransformer(Transformer):
 VALID_FILE_TYPES = ("png", "jpg", "jpeg", "webp")
 
 @app_commands.guilds(discord.Object(config.admin_guild_id))
-class SwedishControl(GroupCog, group_name="sf"):
+class CogSwedishDev(GroupCog, group_name="sf"):
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.dbman = bot.dbman
@@ -522,7 +522,7 @@ class SwedishControl(GroupCog, group_name="sf"):
         await respond(interaction, "\n".join(out))
 
 @app_commands.default_permissions(manage_expressions=True)
-class SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
+class CogSwedishGuildAdmin(GroupCog, group_name="fish-admin"):
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.dbman = bot.dbman
@@ -601,7 +601,7 @@ class SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
                   f"\nDetails (channel, guild) => wallet: ({csw}, {guild_settings.wallet_enabled}), reactions: ({csr}, {guild_settings.reactions_enabled})"
         await respond(interaction, content)
 
-class Swedish(GroupCog, group_name="fish"): 
+class CogSwedishUser(GroupCog, group_name="fish"): 
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.dbman = bot.dbman
@@ -707,9 +707,9 @@ class Swedish(GroupCog, group_name="fish"):
 
 
 async def setup(bot: Kagami) -> None:
-    await bot.add_cog(Swedish(bot))
-    await bot.add_cog(SwedishGuildAdmin(bot))
-    await bot.add_cog(SwedishControl(bot))
+    await bot.add_cog(CogSwedishUser(bot))
+    await bot.add_cog(CogSwedishGuildAdmin(bot))
+    await bot.add_cog(CogSwedishDev(bot))
     await bot.dbman.setup(__name__)
 
 
