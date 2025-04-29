@@ -312,7 +312,7 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
         """Instantiates the dataclass from a row in the SQL table"""
         # field_names = {col[0] for col in cur.description}
         # got this stuff from chatgpt because the row factory thing always confused me, I know why it works so it's fine
-        valid_fields = {field.name for field in fields(cls)} # pyright: ignore [reportArgumentType]
+        valid_fields = {field.name for field in fields(cls)} 
         # gets rid of fields that don't exist in the dataclass
         filtered_data = {col[0]: row[idx] for idx, col in enumerate(cur.description) if col[0] in valid_fields}
         default_data = {field: ... for field in valid_fields if field not in filtered_data}
@@ -320,7 +320,7 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
         # return cls(**{col[0]: row[idx] for idx, col in enumerate(cur.description)})
     # row_factory = _row_factory # just an alias so that when you type it out it doesn't place () at the end in pycharm
 
-    row_factory: type = cast(type, _row_factory) # pyright: ignore [reportInvalidCast]
+    row_factory: ClassVar[type] = cast(type, _row_factory) # pyright: ignore [reportInvalidCast]
     
 
     @classmethod
