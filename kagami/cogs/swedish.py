@@ -469,20 +469,19 @@ class Transformer_Fish(Transformer):
             result = await SwedishFish.selectFromName(db, value)
         return result
 
-__FUNC_NAME = "Transformer_UserFish.autocomplete"
 class Transformer_UserFish(Transformer):
     async def autocomplete(self, interaction: Interaction, value: str) -> list[Choice[str]]: # pyright: ignore [reportIncompatibleMethodOverride]
-        logger.debug(f"{__FUNC_NAME}: Enter with value: {value}")
+        logger.debug(f"Transformer_UserFish.autocomplete: Enter with value: {value}")
         assert interaction.guild is not None
-        logger.debug(f"{__FUNC_NAME}: Post assertion")
+        logger.debug(f"Transformer_UserFish.autocomplete: Post assertion")
         pseudo = SwedishFishWallet(interaction.user.id, interaction.guild.id, value)
         async with interaction.client.dbman.conn() as db:
             fishes = await pseudo.selectRowsWithLikeNames(db, limit=25)
-        logger.debug(f"{__FUNC_NAME}: Got fishes, count: {len(fishes)}")
+        logger.debug(f"Transformer_UserFish.autocomplete: Got fishes, count: {len(fishes)}")
         choices = [Choice(name=name, value=name) 
                    for fish in fishes 
-                   if (name := fish.fish_name)]
-        logger.debug(f"{__FUNC_NAME}: Created choices")
+                   if (name := fish.fish_name) is not None]
+        logger.debug(f"Transformer_UserFish.autocomplete: Created choices")
         interaction.extras["fishes"] = fishes
         return choices
 
