@@ -50,8 +50,17 @@ class Admin(commands.Cog):
     @commands.command(name="sync-admin", description="syncs the command tree")
     @commands.is_owner()
     async def sync_admin_guild(self, ctx):
-        await self.bot.tree.sync(guild=discord.Object(config.admin_guild_id))
+        guild = discord.Object(config.admin_guild_id)
+        await self.bot.tree.sync(guild=guild)
         await ctx.send("Synced Admin Guild Commands", ephemeral=True)
+
+    @commands.command(name="clear-admin", description="syncs the command tree")
+    @commands.is_owner()
+    async def clear_admin_guild(self, ctx):
+        guild = discord.Object(config.admin_guild_id)
+        self.bot.tree.clear_commands(guild=guild)
+        await self.bot.tree.sync(guild=guild)
+        await ctx.send("Cleared Admin Guild Commands", ephemeral=True)
 
     @commands.command(name="ping", description="checks the latency")
     @commands.is_owner()
