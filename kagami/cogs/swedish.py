@@ -182,13 +182,14 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
         return res 
 
     @classmethod
-    async def selectLikeNames(cls, db: Connection, name: str) -> list[str]:
+    async def selectLikeNames(cls, db: Connection, name: str, limit: int=-1, offset: int=0) -> list[str]:
         query = f"""
         SELECT name FROM {SwedishFish}
         WHERE (name like ?)
+        LIMIT ? OFFSET ?
         """
         db.row_factory = aiosqlite.Row 
-        async with db.execute(query, (f"%{name}%",)) as cur:
+        async with db.execute(query, (f"%{name}%", limit, offset)) as cur:
             res = await cur.fetchall()
         return [row["name"] for row in res] 
 
@@ -241,7 +242,7 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
         await db.execute(query, (self.name,))
 
 @dataclass
-class FishWallet(Table, schema_version=4, trigger_version=6):
+class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
     user_id: int
     guild_id: int
     fish_name: str | None
@@ -250,7 +251,7 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
     @classmethod
     async def create_table(cls, db: Connection):
         query = f"""
-        CREATE TABLE IF NOT EXISTS {FishWallet} (
+        CREATE TABLE IF NOT EXISTS {SwedishFishWallet} (
             user_id INTEGER NOT NULL,
             guild_id INTEGER NOT NULL DEFAULT 0,
             fish_name TEXT NOT NULL,
@@ -271,8 +272,8 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
     async def create_triggers(cls, db: aiosqlite.Connection):
         triggers = [
             f"""
-            CREATE TRIGGER IF NOT EXISTS {FishWallet}_insert_settings_before_insert
-            BEFORE INSERT ON {FishWallet}
+            CREATE TRIGGER IF NOT EXISTS {SwedishFishWallet}_insert_settings_before_insert
+            BEFORE INSERT ON {SwedishFishWallet}
             BEGIN
                 INSERT OR IGNORE INTO {SwedishFishSettings}(guild_id, channel_id)
                 VALUES (NEW.guild_id, 0);
@@ -286,7 +287,7 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
     @override
     async def upsert(self, db: aiosqlite.Connection) -> None:
         query = f"""
-        INSERT INTO {FishWallet} (user_id, guild_id, fish_name, count)
+        INSERT INTO {SwedishFishWallet} (user_id, guild_id, fish_name, count)
         VALUES (:user_id, :guild_id, :fish_name, :count)
         ON CONFLICT (user_id, guild_id, fish_name)
         DO UPDATE SET count = :count
@@ -294,7 +295,7 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
         await db.execute(query, self.asdict())
 
     @classmethod
-    async def selectAll(cls, db: Connection, user_id: int, guild_id: int=0, fish_name: str | None=None) -> list[FishWallet]:
+    async def selectAll(cls, db: Connection, user_id: int, guild_id: int=0, fish_name: str | None=None) -> list[SwedishFishWallet]:
         """
         guild_id == 0 gives across all servers
         fish_name is None gives all fish
@@ -310,13 +311,58 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
         #          ELSE 1
         #     END
         query = f"""
-        SELECT * FROM {FishWallet}
+        SELECT * FROM {SwedishFishWallet}
         WHERE user_id = :user_id
         AND (:guild_id == 0 OR guild_id = :guild_id)
         AND (:fish_name IS NULL OR fish_name = :fish_name)
         """
         params = {"user_id": user_id, "guild_id" : guild_id, "fish_name": fish_name}
-        db.row_factory = FishWallet.row_factory
+        db.row_factory = SwedishFishWallet.row_factory
+        async with db.execute(query, params) as cur:
+            res = await cur.fetchall()
+        return res
+
+    async def selectLikeNames(self, db: Connection, limit: int=-1, offset: int=0) -> list[str]:
+        """
+        Returns just the names of the fish for the specific query
+        """
+        query = f"""
+        SELECT fw.fish_name as name 
+        FROM {SwedishFishWallet} as fw
+        INNER JOIN {SwedishFish} as sf
+            ON sf.name = fw.fish_name
+        WHERE   (:guild_id = 0 OR guild_id = :guild_id)
+        AND     (:user_id = 0 OR user_id = :user_id) 
+        AND     (fish_name LIKE :fish_name)
+        ORDER BY sf.value ASC
+        LIMIT :limit OFFSET :offset
+        """
+        params = self.asdict()
+        params["fish_name"] = f"%{self.fish_name}%"
+        params.update({"limit": limit, "offset": offset})
+        async with db.execute(query, params) as cur:
+            res = await cur.fetchall()
+        return [row["name"] for row in res]
+
+    async def selectRowsWithLikeNames(self, db: Connection, limit: int=-1, offset: int=0) -> list[SwedishFishWallet]:
+        """
+        Returns just the names of the fish for the specific query
+        """
+        query = f"""
+        SELECT fw.* 
+        FROM {SwedishFishWallet} as fw
+        INNER JOIN {SwedishFish} as sf
+            ON sf.name = fw.fish_name
+        WHERE   (:guild_id = 0 OR guild_id = :guild_id)
+        AND     (:user_id = 0 OR user_id = :user_id) 
+        AND     (fish_name LIKE :fish_name)
+        ORDER BY sf.value ASC
+        LIMIT :limit OFFSET :offset
+        """
+        db.row_factory = SwedishFishWallet.row_factory
+        params = self.asdict()
+        params["fish_name"] = f"%{self.fish_name}%"
+        params.update({"limit": limit, "offset": offset})
         async with db.execute(query, params) as cur:
             res = await cur.fetchall()
         return res
@@ -334,7 +380,7 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
             sf.value as value,
             fw.count as count,
             sf.value * fw.count as total
-        FROM {FishWallet} AS fw
+        FROM {SwedishFishWallet} AS fw
         INNER JOIN {SwedishFish} AS sf
             ON sf.name = fw.fish_name
         INNER JOIN {BotEmoji} AS be
@@ -351,19 +397,19 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
         return list(rows)
 
     
-    async def select(self, db: Connection) -> FishWallet | None:
+    async def select(self, db: Connection) -> SwedishFishWallet | None:
         """
         Returns an updated version of the current row
         guild_id == 0 => all servers
         fish_name is None => all fish
         """
         query = f"""
-        SELECT * FROM {FishWallet}
+        SELECT * FROM {SwedishFishWallet}
         WHERE user_id = :user_id
         AND (:guild_id == 0 OR guild_id = :guild_id)
         AND (:fish_name IS NULL OR fish_name = :fish_name)
         """
-        db.row_factory = FishWallet.row_factory
+        db.row_factory = SwedishFishWallet.row_factory
         async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
         return res
@@ -375,7 +421,7 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
         """
         query = f"""
         SELECT user_id, Sum(fw.count * sf.value) as total
-        FROM {FishWallet} as fw
+        FROM {SwedishFishWallet} as fw
         INNER JOIN {SwedishFish} as sf
             ON fw.fish_name = sf.name
         WHERE (:user_id = 0 OR user_id = :user_id)
@@ -399,7 +445,7 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
         """
         query = f"""
         SELECT Sum(fw.count * sf.value) as total
-        FROM {FishWallet} as fw
+        FROM {SwedishFishWallet} as fw
         INNER JOIN {SwedishFish} as sf
             ON fw.fish_name = sf.name
         WHERE (:guild_id = 0 OR guild_id = :guild_id)
@@ -411,22 +457,77 @@ class FishWallet(Table, schema_version=4, trigger_version=6):
         return res["total"] if res is not None else 0 
 
 
-class FishTransformer(Transformer):
+class Transformer_Fish(Transformer):
     async def autocomplete(self, interaction: Interaction, value: str) -> list[Choice[str]]: # pyright: ignore [reportIncompatibleMethodOverride]
         async with interaction.client.dbman.conn() as db:
-            names = await SwedishFish.selectLikeNames(db, value)
-        choices = [Choice(name=name, value=name) for name in names][:25]
+            names = await SwedishFish.selectLikeNames(db, value, limit=25)
+        choices = [Choice(name=name, value=name) for name in names]
         return choices
 
-    async def transform(self, interaction: Interaction, value: str) -> SwedishFish: # pyright: ignore [reportIncompatibleMethodOverride]
+    async def transform(self, interaction: Interaction, value: str) -> SwedishFish | None: # pyright: ignore [reportIncompatibleMethodOverride]
         async with interaction.client.dbman.conn() as db:
             result = await SwedishFish.selectFromName(db, value)
         return result
 
+__FUNC_NAME = "Transformer_UserFish.autocomplete"
+class Transformer_UserFish(Transformer):
+    async def autocomplete(self, interaction: Interaction, value: str) -> list[Choice[str]]: # pyright: ignore [reportIncompatibleMethodOverride]
+        logger.debug(f"{__FUNC_NAME}: Enter with value: {value}")
+        assert interaction.guild is not None
+        logger.debug(f"{__FUNC_NAME}: Post assertion")
+        pseudo = SwedishFishWallet(interaction.user.id, interaction.guild.id, value)
+        async with interaction.client.dbman.conn() as db:
+            fishes = await pseudo.selectRowsWithLikeNames(db, limit=25)
+        logger.debug(f"{__FUNC_NAME}: Got fishes, count: {len(fishes)}")
+        choices = [Choice(name=name, value=name) 
+                   for fish in fishes 
+                   if (name := fish.fish_name)]
+        logger.debug(f"{__FUNC_NAME}: Created choices")
+        interaction.extras["fishes"] = fishes
+        return choices
+
+    async def transform(self, interaction: Interaction, value: str) -> SwedishFishWallet | None: # pyright: ignore [reportIncompatibleMethodOverride]
+        fishes = interaction.extras["fishes"]
+        result = next((f for f in fishes if f.fish_name == value), None)
+        return result
+
+class Transformer_UserFishCount(Transformer):
+    """
+    Requires a previous command field called fish
+    Other names may potentially be added
+    """
+    async def autocomplete(self, interaction: Interaction, value: int) -> list[Choice[int]]: # pyright: ignore [reportIncompatibleMethodOverride]
+        assert interaction.guild is not None
+        fishes = interaction.extras["fishes"]
+        fish_name = interaction.namespace["fish"]
+        
+        entry: SwedishFishWallet | None = next((f for f in fishes if f.fish_name == fish_name), None) 
+        if entry is None:
+            return [Choice(name=f"Invalid Fish", value=0)]
+        max = Choice(name=f"Max: {entry.count}", value=entry.count)
+        # value = int(value) if isinstance(value, str) and value.isdigit() else 0
+
+        if value < entry.count:
+            return [Choice(name=f"{value}", value=value), max]
+        else:
+            return [max]
+
+    async def transform(self, interaction: Interaction, value: int) -> int: # pyright: ignore [reportIncompatibleMethodOverride]
+        fishes = interaction.extras["fishes"]
+        fish_name = interaction.namespace["fish"]
+
+        entry: SwedishFishWallet | None = next((f for f in fishes if f.fish_name == fish_name), None) 
+        # value = int(value) if isinstance(value, str) and value.isdigit() else 0
+        if entry:
+            return min(max(value, 0), entry.count)
+        else:
+            return 0
+
+
 VALID_FILE_TYPES = ("png", "jpg", "jpeg", "webp")
 
 @app_commands.guilds(discord.Object(config.admin_guild_id))
-class CogSwedishDev(GroupCog, group_name="sf"):
+class Cog_SwedishDev(GroupCog, group_name="sf"):
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.dbman = bot.dbman
@@ -435,7 +536,7 @@ class CogSwedishDev(GroupCog, group_name="sf"):
         pass
 
     @app_commands.command(name="add", description="adds a new fish")
-    async def add(self, interaction: Interaction, name: Transform[SwedishFish | None, FishTransformer], image: discord.Attachment, value: int):
+    async def add(self, interaction: Interaction, name: Transform[SwedishFish | None, Transformer_Fish], image: discord.Attachment, value: int):
         await respond(interaction)
         logger.debug(f"add_new: {image.content_type=}")
         if image.content_type is None:
@@ -474,7 +575,7 @@ class CogSwedishDev(GroupCog, group_name="sf"):
         await respond(interaction, f"Added Swedish Fish: {new_fish_name}")
 
     @app_commands.command(name="edit", description="edits an existing fish")
-    async def edit(self, interaction: Interaction, fish: Transform[SwedishFish | None, FishTransformer], image: discord.Attachment | None=None, value: int | None=None) -> None:
+    async def edit(self, interaction: Interaction, fish: Transform[SwedishFish | None, Transformer_Fish], image: discord.Attachment | None=None, value: int | None=None) -> None:
         await respond(interaction)
         if fish is None:
             await respond(interaction, "There is no fish with that name")
@@ -496,7 +597,7 @@ class CogSwedishDev(GroupCog, group_name="sf"):
 
 
     @app_commands.command(name="delete", description="deletes fish")
-    async def delete(self, interaction: Interaction, fish: Transform[SwedishFish | None, FishTransformer]) -> None:
+    async def delete(self, interaction: Interaction, fish: Transform[SwedishFish | None, Transformer_Fish]) -> None:
         await respond(interaction)
 
         if fish is None:
@@ -522,7 +623,7 @@ class CogSwedishDev(GroupCog, group_name="sf"):
         await respond(interaction, "\n".join(out))
 
 @app_commands.default_permissions(manage_expressions=True)
-class CogSwedishGuildAdmin(GroupCog, group_name="fish-admin"):
+class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.dbman = bot.dbman
@@ -601,7 +702,7 @@ class CogSwedishGuildAdmin(GroupCog, group_name="fish-admin"):
                   f"\nDetails (channel, guild) => wallet: ({csw}, {guild_settings.wallet_enabled}), reactions: ({csr}, {guild_settings.reactions_enabled})"
         await respond(interaction, content)
 
-class CogSwedishUser(GroupCog, group_name="fish"): 
+class Cog_SwedishUser(GroupCog, group_name="fish"): 
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.dbman = bot.dbman
@@ -622,7 +723,7 @@ class CogSwedishUser(GroupCog, group_name="fish"):
                 logger.debug(f"on_message: wallet enabled")
                 # successes = await SwedishFish.gamble(db)
                 for s in successes:
-                    default = FishWallet(message.author.id, message.guild.id, s.name)
+                    default = SwedishFishWallet(message.author.id, message.guild.id, s.name)
                     old = await default.select(db) or default
                     logger.debug(f"on_message: old: {old}")
                     old.count += 1 
@@ -641,6 +742,10 @@ class CogSwedishUser(GroupCog, group_name="fish"):
             await db.commit()
         
 
+    @app_commands.command(name="give", description="Give fish to another user")
+    async def give(self, interaction: Interaction, user: discord.Member, fish: Transform[SwedishFishWallet | None, Transformer_UserFish], quantity: Transform[int, Transformer_UserFishCount]) -> None:
+        await respond(interaction)
+
 
     @app_commands.command(name="wallet", description="Shows your fish wallet")
     @app_commands.rename(all_servers="global")
@@ -651,7 +756,7 @@ class CogSwedishUser(GroupCog, group_name="fish"):
         assert interaction.channel is not None
         guild_id = 0 if all_servers else interaction.guild.id
         async with self.dbman.conn() as db:
-            wallet = await FishWallet(interaction.user.id, guild_id, None).list(db)
+            wallet = await SwedishFishWallet(interaction.user.id, guild_id, None).list(db)
             # total = await FishWallet(interaction.user.id, interaction.guild.id, None).totalValue(db)
 
         uname = interaction.user.name
@@ -680,8 +785,8 @@ class CogSwedishUser(GroupCog, group_name="fish"):
         async with self.dbman.conn() as db:
             guild_id = 0 if all_servers else interaction.guild.id
             # wallet = await FishWallet(0, guild_id, None).list(db)
-            top = await FishWallet(0, guild_id, None).netValue(db)
-            total = await FishWallet(0, guild_id, None).totalValue(db)
+            top = await SwedishFishWallet(0, guild_id, None).netValue(db)
+            total = await SwedishFishWallet(0, guild_id, None).totalValue(db)
             # total = await FishWallet(interaction.user.id, interaction.guild.id, None).totalValue(db)
         uname = interaction.user.name
         pname = f"{uname}'s" if not uname.lower().endswith(("s", "z", "x")) else f"{uname}'"
@@ -707,9 +812,9 @@ class CogSwedishUser(GroupCog, group_name="fish"):
 
 
 async def setup(bot: Kagami) -> None:
-    await bot.add_cog(CogSwedishUser(bot))
-    await bot.add_cog(CogSwedishGuildAdmin(bot))
-    await bot.add_cog(CogSwedishDev(bot))
+    await bot.add_cog(Cog_SwedishUser(bot))
+    await bot.add_cog(Cog_SwedishGuildAdmin(bot))
+    await bot.add_cog(Cog_SwedishDev(bot))
     await bot.dbman.setup(__name__)
 
 
