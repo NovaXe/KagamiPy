@@ -396,7 +396,53 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         logger.debug(f"FishWallet.list(self): {len(list(rows))=}")
         return list(rows)
 
-    
+    async def take(self, db: Connection) -> SwedishFishWallet | None:
+        """
+        Take a certain number of fish from a wallet
+        this subtracts the fish from the wallet itself and if not returned are gone
+        """
+        query = f"""
+        WITH (
+            SELECT * FROM {SwedishFishWallet}
+            WHERE guild_id = :guild_id
+            AND user_id = :user_id
+            AND fish_name = :fish_name
+        ) AS focus,
+        WITH (
+            SELECT (count - MAX(count - max(:count, 0), 0)) AS change FROM focus
+        ) AS var,
+        UPDATE {SwedishFishWallet}
+        SET
+            count = count - (SELECT change FROM var)
+        WHERE
+            guild_id = :guild_id
+            AND user_id = :user_id
+            AND fish_name = :fish_name
+        RETURNING guild_id, user_id, fish_name, (SELECT change FROM var) COUNT count
+        """
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res
+
+    async def give(self, db: Connection) -> SwedishFishWallet | None:
+        """
+        Take a certain number of fish from a wallet
+        this subtracts the fish from the wallet itself and if not returned are gone
+        """
+        query = f"""
+        UPDATE SET
+            count = count + :count
+        WHERE
+            guild_id = :guild_id
+            AND user_id = :user_id
+            AND fish_name = :fish_name
+        RETURNING guild_id, user_id, fish_name, :count AS count
+        """
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res
+
+            
     async def select(self, db: Connection) -> SwedishFishWallet | None:
         """
         Returns an updated version of the current row
@@ -744,6 +790,7 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
     @app_commands.command(name="give", description="Give fish to another user")
     async def give(self, interaction: Interaction, user: discord.Member, fish: Transform[SwedishFishWallet | None, Transformer_UserFish], quantity: Transform[int, Transformer_UserFishCount]) -> None:
         await respond(interaction)
+        await respond(interaction, str((user, fish, quantity)))
 
 
     @app_commands.command(name="wallet", description="Shows your fish wallet")
