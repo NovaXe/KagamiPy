@@ -3,6 +3,7 @@ from typing import override, cast, final, Any
 from dataclasses import dataclass
 import random
 import math
+import sys
 
 import aiosqlite
 from aiosqlite import Connection
@@ -247,6 +248,14 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
     guild_id: int
     fish_name: str | None
     count: int=0
+
+
+    @classmethod
+    def from_member(cls, member: discord.Member, fish_name: str|None=None, count: int=0) -> SwedishFishWallet:
+        return SwedishFishWallet(user_id=member.id,
+                                 guild_id=member.guild.id,
+                                 fish_name=fish_name,
+                                 count=count)
 
     @classmethod
     async def create_table(cls, db: Connection):
@@ -515,56 +524,87 @@ class Transformer_Fish(Transformer):
             result = await SwedishFish.selectFromName(db, value)
         return result
 
+
 class Transformer_UserFish(Transformer):
-    async def autocomplete(self, interaction: Interaction, value: str) -> list[Choice[str]]: # pyright: ignore [reportIncompatibleMethodOverride]
-        logger.debug(f"Transformer_UserFish.autocomplete: Enter with value: {value}")
+    async def autocomplete(self, interaction: Interaction, value: str="") -> list[Choice[str]]: # pyright: ignore [reportIncompatibleMethodOverride]
+        # logger.debug(f"Transformer_UserFish.autocomplete: Enter with value: {value}")
         assert interaction.guild is not None
-        logger.debug(f"Transformer_UserFish.autocomplete: Post assertion")
+        # logger.debug(f"Transformer_UserFish.autocomplete: Post assertion")
         pseudo = SwedishFishWallet(interaction.user.id, interaction.guild.id, value)
         async with interaction.client.dbman.conn() as db:
             fishes = await pseudo.selectRowsWithLikeNames(db, limit=25)
-        logger.debug(f"Transformer_UserFish.autocomplete: Got fishes, count: {len(fishes)}")
+        # logger.debug(f"Transformer_UserFish.autocomplete: Got fishes, count: {len(fishes)}")
         choices = [Choice(name=name, value=name) 
                    for fish in fishes 
                    if (name := fish.fish_name) is not None]
-        logger.debug(f"Transformer_UserFish.autocomplete: Created choices")
+        # logger.debug(f"Transformer_UserFish.autocomplete: Created choices")
         interaction.extras["fishes"] = fishes
         return choices
 
     async def transform(self, interaction: Interaction, value: str) -> SwedishFishWallet | None: # pyright: ignore [reportIncompatibleMethodOverride]
-        fishes = interaction.extras["fishes"]
+        fishes = interaction.extras.get("fishes", [])
         result = next((f for f in fishes if f.fish_name == value), None)
         return result
 
-class Transformer_UserFishCount(Transformer):
+class Transformer_UserFishCount(Transformer[Kagami]):
     """
     Requires a previous command field called fish
     Other names may potentially be added
     """
-    async def autocomplete(self, interaction: Interaction, value: int) -> list[Choice[int]]: # pyright: ignore [reportIncompatibleMethodOverride]
+    @override
+    async def autocomplete(self, interaction: Interaction, value: str | int | float) -> list[Choice[int]]: 
+        logger.debug(f"UserFishCount - autocomplete: enter")
         assert interaction.guild is not None
-        fishes = interaction.extras["fishes"]
-        fish_name = interaction.namespace["fish"]
-        
-        entry: SwedishFishWallet | None = next((f for f in fishes if f.fish_name == fish_name), None) 
-        if entry is None:
-            return [Choice(name=f"Invalid Fish", value=0)]
-        max = Choice(name=f"Max: {entry.count}", value=entry.count)
-        # value = int(value) if isinstance(value, str) and value.isdigit() else 0
+        logger.debug(f"UserFishCount - autocomplete: passed assert")
 
-        if value < entry.count:
-            return [Choice(name=f"{value}", value=value), max]
+        if isinstance(value, str):
+            if value.isdigit():
+                value = int(value)
+            else:
+                value = 0
         else:
-            return [max]
+            value = int(value)
 
-    async def transform(self, interaction: Interaction, value: int) -> int: # pyright: ignore [reportIncompatibleMethodOverride]
-        fishes = interaction.extras["fishes"]
         fish_name = interaction.namespace["fish"]
-
-        entry: SwedishFishWallet | None = next((f for f in fishes if f.fish_name == fish_name), None) 
+        logger.debug(f"UserFishCount - autocomplete: {fish_name=}")
+        pseudo = SwedishFishWallet(interaction.user.id, 
+                                   interaction.guild.id, 
+                                   fish_name)
+        async with interaction.client.dbman.conn() as db:
+            fish = await pseudo.select(db)
+        logger.debug(f"UserFishCount - autocomplete: {fish=}")
+        
+        if fish is None:
+            logger.debug(f"UserFishCount - autocomplete: Fish is none")
+            return [Choice(name=f"Invalid Fish", value=0)]
+        max_choice = Choice(name=f"Max: {fish.count}", value=fish.count)
+        logger.debug(f"UserFishCount - autocomplete: {max_choice=}")
         # value = int(value) if isinstance(value, str) and value.isdigit() else 0
-        if entry:
-            return min(max(value, 0), entry.count)
+        logger.debug(f"UserFishCount - {value=}")
+        logger.debug(f"UserFishCount - {value<fish.count=}")
+
+        if value < fish.count:
+            choices = [Choice(name=f"{value}", value=value), max_choice]
+            # logger.debug(f"UserFishCount - autocomplete: {choices=}")
+            return choices
+        else:
+            return [max_choice]
+
+    @override
+    async def transform(self, interaction: Interaction, value: str | float | int) -> int: 
+        assert interaction.guild is not None
+        value = (int(value) if value.isdigit() else 0) if isinstance(value, str) else 0
+        fish_name = interaction.namespace["fish"]
+        logger.debug(f"UserFishCount - transform: {fish_name=}")
+        pseudo = SwedishFishWallet(interaction.user.id, 
+                                   interaction.guild.id, 
+                                   fish_name)
+        async with interaction.client.dbman.conn() as db:
+            fish = await pseudo.select(db)
+        logger.debug(f"UserFishCount - transform: {fish=}")
+        # value = int(value) if isinstance(value, str) and value.isdigit() else 0
+        if fish is not None:
+            return min(max(value, 0), fish.count)
         else:
             return 0
 
@@ -790,6 +830,11 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
     @app_commands.command(name="give", description="Give fish to another user")
     async def give(self, interaction: Interaction, user: discord.Member, fish: Transform[SwedishFishWallet | None, Transformer_UserFish], quantity: Transform[int, Transformer_UserFishCount]) -> None:
         await respond(interaction)
+        assert isinstance(interaction.user, discord.Member)
+        if fish is None:
+            await respond(interaction, "You cannot give away fish you do not have")  
+            return
+        request = SwedishFishWallet.from_member(interaction.user, fish.fish_name, quantity)
         await respond(interaction, str((user, fish, quantity)))
 
 
