@@ -429,6 +429,7 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
             AND fish_name = :fish_name
         RETURNING guild_id, user_id, fish_name, (SELECT change FROM var) COUNT count
         """
+        db.row_factory = SwedishFishWallet
         async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
         return res
@@ -447,6 +448,7 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
             AND fish_name = :fish_name
         RETURNING guild_id, user_id, fish_name, :count AS count
         """
+        db.row_factory = SwedishFishWallet
         async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
         return res
@@ -526,7 +528,7 @@ class Transformer_Fish(Transformer):
 
 
 class Transformer_UserFish(Transformer):
-    async def autocomplete(self, interaction: Interaction, value: str="") -> list[Choice[str]]: # pyright: ignore [reportIncompatibleMethodOverride]
+    async def autocomplete(self, interaction: Interaction, value: str) -> list[Choice[str]]: # pyright: ignore [reportIncompatibleMethodOverride]
         # logger.debug(f"Transformer_UserFish.autocomplete: Enter with value: {value}")
         assert interaction.guild is not None
         # logger.debug(f"Transformer_UserFish.autocomplete: Post assertion")
@@ -542,9 +544,13 @@ class Transformer_UserFish(Transformer):
         return choices
 
     async def transform(self, interaction: Interaction, value: str) -> SwedishFishWallet | None: # pyright: ignore [reportIncompatibleMethodOverride]
-        fishes = interaction.extras.get("fishes", [])
-        result = next((f for f in fishes if f.fish_name == value), None)
-        return result
+        assert interaction.guild is not None
+        pseudo = SwedishFishWallet(interaction.user.id, 
+                                   interaction.guild.id, 
+                                   value)
+        async with interaction.client.dbman.conn() as db:
+            fish = await pseudo.select(db)
+        return fish
 
 class Transformer_UserFishCount(Transformer[Kagami]):
     """
@@ -552,19 +558,14 @@ class Transformer_UserFishCount(Transformer[Kagami]):
     Other names may potentially be added
     """
     @override
-    async def autocomplete(self, interaction: Interaction, value: str | int | float) -> list[Choice[int]]: 
+    async def autocomplete(self, interaction: Interaction, value: str | int | float) -> list[Choice[str]]: 
         logger.debug(f"UserFishCount - autocomplete: enter")
         assert interaction.guild is not None
         logger.debug(f"UserFishCount - autocomplete: passed assert")
-
-        if isinstance(value, str):
-            if value.isdigit():
-                value = int(value)
-            else:
-                value = 0
-        else:
+        try:
             value = int(value)
-
+        except ValueError:
+            value = 0
         fish_name = interaction.namespace["fish"]
         logger.debug(f"UserFishCount - autocomplete: {fish_name=}")
         pseudo = SwedishFishWallet(interaction.user.id, 
@@ -576,15 +577,16 @@ class Transformer_UserFishCount(Transformer[Kagami]):
         
         if fish is None:
             logger.debug(f"UserFishCount - autocomplete: Fish is none")
-            return [Choice(name=f"Invalid Fish", value=0)]
-        max_choice = Choice(name=f"Max: {fish.count}", value=fish.count)
+            return [Choice(name=f"Invalid Fish", value="0")]
+        max_choice = Choice(name=f"Max: {fish.count}", value=f"{fish.count}")
         logger.debug(f"UserFishCount - autocomplete: {max_choice=}")
         # value = int(value) if isinstance(value, str) and value.isdigit() else 0
         logger.debug(f"UserFishCount - {value=}")
         logger.debug(f"UserFishCount - {value<fish.count=}")
 
         if value < fish.count:
-            choices = [Choice(name=f"{value}", value=value), max_choice]
+            v = f"{value}"
+            choices = [Choice(name=v, value=v), max_choice]
             # logger.debug(f"UserFishCount - autocomplete: {choices=}")
             return choices
         else:
@@ -593,7 +595,10 @@ class Transformer_UserFishCount(Transformer[Kagami]):
     @override
     async def transform(self, interaction: Interaction, value: str | float | int) -> int: 
         assert interaction.guild is not None
-        value = (int(value) if value.isdigit() else 0) if isinstance(value, str) else 0
+        try:
+            value = int(value)
+        except ValueError:
+            value = 0
         fish_name = interaction.namespace["fish"]
         logger.debug(f"UserFishCount - transform: {fish_name=}")
         pseudo = SwedishFishWallet(interaction.user.id, 
@@ -829,13 +834,24 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
 
     @app_commands.command(name="give", description="Give fish to another user")
     async def give(self, interaction: Interaction, user: discord.Member, fish: Transform[SwedishFishWallet | None, Transformer_UserFish], quantity: Transform[int, Transformer_UserFishCount]) -> None:
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         assert isinstance(interaction.user, discord.Member)
         if fish is None:
-            await respond(interaction, "You cannot give away fish you do not have")  
+            await respond(interaction, "You cannot give away fish you do not have", ephemeral=True)  
             return
         request = SwedishFishWallet.from_member(interaction.user, fish.fish_name, quantity)
-        await respond(interaction, str((user, fish, quantity)))
+        async with interaction.client.dbman.conn() as db:
+            taken = await request.take(db)
+            if taken is None:
+                await respond(interaction, f"Something went wrong, could not transfer fish from you", ephemeral=True)
+                return
+            taken.user_id = user.id
+            given = await taken.give(db)
+            if given is None:
+                await respond(interaction, f"Something went wrong, could not transfer fish to other user", ephemeral=True)
+                return
+            await db.commit()
+        await respond(interaction, f"Gave {given.count} {given.fish_name} fish to {user.name}", ephemeral=True)
 
 
     @app_commands.command(name="wallet", description="Shows your fish wallet")
