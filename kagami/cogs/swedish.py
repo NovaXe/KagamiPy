@@ -411,27 +411,23 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         this subtracts the fish from the wallet itself and if not returned are gone
         """
         query = f"""
-        WITH (
-            SELECT * FROM {SwedishFishWallet}
-            WHERE guild_id = :guild_id
-            AND user_id = :user_id
-            AND fish_name = :fish_name
-        ) AS focus,
-        WITH (
-            SELECT (count - MAX(count - max(:count, 0), 0)) AS change FROM focus
-        ) AS var,
         UPDATE {SwedishFishWallet}
         SET
-            count = count - (SELECT change FROM var)
+            count = count - MIN(MAX(:count, 0), count)
         WHERE
             guild_id = :guild_id
             AND user_id = :user_id
             AND fish_name = :fish_name
-        RETURNING guild_id, user_id, fish_name, (SELECT change FROM var) COUNT count
+        RETURNING *
         """
         db.row_factory = SwedishFishWallet
+        old = await self.select(db)
         async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
+        if res is None or old is None: 
+            res = None
+        else:
+            res.count = old.count - res.count 
         return res
 
     async def give(self, db: Connection) -> SwedishFishWallet | None:
