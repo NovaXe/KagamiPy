@@ -200,6 +200,11 @@ class SimpleCallbackBuilder[ITEM_TYPE]:
     total_item_count: int = 0 # total number of items returned by get_total_item_count
     items: list[ITEM_TYPE] = [] # items returned by call to get_items
     offset: int = 0 # ScrollerState offset clamped by the total item count
+
+    @classmethod
+    def __call__(cls, *args: Any, **kwargs: Any) -> PageCallback:
+        return cls.get_callback(*args, **kwargs)
+
     @classmethod
     async def get_total_item_count(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
         ...
