@@ -3,6 +3,7 @@ from math import floor
 import re
 from dataclasses import dataclass
 from enum import IntEnum
+from types import ClassMethodDescriptorType
 
 import aiosqlite
 import discord
@@ -17,7 +18,7 @@ from common.logging import setup_logging
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings
-from common.paginator import Scroller, ScrollerState
+from common.paginator import Scroller, ScrollerState, SimpleCallbackBuilder
 from common.utils import acstr
 from typing import (
     Literal, List, Callable, Any, override
@@ -1840,8 +1841,36 @@ class Sentinels(GroupCog, name="s"):
         text = f"`{channel.name}` - globals: `{rep(bool(settings.global_disabled))}`  |  locals: `{rep(bool(settings.local_disabled))}`"
         await respond(interaction, text, delete_after=6)
 
+
+    class SentinelViewAll(SimpleCallbackBuilder[SentinelInfo]):
+        @classmethod
+        @override
+        async def get_total_item_count(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int=0, **kwargs: Any) -> int:
+            return await Sentinel.selectCountWhere(db, guild_id=guild_id)
+
+        @classmethod
+        @override
+        async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int=0, **kwargs: Any) -> list[SentinelInfo]:
+            return await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset)
+
+        @classmethod
+        @override
+        async def item_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, item: SentinelInfo, *args: Any, **kwargs: Any) -> str:
+            index = cls.get_display_index(index)
+            return f"{acstr(index, 6)} {acstr(item.name, 16)} - {acstr(item.suit_count, 5)} / ({acstr(item.trigger_count, 8 , 'm')}, {acstr(item.response_count, 9, 'm')}) : {acstr(item.enabled, 7, 'r')}"
+
+        @classmethod
+        @override
+        async def header_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, scope: str="", **kwargs: Any) -> str:
+            header = f"There are {cls.total_item_count} sentinels within the {scope} scope\n"
+            header += f"{acstr('Index', 6)} {acstr('Name', 16)} - {acstr('Suits', 5, 'm')} / ({acstr('Triggers', 8, 'm')}, {acstr('Responses', 9, 'm')}) : {acstr('Enabled', 7, 'r')}"
+            return header
+
+
     @staticmethod 
     def get_view_all_callback(dbman: DatabaseManager, scope: str, guild_id: int):
+        return Sentinels.SentinelViewAll.get_callback(scope=scope, guild_id=guild_id)
+
         
         async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
             offset = state.initial_offset + state.relative_offset
@@ -1864,6 +1893,8 @@ class Sentinels(GroupCog, name="s"):
             last_index = (count-1) // 10
             return content, 0, last_index
         return callback
+
+
     
     @staticmethod
     def get_sentinel_view_callback(dbman: DatabaseManager, scope: str, guild_id: int, sentinel_name: str):
