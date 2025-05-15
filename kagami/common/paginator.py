@@ -202,7 +202,7 @@ class SimpleCallbackBuilder[ITEM_TYPE]:
     offset: int = 0 # ScrollerState offset clamped by the total item count
 
     @classmethod
-    def __call__(cls, *args: Any, **kwargs: Any) -> PageCallback:
+    def __new__(cls, *args: Any, **kwargs: Any) -> PageCallback:
         return cls.get_callback(*args, **kwargs)
 
     @classmethod
