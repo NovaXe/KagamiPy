@@ -1799,30 +1799,36 @@ class Sentinels(GroupCog, name="s"):
             await db.commit()
         await respond(interaction, response)
 
+    class ChannelCallbackBuilder(SimpleCallbackBuilder[SentinelChannelSettings]):
+        @classmethod
+        @override
+        async def get_total_item_count(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
+            return await SentinelChannelSettings.selectCountWhere(db, interaction.guild_id)
+
+        @classmethod
+        @override
+        async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> list[SentinelChannelSettings]:
+            return SentinelChannelSettings.selectAllWhere(db, interaction.guild_id, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset)
+
+        @classmethod
+        @override
+        async def item_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, item: SentinelChannelSettings, *args: Any, **kwargs: Any) -> str:
+            index = cls.get_display_index(index)
+            channel = self.bot.get_channel(item.channel_id)
+            temp = f"{acstr(index, 6)} {acstr(channel.name, 24)} - {acstr(rep(bool(item.global_disabled)), 8)} | {acstr(rep(bool(item.local_disabled)), 8)}"
+            return temp
+
+        @classmethod
+        @override
+        async def header_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> str:
+            return f"{acstr('Index', 6)} {acstr('Channel Name', 24)} - {acstr('Globals', 8)} | {acstr('Locals', 8)}"
+
     @view_group.command(name="all-channel-settings", description="View all the channels which have disabled sentinels")
     async def view_channels(self, interaction: Interaction):
         message = await respond(interaction, ephemeral=False)
         def rep(b):
             return "Disabled" if b else "Enabled"
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
-            offset = state.offset
-            async with self.bot.dbman.conn() as db:
-                count = await SentinelChannelSettings.selectCountWhere(db, interaction.guild_id)
-                if offset * 10 > count:
-                    offset = floor(count / 10)
-                channel_settings = await SentinelChannelSettings.selectAllWhere(db, interaction.guild_id, limit=10, offset=offset)
-            
-            reps = []
-            for i, settings in enumerate(channel_settings):
-                index = (offset * 10) + i + 1
-                channel = self.bot.get_channel(settings.channel_id)
-                temp = f"{acstr(index, 6)} {acstr(channel.name, 24)} - {acstr(rep(bool(settings.global_disabled)), 8)} | {acstr(rep(bool(settings.local_disabled)), 8)}"
-                reps.append(temp)
-            body = "\n".join(reps)
-            header = f"{acstr('Index', 6)} {acstr('Channel Name', 24)} - {acstr('Globals', 8)} | {acstr('Locals', 8)}"
-            content = f"```swift\n{header}\n---\n{body}\n---\n```"
-            return content, 0, floor((count-1) / 10)
-        scroller = Scroller(message, interaction.user, callback)
+        scroller = Scroller(message, interaction.user, Sentinels.ChannelCallbackBuilder.get_callback())
         await scroller.update(interaction)
 
     @view_group.command(name="channel-settings")
