@@ -720,7 +720,7 @@ class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
 
     @app_commands.command(name="toggle-reactions", description="toggles the visible reactions, users can still collect fish")
     async def toggle_reactions(self, interaction: Interaction, channel_only: bool=False) -> None:
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         logger.debug(f"toggle_reactions: enter")
         assert interaction.guild is not None
         assert interaction.channel is not None
@@ -740,11 +740,11 @@ class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
             await db.commit()
 
         r = "enabled, you can now see the fish" if state.reactions_enabled else "disabled, you can no longer see the fish"
-        await respond(interaction, f"The reactions have been {r}")
+        await respond(interaction, f"The reactions have been {r}", ephemeral=True, delete_after=5)
 
     @app_commands.command(name="toggle-wallet", description="this toggles the wallet that allows users to collect fish, but reactions can still show up")
     async def toggle_wallet(self, interaction: Interaction, channel_only: bool=False) -> None:
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         logger.debug(f"toggle_wallet: enter")
         assert interaction.guild is not None
         assert interaction.channel is not None
@@ -763,11 +763,11 @@ class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
             logger.debug(f"toggle_wallet: upserted")
             await db.commit()
         r = "enabled, you can collect fish again" if state.wallet_enabled else "disabled, no more collecting fish"
-        await respond(interaction, f"The wallet has been {r}")
+        await respond(interaction, f"The wallet has been {r}", ephemeral=True, delete_after=5)
 
     @app_commands.command(name="clear-channel-settings", description="Clear the settings for this channel")
     async def clear_settings(self, interaction: Interaction) -> None:
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         assert interaction.guild is not None
         assert interaction.channel is not None
         async with self.dbman.conn() as db:
@@ -775,10 +775,11 @@ class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
             if settings is not None:
                 await settings.delete(db)
                 await db.commit()
+        await respond(interaction, f"Cleared settings for the channel, ressetting to guild default", delete_after=5)
 
     @app_commands.command(name="settings", description="Queries the settings for the guild and channel")
     async def query_settings(self, interaction: Interaction) -> None:
-        await respond(interaction)
+        await respond(interaction, ephemeral=True)
         assert interaction.guild is not None
         assert interaction.channel is not None
         async with self.dbman.conn() as db:
@@ -790,7 +791,7 @@ class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
         csr = channel_settings.reactions_enabled if channel_settings else ""
         content = f"Current Settings => wallet: {settings.wallet_enabled}, reactions: {settings.reactions_enabled}" + \
                   f"\nDetails (channel, guild) => wallet: ({csw}, {guild_settings.wallet_enabled}), reactions: ({csr}, {guild_settings.reactions_enabled})"
-        await respond(interaction, content)
+        await respond(interaction, content, delete_after=5)
 
 class Cog_SwedishUser(GroupCog, group_name="fish"): 
     def __init__(self, bot: Kagami):
@@ -859,8 +860,8 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
     @app_commands.command(name="wallet", description="Shows your fish wallet")
     @app_commands.rename(all_servers="global")
     @app_commands.describe(all_servers="If true, displays your wallet across all servers the bot is on")
-    async def wallet(self, interaction: Interaction, all_servers: bool=False) -> None:
-        await respond(interaction)
+    async def wallet(self, interaction: Interaction, all_servers: bool=False, show_others: bool=False) -> None:
+        await respond(interaction, ephemeral=not show_others)
         assert interaction.guild is not None
         assert interaction.channel is not None
         guild_id = 0 if all_servers else interaction.guild.id
@@ -887,8 +888,8 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
     @app_commands.command(name="top", description="Shows the most valuable users")
     @app_commands.describe(all_servers="Shows the most valuable users across all servers")
     @app_commands.rename(all_servers="global")
-    async def top(self, interaction: Interaction, all_servers: bool=False) -> None:
-        await respond(interaction)
+    async def top(self, interaction: Interaction, all_servers: bool=False, show_others: bool=False) -> None:
+        await respond(interaction, ephemeral=not show_others)
         assert interaction.guild is not None
         assert interaction.channel is not None
         async with self.dbman.conn() as db:
