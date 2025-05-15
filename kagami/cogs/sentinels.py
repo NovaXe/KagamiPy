@@ -1828,7 +1828,7 @@ class Sentinels(GroupCog, name="s"):
         message = await respond(interaction, ephemeral=False)
         def rep(b):
             return "Disabled" if b else "Enabled"
-        scroller = Scroller(message, interaction.user, Sentinels.ChannelCallbackBuilder.get_callback())
+        scroller = Scroller(message, interaction.user, Sentinels.ChannelCallbackBuilder())
         await scroller.update(interaction)
 
     @view_group.command(name="channel-settings")
@@ -1875,7 +1875,7 @@ class Sentinels(GroupCog, name="s"):
 
     @staticmethod 
     def get_view_all_callback(dbman: DatabaseManager, scope: str, guild_id: int):
-        return Sentinels.SentinelViewAllBuilder.get_callback(scope=scope, guild_id=guild_id)
+        return Sentinels.SentinelViewAllBuilder(scope=scope, guild_id=guild_id)
 
 
     class SentinelViewBuilder(SimpleCallbackBuilder[SuitInfo]):
@@ -1915,7 +1915,7 @@ class Sentinels(GroupCog, name="s"):
     
     @staticmethod
     def get_sentinel_view_callback(dbman: DatabaseManager, scope: str, guild_id: int, sentinel_name: str):
-        return Sentinels.SentinelViewBuilder.get_callback(scope=scope, guild_id=guild_id, sentinel_name=sentinel_name)
+        return Sentinels.SentinelViewBuilder(scope=scope, guild_id=guild_id, sentinel_name=sentinel_name)
 
     @view_group.command(name="all", description="view all sentinels on a guild")
     async def view_all(self, interaction: Interaction, scope: SentinelScope):
