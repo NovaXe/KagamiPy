@@ -1842,7 +1842,7 @@ class Sentinels(GroupCog, name="s"):
         await respond(interaction, text, delete_after=6)
 
 
-    class SentinelViewAll(SimpleCallbackBuilder[SentinelInfo]):
+    class SentinelViewAllBuilder(SimpleCallbackBuilder[SentinelInfo]):
         @classmethod
         @override
         async def get_total_item_count(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int=0, **kwargs: Any) -> int:
@@ -1869,64 +1869,47 @@ class Sentinels(GroupCog, name="s"):
 
     @staticmethod 
     def get_view_all_callback(dbman: DatabaseManager, scope: str, guild_id: int):
-        return Sentinels.SentinelViewAll.get_callback(scope=scope, guild_id=guild_id)
+        return Sentinels.SentinelViewAllBuilder.get_callback(scope=scope, guild_id=guild_id)
 
-        
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
-            offset = state.initial_offset + state.relative_offset
-            async with dbman.conn() as db:
-                count = await Sentinel.selectCountWhere(db, guild_id=guild_id)
-                if offset * 10 > count:
-                    offset = floor(count / 10)
-                sentinel_infos = await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=10, offset=offset * 10)
 
-            reps = []
-            for i, info in enumerate(sentinel_infos):
-                index = (offset * 10) + i + 1
-                temp = f"{acstr(index, 6)} {acstr(info.name, 16)} - {acstr(info.suit_count, 5)} / ({acstr(info.trigger_count, 8 , 'm')}, {acstr(info.response_count, 9, 'm')}) : {acstr(info.enabled, 7, 'r')}"
-                reps.append(temp)
-            body = "\n".join(reps)
-            header = f"There are {count} sentinels within the {scope} scope\n"
-            header += f"{acstr('Index', 6)} {acstr('Name', 16)} - {acstr('Suits', 5, 'm')} / ({acstr('Triggers', 8, 'm')}, {acstr('Responses', 9, 'm')}) : {acstr('Enabled', 7, 'r')}"
-            content = f"```swift\n{header}\n---\n{body}\n---\n```"
-            # is_last = (count - offset * 10) < 10
-            last_index = (count-1) // 10
-            return content, 0, last_index
-        return callback
+    class SentinelViewBuilder(SimpleCallbackBuilder[SuitInfo]):
+        PAGE_ITEM_COUNT: int=5
+        @classmethod
+        @override
+        async def get_total_item_count(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, sentinel_name: str, **kwargs: Any) -> int:
+            return await SentinelSuit.selectCountWhere(db, guild_id=guild_id, sentinel_name=sentinel_name)
 
+        @classmethod
+        @override
+        async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, sentinel_name: str, **kwargs: Any) -> list[SuitInfo]:
+            return await SuitInfo.selectAllWhere(db, guild_id=guild_id, sentinel_name=sentinel_name)
+
+        @classmethod
+        @override
+        async def item_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, item: SuitInfo, *args: Any, **kwargs: Any) -> str:
+            index = cls.get_display_index(index)
+            edges = ("'", "'")
+            t_type = SentinelTrigger.TriggerType(item.trigger_type) if item.trigger_type else None
+            r_type = SentinelResponse.ResponseType(item.response_type) if item.response_type else None
+            temp = f"{acstr(index, 6)} {acstr(item.name, 12)} - {acstr(item.weight, 6, 'r')} : {acstr(bool(item.enabled), 9, 'r')}"
+            temp += f"\n{acstr('', 6)} > {acstr(str(t_type), 14)} {acstr(item.trigger_object, 18, edges=edges)}"
+            temp += f"\n{acstr('', 6)} > {acstr(str(r_type), 14)} {acstr(item.response_content, 18, edges=edges)} {acstr(item.response_reactions, 20, edges=('(', ')'))}"
+            return temp
+
+        @classmethod
+        @override
+        async def header_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, sentinel_name: str="", guild_id: int=0, scope: str="", **kwargs: Any) -> str:
+            edges = ("'", "'")
+            header = f"There are {cls.total_item_count} suits for the sentinel: {sentinel_name} within the {scope} scope"
+            header += f"\n{acstr('Index', 6)} {acstr('Suit Name', 12)} - {acstr('Weight', 6, 'r')} : {acstr('Enabled', 9, 'r')}"
+            header += f"\n{acstr('', 6)} {acstr('> Trigger Type', 16)} {acstr('Trigger Object', 18, edges=edges)}"
+            header += f"\n{acstr('', 6)} {acstr('> Response Type', 16)} {acstr('Response Content', 18, edges=edges)} {acstr('Response Reactions', 20, edges=('(', ')'))}"
+            return header
 
     
     @staticmethod
     def get_sentinel_view_callback(dbman: DatabaseManager, scope: str, guild_id: int, sentinel_name: str):
-        ITEM_COUNT = 5
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
-            offset = state.initial_offset + state.relative_offset
-            async with dbman.conn() as db:
-                count = await SentinelSuit.selectCountWhere(db, guild_id=guild_id, sentinel_name=sentinel_name)
-                if offset * ITEM_COUNT > count:
-                    offset = floor(count / 10)
-                infos = await SuitInfo.selectAllWhere(db, guild_id, sentinel_name)
-            
-            item_reps = []
-            edges = ("'", "'")
-            for index, info in enumerate(infos):
-                t_type = SentinelTrigger.TriggerType(info.trigger_type) if info.trigger_type else None
-                r_type = SentinelResponse.ResponseType(info.response_type) if info.response_type else None
-                temp = f"{acstr(index, 6)} {acstr(info.name, 12)} - {acstr(info.weight, 6, 'r')} : {acstr(bool(info.enabled), 9, 'r')}"
-                temp += f"\n{acstr('', 6)} > {acstr(str(t_type), 14)} {acstr(info.trigger_object, 18, edges=edges)}"
-                temp += f"\n{acstr('', 6)} > {acstr(str(r_type), 14)} {acstr(info.response_content, 18, edges=edges)} {acstr(info.response_reactions, 20, edges=('(', ')'))}"
-                item_reps += [temp]
-
-            header = f"There are {count} suits for the sentinel: {sentinel_name} within the {scope} scope"
-            header += f"\n{acstr('Index', 6)} {acstr('Suit Name', 12)} - {acstr('Weight', 6, 'r')} : {acstr('Enabled', 9, 'r')}"
-            header += f"\n{acstr('', 6)} {acstr('> Trigger Type', 16)} {acstr('Trigger Object', 18, edges=edges)}"
-            header += f"\n{acstr('', 6)} {acstr('> Response Type', 16)} {acstr('Response Content', 18, edges=edges)} {acstr('Response Reactions', 20, edges=('(', ')'))}"
-            body = '\n'.join(item_reps)
-            content = f"```swift\n{header}\n---\n{body}\n---\n```"
-
-            last_index = floor((count-1) / 10)
-            return content, 0, last_index
-        return callback
+        return Sentinels.SentinelViewBuilder.get_callback(scope=scope, guild_id=guild_id, sentinel_name=sentinel_name)
 
     @view_group.command(name="all", description="view all sentinels on a guild")
     async def view_all(self, interaction: Interaction, scope: SentinelScope):
