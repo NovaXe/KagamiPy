@@ -2,7 +2,8 @@ import collections
 import dataclasses
 import traceback
 from aiosqlite import Connection
-from typing import Any, Callable, Awaitable, Generator, Union
+from typing import Any, Callable 
+from collections.abc import Awaitable, Generator
 import sys
 
 import discord
@@ -18,7 +19,7 @@ logger = setup_logging(__name__)
 
 @dataclasses.dataclass
 class ScrollerState:
-    user: discord.User
+    user: discord.User | discord.Member
     message: discord.Message
     initial_offset: int
     relative_offset: int
@@ -28,14 +29,17 @@ class ScrollerState:
 
 type Interaction = discord.Interaction[Kagami]
 T_Callback = Callable[[Interaction, ScrollerState], list[str]]
+type PageCallback = Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]]
+
+Button = ui.Button["Scroller"]
 
 class Scroller(ui.View):
     def __init__(self, message: discord.Message, user: discord.User | discord.Member,
-                 page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]],
+                 page_callback: PageCallback,
                 #  count_callback: Callable[[Interaction, ScrollerState], list[str]],
                 #  margin_callback: Callable[[Interaction, ScrollerState], list[str]],
                  initial_offset=0,
-                 timeout: float=300, timeout_delete_delay: float=3):
+                 timeout: float | None=300, timeout_delete_delay: float=3):
         """
         page_callback: Returns a string representing the page, and a boolean dictating whether the current page is the last
         initial_offset: What page index the scroller starts on
@@ -45,10 +49,10 @@ class Scroller(ui.View):
         super().__init__(timeout=timeout)
         self.message: discord.Message = message
         self.timeout_delete_delay = timeout_delete_delay
-        self.user: discord.User = user
+        self.user: discord.User | discord.Member = user
         self.initial_offset: int = initial_offset
         self.relative_offset: int = 0
-        self.page_callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]] = page_callback
+        self.page_callback: PageCallback = page_callback
 
     def __copy__(self):
         scroller = Scroller(
@@ -75,17 +79,17 @@ class Scroller(ui.View):
         return self.initial_offset + self.relative_offset
 
     @property
-    def buttons(self) -> Generator[ui.Button, None, None]:
-        return (item for item in self.children if isinstance(item, ui.Button))
+    def buttons(self) -> Generator[Button, None, None]:
+        return (item for item in self.children if isinstance(item, Button))
     
     def add_button(self, callback: Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int]]], 
                    style: ButtonStyle=ButtonStyle.secondary, 
-                   label: str=None, 
-                   emoji: Union[discord.PartialEmoji, discord.Emoji, str]=None, 
-                   row: int=None,
+                   label: str | None=None, 
+                   emoji: discord.PartialEmoji | discord.Emoji | str | None=None, 
+                   row: int | None=None,
                    ephemeral: bool=False):
 
-        class CustomButtom(ui.Button):
+        class CustomButtom(Button):
             def __init__(self): # All variables are from the wrapper method so proper initialization isn't needed, kinda hacky but really no different than bind
                 super().__init__(self, style=style, label=label, emoji=emoji, row=row)
             
@@ -145,37 +149,37 @@ class Scroller(ui.View):
         await self.message.edit(content=content, view=self) 
 
     @ui.button(emoji="⬆", custom_id="Scroller:first", row=0)
-    async def first(self, interaction: Interaction, button: ui.Button):
+    async def first(self, interaction: Interaction, button: Button):
         await respond(interaction)
         self.relative_offset = -sys.maxsize
         await self.update(interaction)
 
     @ui.button(emoji="🔼", custom_id="Scroller:prev", row=0)
-    async def prev(self, interaction: Interaction, button: ui.Button):
+    async def prev(self, interaction: Interaction, button: Button):
         await respond(interaction)
         self.relative_offset -= 1
         await self.update(interaction)
 
     @ui.button(emoji="*️⃣", custom_id="Scroller:home", style=ButtonStyle.blurple, row=0)
-    async def home(self, interaction: Interaction, button: ui.Button):
+    async def home(self, interaction: Interaction, button: Button):
         await respond(interaction)
         self.relative_offset = 0
         await self.update(interaction)
 
     @ui.button(emoji="🔽", custom_id="Scroller:next", row=0)
-    async def next(self, interaction: Interaction, button: ui.Button):
+    async def next(self, interaction: Interaction, button: Button):
         await respond(interaction)
         self.relative_offset += 1
         await self.update(interaction)
     
     @ui.button(emoji="⬇", custom_id="Scroller:last", row=0)
-    async def last(self, interaction: Interaction, button: ui.Button):
+    async def last(self, interaction: Interaction, button: Button):
         await respond(interaction)
         self.relative_offset = sys.maxsize
         await self.update(interaction)
 
     @ui.button(emoji="🗑", custom_id="Scroller:delete", row=4, style=ButtonStyle.red)
-    async def delete(self, interaction: Interaction, button: ui.Button):
+    async def delete(self, interaction: Interaction, button: Button):
         await self.message.delete()
         self.stop()
 
@@ -197,48 +201,50 @@ class SimpleCallbackBuilder[ITEM_TYPE]:
     items: list[ITEM_TYPE] = [] # items returned by call to get_items
     offset: int = 0 # ScrollerState offset clamped by the total item count
     @classmethod
-    async def get_total_item_count(cls, db: Connection, interaction: Interaction, state: ScrollerState) -> int:
+    async def get_total_item_count(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
         ...
 
     @classmethod
-    async def get_items(cls, db: Connection, interaction: Interaction, state: ScrollerState) -> list[ITEM_TYPE]:
+    async def get_items(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> list[ITEM_TYPE]:
         ...
 
     @classmethod
-    async def item_formatter(cls, db: Connection, interaction: Interaction, state: ScrollerState, index: int, item: ITEM_TYPE) -> str:
+    async def item_formatter(cls, db: Connection, interaction: Interaction, state: ScrollerState, index: int, item: ITEM_TYPE, *args: Any, **kwargs: Any) -> str:
         ...
 
     @classmethod
-    async def header_formatter(cls, db: Connection, interaction: Interaction, state: ScrollerState) -> str:
+    async def header_formatter(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> str:
         ...
 
     @classmethod
     def get_display_index(cls, index: int) -> int:
         return cls.offset * cls.PAGE_ITEM_COUNT + index + cls.INDEX_DISPLAY_OFFSET
-    
+
     @classmethod
-    async def callback(cls, interaction: Interaction, state: ScrollerState):
-        cls.offset = state.offset
-        async with interaction.client.dbman.conn() as db:
-            cls.total_item_count = await cls.get_total_item_count(db, interaction, state)
-            if cls.offset * cls.PAGE_ITEM_COUNT > cls.total_item_count:
-                cls.offset = cls.total_item_count // 10
-            cls.items = await cls.get_items(db, interaction, state)
+    def get_callback(cls, *args: Any, **kwargs: Any) -> PageCallback:
+        async def callback(interaction: Interaction, state: ScrollerState) -> tuple[str, int, int]:
+            cls.offset = state.offset
+            async with interaction.client.dbman.conn() as db:
+                cls.total_item_count = await cls.get_total_item_count(db, interaction, state, *args, **kwargs)
+                if cls.offset * cls.PAGE_ITEM_COUNT > cls.total_item_count:
+                    cls.offset = cls.total_item_count // 10
+                cls.items = await cls.get_items(db, interaction, state, *args, **kwargs)
 
-            reps = []
-            for i, item in enumerate(cls.items):
-                formatted_item = await cls.item_formatter(db, interaction, state, i, item)
-                reps.append(formatted_item)
+                reps: list[str] = []
+                for i, item in enumerate(cls.items):
+                    formatted_item = await cls.item_formatter(db, interaction, state, i, item, *args, **kwargs)
+                    reps.append(formatted_item)
 
-            header = await cls.header_formatter(db, interaction, state)
+                header = await cls.header_formatter(db, interaction, state, *args, **kwargs)
 
-        body = "\n".join(reps)
-        content = f"```{cls.CODEBLOCK_LANGUAGE}\n" + \
-                  f"{header}\n" + \
-                  f"{cls.CONTENT_SEPERATOR}\n" + \
-                  f"{body}\n" + \
-                  f"{cls.CONTENT_SEPERATOR}\n" + \
-                  f"```"
-        return content, 0, (cls.total_item_count - 1) // 10
+            body = "\n".join(reps)
+            content = f"```{cls.CODEBLOCK_LANGUAGE}\n" + \
+                      f"{header}\n" + \
+                      f"{cls.CONTENT_SEPERATOR}\n" + \
+                      f"{body}\n" + \
+                      f"{cls.CONTENT_SEPERATOR}\n" + \
+                      f"```"
+            return content, 0, (cls.total_item_count - 1) // 10
+        return callback
 
 
