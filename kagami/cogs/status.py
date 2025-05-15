@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import (
-    Literal, List, Callable, Any, cast
+    Literal, List, Callable, Any, cast, override
 )
 
 import aiosqlite
@@ -17,7 +17,7 @@ from common.logging import setup_logging
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, PersistentSettings
-from common.paginator import Scroller, ScrollerState
+from common.paginator import Scroller, ScrollerState, SimpleCallbackBuilder
 from common.utils import acstr
 
 logger = setup_logging(__name__)
@@ -252,29 +252,34 @@ class StatusCog(GroupCog, name="status"):
             logger.info(f"Changed Actvity to default: {status}")
 
         
+    class ViewAllBuilder(SimpleCallbackBuilder[Status]):
+        @classmethod
+        @override
+        async def get_total_item_count(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
+            return await Status.selectCount(db)
+        
+        @classmethod
+        @override
+        async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> list[Status]:
+            return await Status.selectValue(db, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset * cls.PAGE_ITEM_COUNT)
+            
+        @classmethod
+        @override
+        async def item_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, status: Status, *args: Any, **kwargs: Any) -> str:
+            index = cls.get_display_index(index)
+            temp = f"{acstr(status.id, 6)} {acstr(status.name, 32)} {acstr(status.emoji, 8)}"
+            return temp
+
+        @classmethod
+        @override
+        async def header_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> str:
+            header = f"{acstr('ID', 6)} {acstr('Status', 32)} {acstr('Emoji', 8)}"
+            return header
+
     @app_commands.command(name="view-all", description="See a list of all saved statuses")
     async def view_all(self, interaction: Interaction):
         message = await respond(interaction)
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
-            dbman = self.bot.dbman
-            offset = state.offset
-            async with dbman.conn() as db:
-                count = await Status.selectCount(db)
-                if offset * 10 > count:
-                    offset = count // 10
-                items: list[Status] = await Status.selectValue(db, limit=10, offset=offset*10)
-            
-            reps = []
-            for i, status in enumerate(items):
-                # index = i + 1 + offset * 10
-                temp = f"{acstr(status.id, 6)} {acstr(status.name, 32)} {acstr(status.emoji, 8)}"
-                reps.append(temp)
-
-            header = f"{acstr('ID', 6)} {acstr('Status', 32)} {acstr('Emoji', 8)}"
-            body = "\n".join(reps)
-            content = f"```swift\n{header}\n---\n{body}\n---\n```"
-            return content, 0, (count -1 ) // 10
-        scroller = Scroller(message=message, user=interaction.user, page_callback=callback)
+        scroller = Scroller(message=message, user=interaction.user, page_callback=StatusCog.ViewAllBuilder())
         await scroller.update(interaction)
 
     @tasks.loop()
