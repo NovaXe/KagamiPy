@@ -1,6 +1,7 @@
 import collections
 import dataclasses
 import traceback
+from aiosqlite import Connection
 from typing import Any, Callable, Awaitable, Generator, Union
 import sys
 
@@ -177,4 +178,67 @@ class Scroller(ui.View):
     async def delete(self, interaction: Interaction, button: ui.Button):
         await self.message.delete()
         self.stop()
+
+class SimpleCallbackBuilder[ITEM_TYPE]:
+    """
+    Exists to quickly throw together callbacks without needing to remember the boilerplate required to do so 
+
+    The callback method execution order is as follows
+    get_total_item_count > get_items > item_formatter > header_formatter
+    Anything returned by a method further ahead than the current one is at a default value and not yet accesable
+    """
+    PAGE_ITEM_COUNT: int = 10
+    # FIRST_PAGE_INDEX: int = 0
+    # LAST_PAGE_INDEX: int = 0
+    INDEX_DISPLAY_OFFSET: int = 1
+    CODEBLOCK_LANGUAGE: str = "swift"
+    CONTENT_SEPERATOR: str = "───"
+    total_item_count: int = 0 # total number of items returned by get_total_item_count
+    items: list[ITEM_TYPE] = [] # items returned by call to get_items
+    offset: int = 0 # ScrollerState offset clamped by the total item count
+    @classmethod
+    async def get_total_item_count(cls, db: Connection, interaction: Interaction, state: ScrollerState) -> int:
+        ...
+
+    @classmethod
+    async def get_items(cls, db: Connection, interaction: Interaction, state: ScrollerState) -> list[ITEM_TYPE]:
+        ...
+
+    @classmethod
+    async def item_formatter(cls, db: Connection, interaction: Interaction, state: ScrollerState, index: int, item: ITEM_TYPE) -> str:
+        ...
+
+    @classmethod
+    async def header_formatter(cls, db: Connection, interaction: Interaction, state: ScrollerState) -> str:
+        ...
+
+    @classmethod
+    def get_display_index(cls, index: int) -> int:
+        return cls.offset * cls.PAGE_ITEM_COUNT + index + cls.INDEX_DISPLAY_OFFSET
+    
+    @classmethod
+    async def callback(cls, interaction: Interaction, state: ScrollerState):
+        cls.offset = state.offset
+        async with interaction.client.dbman.conn() as db:
+            cls.total_item_count = await cls.get_total_item_count(db, interaction, state)
+            if cls.offset * cls.PAGE_ITEM_COUNT > cls.total_item_count:
+                cls.offset = cls.total_item_count // 10
+            cls.items = await cls.get_items(db, interaction, state)
+
+            reps = []
+            for i, item in enumerate(cls.items):
+                formatted_item = await cls.item_formatter(db, interaction, state, i, item)
+                reps.append(formatted_item)
+
+            header = await cls.header_formatter(db, interaction, state)
+
+        body = "\n".join(reps)
+        content = f"```{cls.CODEBLOCK_LANGUAGE}\n" + \
+                  f"{header}\n" + \
+                  f"{cls.CONTENT_SEPERATOR}\n" + \
+                  f"{body}\n" + \
+                  f"{cls.CONTENT_SEPERATOR}\n" + \
+                  f"```"
+        return content, 0, (cls.total_item_count - 1) // 10
+
 
