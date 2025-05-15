@@ -1808,7 +1808,7 @@ class Sentinels(GroupCog, name="s"):
         @classmethod
         @override
         async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> list[SentinelChannelSettings]:
-            return SentinelChannelSettings.selectAllWhere(db, interaction.guild_id, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset)
+            return SentinelChannelSettings.selectAllWhere(db, interaction.guild_id, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset * cls.PAGE_ITEM_COUNT)
 
         @classmethod
         @override
@@ -1857,7 +1857,7 @@ class Sentinels(GroupCog, name="s"):
         @classmethod
         @override
         async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int=0, **kwargs: Any) -> list[SentinelInfo]:
-            return await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset)
+            return await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset * cls.PAGE_ITEM_COUNT)
 
         @classmethod
         @override
@@ -1888,7 +1888,7 @@ class Sentinels(GroupCog, name="s"):
         @classmethod
         @override
         async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, sentinel_name: str, **kwargs: Any) -> list[SuitInfo]:
-            return await SuitInfo.selectAllWhere(db, guild_id=guild_id, sentinel_name=sentinel_name)
+            return await SuitInfo.selectAllWhere(db, guild_id=guild_id, sentinel_name=sentinel_name, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset * cls.PAGE_ITEM_COUNT)
 
         @classmethod
         @override
