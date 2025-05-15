@@ -411,8 +411,10 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         this subtracts the fish from the wallet itself and if not returned are gone
         """
         query = f"""
-        UPDATE {SwedishFishWallet}
-        SET
+        INSERT INTO {SwedishFishWallet}(guild_id, user_id, fish_name, count)
+        VALUES (:guild_id, :user_id, :fish_name, 0)
+        ON CONFLICT (guild_id, user_id, fish_name)
+        DO UPDATE SET
             count = count - MIN(MAX(:count, 0), count)
         WHERE
             guild_id = :guild_id
@@ -420,13 +422,11 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
             AND fish_name = :fish_name
         RETURNING *
         """
-        db.row_factory = SwedishFishWallet
+        db.row_factory = SwedishFishWallet.row_factory
         old = await self.select(db)
         async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
-        if res is None or old is None: 
-            res = None
-        else:
+        if res is not None and old is not None:
             res.count = old.count - res.count 
         return res
 
@@ -436,7 +436,10 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         this subtracts the fish from the wallet itself and if not returned are gone
         """
         query = f"""
-        UPDATE SET
+        INSERT INTO {SwedishFishWallet}(guild_id, user_id, fish_name, count)
+        VALUES (:guild_id, :user_id, :fish_name, :count)
+        ON CONFLICT (guild_id, user_id, fish_name)
+        DO UPDATE SET
             count = count + :count
         WHERE
             guild_id = :guild_id
@@ -444,9 +447,10 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
             AND fish_name = :fish_name
         RETURNING guild_id, user_id, fish_name, :count AS count
         """
-        db.row_factory = SwedishFishWallet
+        db.row_factory = SwedishFishWallet.row_factory
         async with db.execute(query, self.asdict()) as cur:
             res = await cur.fetchone()
+            # logger.debug(f"wallet give {res=}")
         return res
 
             
@@ -833,21 +837,23 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
         await respond(interaction, ephemeral=True)
         assert isinstance(interaction.user, discord.Member)
         if fish is None:
-            await respond(interaction, "You cannot give away fish you do not have", ephemeral=True)  
+            await respond(interaction, "You cannot give away fish you do not have", ephemeral=True, delete_after=5)  
             return
         request = SwedishFishWallet.from_member(interaction.user, fish.fish_name, quantity)
         async with interaction.client.dbman.conn() as db:
             taken = await request.take(db)
             if taken is None:
-                await respond(interaction, f"Something went wrong, could not transfer fish from you", ephemeral=True)
+                await respond(interaction, f"Something went wrong, could not transfer fish from you", ephemeral=True, delete_after=5)
                 return
+            # logger.debug(f"fish-give: {taken=}")
             taken.user_id = user.id
             given = await taken.give(db)
+            # logger.debug(f"fish-give: {given=}")
             if given is None:
-                await respond(interaction, f"Something went wrong, could not transfer fish to other user", ephemeral=True)
+                await respond(interaction, f"Something went wrong, could not transfer fish to other user", ephemeral=True, delete_after=5)
                 return
             await db.commit()
-        await respond(interaction, f"Gave {given.count} {given.fish_name} fish to {user.name}", ephemeral=True)
+        await respond(interaction, f"Gave {given.count} {given.fish_name} fish to {user.name}", ephemeral=True, delete_after=3)
 
 
     @app_commands.command(name="wallet", description="Shows your fish wallet")
