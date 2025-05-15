@@ -17,7 +17,7 @@ from common.logging import setup_logging
 from common.errors import CustomCheck
 from common.utils import acstr, ms_timestamp
 from common.types import MessageableGuildChannel
-from common.paginator import ScrollerState, Scroller
+from common.paginator import ScrollerState, Scroller, SimpleCallbackBuilder
 
 from .db import TrackListDetails, TrackList, TrackListFlags
 
@@ -194,6 +194,35 @@ class SearchQueryModal(ui.Modal, title="Search Query"):
 
     async def on_submit(self, interaction: Interaction, /) -> None:
         await respond(interaction)
+
+# class TracklistCallbackBuilder(SimpleCallbackBuilder[Playable]):
+#     W_INDEX = 7
+#     W_TITLE = 60
+#     W_DURATION = 9
+#     @classmethod
+#     @override
+#     async def get_total_item_count(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, tracks: list[Playable] | None=None, **kwargs: Any) -> int:
+#         ...
+# 
+#     @classmethod
+#     @override
+#     async def get_items(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> list[ITEM_TYPE]:
+#         return await super().get_items(db, interaction, state, *args, **kwargs)
+# 
+#         def repr(track: Playable, index: int) -> str:
+#             return f"{acstr(index, cls.W_INDEX, edges=("", ")"))} {acstr(track.title, cls.W_TITLE)} - {acstr(ms_timestamp(track.length), cls.W_DURATION, just="r")}"
+# 
+#         reps: list[str] = []
+#         for slice_index, track in enumerate(tracks[offset*ITEM_COUNT:offset*ITEM_COUNT + ITEM_COUNT]):
+#             index = (slice_index + offset * 10) + 1
+#             rep = repr(track, index)
+#             reps.append(rep)
+#         body = '\n'.join(reps)
+#         formatted_title = f"{title}\n" if title else ''
+#         header = f"{formatted_title}{acstr('Index', W_INDEX)} {acstr('Title', W_TITLE)} - {acstr('Length', W_DURATION, just="r")}"
+#         content = f"```swift\n{header}\n-------\n{body}\n-------\nPage # ({first_page_index} : {offset} : {last_page_index})\n```"
+#         # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
+#         return content, first_page_index, last_page_index
 
 def get_tracklist_callback(tracks: list[wavelink.Playable] | wavelink.Playlist, title: str | None=None) -> Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]]:
     async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
