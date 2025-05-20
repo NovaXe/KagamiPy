@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import aiosqlite
 
 import discord
-from discord import app_commands, Interaction
+from discord import app_commands
 from discord._types import ClientT
 from discord.ext import commands
 from discord.app_commands import Transformer, Group, Transform, Choice
@@ -13,11 +13,13 @@ from discord.ext.commands import GroupCog
 from common import errors
 from common.utils import acstr
 from common.interactions import respond
-from typing import Literal, Union, List, Any
+from typing import Literal, Union, List, Any, override
 from bot import Kagami, config
 from common.database import Table, DatabaseManager
 from common.tables import Guild, GuildSettings, User
-from common.paginator import Scroller, ScrollerState
+from common.paginator import Scroller, ScrollerState, SimpleCallback
+
+type Interaction = discord.Interaction[Kagami]
 
 @dataclass
 class TagSettings(Table, schema_version=1, trigger_version=1):
@@ -240,7 +242,7 @@ class Tag(Table, schema_version=1, trigger_version=1):
         return res
 
     @classmethod
-    async def selectAllWhere(cls, db: aiosqlite.Connection, guild_id: int, author_id: int=None,
+    async def selectAllWhere(cls, db: aiosqlite.Connection, guild_id: int, author_id: int | None=None,
                              limit: int=25, offset: int=0) -> list["Tag"]:
         if author_id is None:
             query = f"""
@@ -286,7 +288,7 @@ class Tag(Table, schema_version=1, trigger_version=1):
         return res is not None
 
     @classmethod
-    async def selectCountWhere(cls, db: aiosqlite.Connection, group_id: int, author_id: int=None) -> int:
+    async def selectCountWhere(cls, db: aiosqlite.Connection, group_id: int, author_id: int | None=None) -> int:
         if author_id is not None:
             query = f"""
             SELECT COUNT(*) AS count FROM {Tag}
@@ -742,38 +744,65 @@ class Tags(GroupCog, group_name="t"):
 
     view = Group(name="view", description="commands that display useful information")
 
+    class ViewUserCallback(SimpleCallback[Tag]):
+        @override
+        async def get_total_item_count(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, 
+                                       group_id: int, user: discord.User | discord.Member, **kwargs: Any) -> int:
+            return await Tag.selectCountWhere(db, group_id=group_id, author_id=user.id)
+
+        @override
+        async def get_items(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, 
+                            group_id: int, user: discord.User | discord.Member, **kwargs: Any) -> list[Tag]:
+            return await Tag.selectAllWhere(db, guild_id=group_id, author_id=user.id, limit=self.PAGE_ITEM_COUNT, offset = self.item_offset)
+
+        @override
+        async def item_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, tag: Tag, *args: Any, **kwargs: Any) -> str:
+            index = self.get_display_index(index)
+            temp = f"{index:<5} {tag.name} - {tag.author_id} : {tag.creation_date}"
+            return temp
+
+        @override
+        async def header_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, 
+                                   *args: Any, group_id: int, user: discord.User | discord.Member, **kwargs: Any) -> str:
+            group_name = "global" if group_id == 0 else "local"
+            content = f"There are {self.total_item_count} tags in the {group_name} group, belonging to {user.name}"
+            return content
+
     @view.command(name="user")
     @app_commands.rename(group_id="group")
     async def view_user(self, interaction: Interaction, group_id: Transform[int, TagGroupTransformer], user: discord.User):
         message = await respond(interaction)
         if group_id is None:
             raise errors.CustomCheck(f"There are no tags in that group")
-
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
-            ITEM_COUNT = 10
-            offset = state.initial_offset + state.relative_offset
-            async with self.bot.dbman.conn() as db:
-                tag_count = await Tag.selectCountWhere(db, group_id=group_id, author_id=user.id)
-                results = await Tag.selectAllWhere(db, guild_id=group_id, author_id=user.id, limit=ITEM_COUNT, offset=offset * ITEM_COUNT)
-
-            if offset * ITEM_COUNT > tag_count:
-                offset = tag_count // 10
-            
-            reps = []
-            for i, tag in enumerate(results):
-                index = (offset * ITEM_COUNT) + i + 1
-                temp = f"{index:<5} {tag.name} - {tag.author_id} : {tag.creation_date}"
-                reps.append(temp)
-            
-            group_name = "global" if group_id == 0 else "local"
-            body = '\n'.join(reps)
-            content = f"```swift\nThere are {tag_count} tags in the {group_name} group, belonging to {user.name}\n---\n{body}\n---\n```"
-            # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
-            last_index = (tag_count - 1) // ITEM_COUNT
-            return content, 0, last_index
-
-        scroller = Scroller(message, interaction.user, page_callback=callback, initial_offset=0)
+        scroller = Scroller(message, interaction.user, page_callback=Tags.ViewUserCallback(group_id=group_id, user=user))
         await scroller.update(interaction)
+
+    class ViewAllCallback(SimpleCallback[Tag]):
+        @override
+        async def get_total_item_count(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, group_id: int, **kwargs: Any) -> int:
+            return await Tag.selectCountWhere(db, group_id=group_id, author_id=None)
+
+        @override
+        async def get_items(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, group_id: int, **kwargs: Any) -> list[Tag]:
+            return await Tag.selectAllWhere(db, guild_id=group_id, author_id=None, limit=self.PAGE_ITEM_COUNT, offset=self.item_offset)
+
+        @override
+        async def item_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, tag: Tag, *args: Any, **kwargs: Any) -> str:
+            index = self.get_display_index(index)
+            author = interaction.client.get_user(tag.author_id)
+            name = author.name if author is not None else "Unknown"
+            temp = f"{acstr(index, 6)} {acstr(tag.name, 16)} - {acstr(name, 16)} : {acstr(tag.creation_date, 14)}"
+            return temp
+
+        @override
+        async def header_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, group_id: int, **kwargs: Any) -> str:
+            group_name = "global" if group_id == 0 else "local"
+            if self.total_item_count > 1:
+                header = f"There are {self.total_item_count} tags in the {group_name} group\n"
+            else:
+                header = f"There is {self.total_item_count} tag in the {group_name} group\n"
+            header += f"{acstr('Index', 6)} {acstr('Tag Name', 16)} - {acstr('Tag Author', 16)} : {acstr('Creation Date', 14)}"
+            return header
 
     @view.command(name="all")
     @app_commands.rename(group_id="group")
@@ -781,39 +810,8 @@ class Tags(GroupCog, group_name="t"):
         message = await respond(interaction)
         if group_id is None:
             raise errors.CustomCheck("There are no tags in that group")
-        user = interaction.user
-
-        async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
-            ITEM_COUNT = 10
-            offset = state.initial_offset + state.relative_offset
-            async with self.bot.dbman.conn() as db:
-                tag_count = await Tag.selectCountWhere(db, group_id=group_id, author_id=user.id)
-                results = await Tag.selectAllWhere(db, guild_id=group_id, author_id=user.id, limit=ITEM_COUNT, offset=offset * ITEM_COUNT)
-
-            if offset * ITEM_COUNT > tag_count:
-                offset = tag_count // 10
-            
-            reps = []
-            for i, tag in enumerate(results):
-                index = (offset * ITEM_COUNT) + i + 1
-                temp = f"{acstr(index, 6)} {acstr(tag.name, 16)} - {acstr(self.bot.get_user(tag.author_id).name, 16)} : {acstr(tag.creation_date, 14)}"
-                reps.append(temp)
-            
-            group_name = "global" if group_id == 0 else "local"
-            body = '\n'.join(reps)
-            header = f"{acstr('Index', 6)} {acstr('Tag Name', 16)} - {acstr('Tag Author', 16)} : {acstr('Creation Date', 14)}"
-            content = f"```swift\nThere are {tag_count} tags in the {group_name} group\n{header}\n---\n{body}\n---\n```"
-            # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
-            last_index = (tag_count - 1) // ITEM_COUNT 
-            return content, 0, last_index
-
-        # page, count = self.get_callbacks(self.bot.dbman, group_id)
-        # scroller = Scroller(message, interaction.user, page_callback=page, count_callback=count, initial_offset=0)
-        scroller = Scroller(message, interaction.user, page_callback=callback, initial_offset=0)
+        scroller = Scroller(message, interaction.user, page_callback=Tags.ViewAllCallback(group_id=group_id))
         await scroller.update(interaction)
-        
-        # content, _ = await scroller.get_page_content(interaction)
-        # await respond(interaction, content=content, view=scroller)
 
 class TagModal(discord.ui.Modal, title="Set Tag"):
     def __init__(self, message: discord.Message):
@@ -839,7 +837,7 @@ class TagModal(discord.ui.Modal, title="Set Tag"):
     embed = discord.ui.TextInput(label="Tag Embed", placeholder="Embed as a json object\n",
                                  style=discord.TextStyle.paragraph, required=False)
 
-    async def on_submit(self, interaction: Interaction[Kagami], /) -> None:
+    async def on_submit(self, interaction: Interaction, /) -> None:
         bot: Kagami = interaction.client
         if len(self.embed.value.strip()) > 0:
             validate_json(self.embed.value)
