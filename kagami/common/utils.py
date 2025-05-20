@@ -10,10 +10,10 @@ import discord.utils
 
 
 
-def acstr(string: str | Any, length: int, just: Literal["l", "r", "m"]="l", edges: tuple[str, str]=('','')):
+def acstr(string: str | Any, length: int=-1, just: Literal["l", "r", "m"]="l", edges: tuple[str, str]=('','')):
     """String alignment and cropping
     string: The string in questions
-    length: The max length of the string
+    length: The max length of the string (-1 for no limit)
     just: The justification, [l]eft, [r]ight, [m]iddle
     """
     if not isinstance(string, str):
@@ -35,7 +35,9 @@ def acstr(string: str | Any, length: int, just: Literal["l", "r", "m"]="l", edge
         case "m":
             string = edges[0] + string + edges[1]
             string = string.center(length)
-    if len(string) > length:
+    if length == -1:
+        string = string
+    elif len(string) > length:
         right = length - len(cont)
         if len(edges[1]):
             right -= 1
