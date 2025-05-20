@@ -4,6 +4,7 @@ import traceback
 from aiosqlite import Connection
 from typing import Any, Callable 
 from collections.abc import Awaitable, Generator
+from abc import ABC, abstractmethod
 import sys
 
 import discord
@@ -183,7 +184,8 @@ class Scroller(ui.View):
         await self.message.delete()
         self.stop()
 
-class SimpleCallbackBuilder[ITEM_TYPE]:
+
+class SimpleCallback[T](ABC):
     """
     Exists to quickly throw together callbacks without needing to remember the boilerplate required to do so 
 
@@ -197,59 +199,182 @@ class SimpleCallbackBuilder[ITEM_TYPE]:
     INDEX_DISPLAY_OFFSET: int = 1
     CODEBLOCK_LANGUAGE: str = "swift"
     CONTENT_SEPERATOR: str = "───"
-    total_item_count: int = 0 # total number of items returned by get_total_item_count
-    items: list[ITEM_TYPE] = [] # items returned by call to get_items
-    offset: int = 0 # ScrollerState offset clamped by the total item count
 
-    @classmethod
-    def __new__(cls, *args: Any, **kwargs: Any) -> PageCallback:
-        return cls.get_callback(*args, **kwargs)
+    async def __call__(self, interaction: Interaction, state: ScrollerState) -> tuple[str, int, int]:
+        return await self._callback(interaction, state)
 
-    @classmethod
-    async def get_total_item_count(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """
+        Creates a callable object that functions like a callback
+        Initializes internal defaults and stores the bound args and kwargs
+        Bound arguments are accessable from any overwritten method
+        """
+        self._bound_arguments: tuple[tuple[Any], dict[str, Any]] = (args, kwargs) # tuple, args and kwargs still need to be individually unpacked
+        self._total_item_count: int = 0  # total number of items returned by get_total_item_count
+        self._items: list[T] = []        # items returned by call to get_items
+        self._offset: int = 0            # ScrollerState offset clamped by the total item count
+
+    @abstractmethod
+    async def get_total_item_count(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
+        """
+        Abstract method for getting the total items across all pages
+        """
         ...
 
-    @classmethod
-    async def get_items(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> list[ITEM_TYPE]:
+    @abstractmethod
+    async def get_items(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> list[T]:
+        """
+        Abstract method for getting the items for the current page
+        """
         ...
 
-    @classmethod
-    async def item_formatter(cls, db: Connection, interaction: Interaction, state: ScrollerState, index: int, item: ITEM_TYPE, *args: Any, **kwargs: Any) -> str:
+    @abstractmethod
+    async def item_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, index: int, item: T, *args: Any, **kwargs: Any) -> str:
+        """
+        Abstract method that formats an individual item
+        """
         ...
+        return str(item)
 
-    @classmethod
-    async def header_formatter(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> str:
+    @abstractmethod
+    async def header_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> str:
+        """
+        Abstract method that formats the header which displays at the top of the message
+        """
         ...
+        return ""
 
-    @classmethod
-    def get_display_index(cls, index: int) -> int:
-        return cls.offset * cls.PAGE_ITEM_COUNT + index + cls.INDEX_DISPLAY_OFFSET
+    #@abstractmethod
+    async def no_results(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> str:
+        DEFAULT = "No Results"
+        f"""
+        Called when there are no items within a page of the view
+        Defaults to \"{DEFAULT}\"
+        """
+        # By default displays \"No <ItemTypeName>\"
+        return DEFAULT
 
-    @classmethod
-    def get_callback(cls, *args: Any, **kwargs: Any) -> PageCallback:
-        async def callback(interaction: Interaction, state: ScrollerState) -> tuple[str, int, int]:
-            cls.offset = state.offset
-            async with interaction.client.dbman.conn() as db:
-                cls.total_item_count = await cls.get_total_item_count(db, interaction, state, *args, **kwargs)
-                if cls.offset * cls.PAGE_ITEM_COUNT > cls.total_item_count:
-                    cls.offset = cls.total_item_count // 10
-                cls.items = await cls.get_items(db, interaction, state, *args, **kwargs)
+    @property 
+    def bound_arguments(self) -> tuple[tuple[Any], dict[str, Any]]:
+        return self._bound_arguments
 
-                reps: list[str] = []
-                for i, item in enumerate(cls.items):
-                    formatted_item = await cls.item_formatter(db, interaction, state, i, item, *args, **kwargs)
+    @property
+    def total_item_count(self) -> int:
+        return self._total_item_count
+
+    @property
+    def items(self) -> list[T]:
+        return self._items
+
+    @property
+    def item_offset(self) -> int:
+        return self._offset * self.PAGE_ITEM_COUNT
+
+    def _clamp_offset(self):
+        """
+        Clamps the offset from the state 
+        """
+        if self._offset * self.PAGE_ITEM_COUNT > self._total_item_count:
+            self._offset = self._total_item_count // self.PAGE_ITEM_COUNT
+
+    def get_display_index(self, index: int) -> int:
+        return self._offset * self.PAGE_ITEM_COUNT + index + self.INDEX_DISPLAY_OFFSET
+
+    async def _callback(self, interaction: Interaction, state: ScrollerState) -> tuple[str, int, int]:
+        self._offset = state.offset
+        args, kwargs = self.bound_arguments
+        async with interaction.client.dbman.conn() as db:
+            self._total_item_count = await self.get_total_item_count(db, interaction, state, *args, **kwargs)
+            self._clamp_offset()
+            self._items = await self.get_items(db, interaction, state, *args, **kwargs)
+
+            reps: list[str] = []
+            if self._total_item_count > 0:
+                for i, item in enumerate(self._items):
+                    formatted_item = await self.item_formatter(db, interaction, state, i, item, *args, **kwargs)
                     reps.append(formatted_item)
+            else:
+                reps.append(await self.no_results(db, interaction, state, *args, **kwargs))
 
-                header = await cls.header_formatter(db, interaction, state, *args, **kwargs)
+            header = await self.header_formatter(db, interaction, state, *args, **kwargs)
 
-            body = "\n".join(reps)
-            content = f"```{cls.CODEBLOCK_LANGUAGE}\n" + \
-                      f"{header}\n" + \
-                      f"{cls.CONTENT_SEPERATOR}\n" + \
-                      f"{body}\n" + \
-                      f"{cls.CONTENT_SEPERATOR}\n" + \
-                      f"```"
-            return content, 0, (cls.total_item_count - 1) // 10
-        return callback
+        body = "\n".join(reps)
+        content = f"```{self.CODEBLOCK_LANGUAGE}\n" + \
+                  f"{header}\n" + \
+                  f"{self.CONTENT_SEPERATOR}\n" + \
+                  f"{body}\n" + \
+                  f"{self.CONTENT_SEPERATOR}\n" + \
+                  f"```"
+        return content, 0, (self._total_item_count - 1) // 10
+
+# class OldSimpleCallbackBuilder[ITEM_TYPE]:
+#     """
+#     Exists to quickly throw together callbacks without needing to remember the boilerplate required to do so 
+# 
+#     The callback method execution order is as follows
+#     get_total_item_count > get_items > item_formatter > header_formatter
+#     Anything returned by a method further ahead than the current one is at a default value and not yet accesable
+#     """
+#     PAGE_ITEM_COUNT: int = 10
+#     # FIRST_PAGE_INDEX: int = 0
+#     # LAST_PAGE_INDEX: int = 0
+#     INDEX_DISPLAY_OFFSET: int = 1
+#     CODEBLOCK_LANGUAGE: str = "swift"
+#     CONTENT_SEPERATOR: str = "───"
+#     total_item_count: int = 0 # total number of items returned by get_total_item_count
+#     items: list[ITEM_TYPE] = [] # items returned by call to get_items
+#     offset: int = 0 # ScrollerState offset clamped by the total item count
+# 
+#     @classmethod
+#     def __new__(cls, *args: Any, **kwargs: Any) -> PageCallback:
+#         return cls.get_callback(*args, **kwargs)
+# 
+#     @classmethod
+#     async def get_total_item_count(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
+#         ...
+# 
+#     @classmethod
+#     async def get_items(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> list[ITEM_TYPE]:
+#         ...
+# 
+#     @classmethod
+#     async def item_formatter(cls, db: Connection, interaction: Interaction, state: ScrollerState, index: int, item: ITEM_TYPE, *args: Any, **kwargs: Any) -> str:
+#         ...
+# 
+#     @classmethod
+#     async def header_formatter(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> str:
+#         ...
+# 
+#     @classmethod
+#     def get_display_index(cls, index: int) -> int:
+#         return cls.offset * cls.PAGE_ITEM_COUNT + index + cls.INDEX_DISPLAY_OFFSET
+# 
+#     @classmethod
+#     def get_callback(cls, *args: Any, **kwargs: Any) -> PageCallback:
+#         async def callback(interaction: Interaction, state: ScrollerState) -> tuple[str, int, int]:
+#             cls.offset = state.offset
+#             async with interaction.client.dbman.conn() as db:
+#                 cls.total_item_count = await cls.get_total_item_count(db, interaction, state, *args, **kwargs)
+#                 if cls.offset * cls.PAGE_ITEM_COUNT > cls.total_item_count:
+#                     cls.offset = cls.total_item_count // 10
+#                 cls.items = await cls.get_items(db, interaction, state, *args, **kwargs)
+# 
+#                 reps: list[str] = []
+#                 for i, item in enumerate(cls.items):
+#                     formatted_item = await cls.item_formatter(db, interaction, state, i, item, *args, **kwargs)
+#                     reps.append(formatted_item)
+# 
+#                 header = await cls.header_formatter(db, interaction, state, *args, **kwargs)
+# 
+#             body = "\n".join(reps)
+#             content = f"```{cls.CODEBLOCK_LANGUAGE}\n" + \
+#                       f"{header}\n" + \
+#                       f"{cls.CONTENT_SEPERATOR}\n" + \
+#                       f"{body}\n" + \
+#                       f"{cls.CONTENT_SEPERATOR}\n" + \
+#                       f"```"
+#             return content, 0, (cls.total_item_count - 1) // 10
+#         return callback
 
 

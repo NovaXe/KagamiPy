@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import aiosqlite
 
 import discord
-from discord import app_commands, Interaction
+from discord import app_commands
 from discord._types import ClientT
 from discord.ext import commands
 from discord.app_commands import Transformer, Group, Transform, Choice
@@ -17,7 +17,9 @@ from typing import Literal, Union, List, Any, override
 from bot import Kagami, config
 from common.database import Table, DatabaseManager
 from common.tables import Guild, GuildSettings, User
-from common.paginator import Scroller, ScrollerState, SimpleCallbackBuilder
+from common.paginator import Scroller, ScrollerState, SimpleCallback
+
+type Interaction = discord.Interaction[Kagami]
 
 @dataclass
 class TagSettings(Table, schema_version=1, trigger_version=1):
@@ -746,31 +748,28 @@ class Tags(GroupCog, group_name="t"):
 
     view = Group(name="view", description="commands that display useful information")
 
-    class ViewUserBuilder(SimpleCallbackBuilder[Tag]):
-        @classmethod
+    class ViewUserCallback(SimpleCallback[Tag]):
         @override
-        async def get_total_item_count(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, 
-                                       group_id: int=0, user: discord.User | discord.Member | None=None, **kwargs: Any) -> int:
+        async def get_total_item_count(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, 
+                                       group_id: int, user: discord.User | discord.Member, **kwargs: Any) -> int:
             return await Tag.selectCountWhere(db, group_id=group_id, author_id=user.id)
 
-        @classmethod
         @override
-        async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, 
-                            group_id: int=0, user: discord.User | discord.Member | None=None, **kwargs: Any) -> list[Tag]:
-            return await Tag.selectAllWhere(db, guild_id=group_id, author_id=user.id, limit=cls.PAGE_ITEM_COUNT, offset = cls.offset * cls.PAGE_ITEM_COUNT)
+        async def get_items(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, 
+                            group_id: int, user: discord.User | discord.Member, **kwargs: Any) -> list[Tag]:
+            return await Tag.selectAllWhere(db, guild_id=group_id, author_id=user.id, limit=self.PAGE_ITEM_COUNT, offset = self.item_offset)
 
-        @classmethod
         @override
-        async def item_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, tag: Tag, *args: Any, **kwargs: Any) -> str:
-            index = cls.get_display_index(index)
+        async def item_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, tag: Tag, *args: Any, **kwargs: Any) -> str:
+            index = self.get_display_index(index)
             temp = f"{index:<5} {tag.name} - {tag.author_id} : {tag.creation_date}"
             return temp
 
-        @classmethod
         @override
-        async def header_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, group_id: int=0, user: discord.User | discord.Member | None=None, **kwargs: Any) -> str:
+        async def header_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, 
+                                   *args: Any, group_id: int, user: discord.User | discord.Member, **kwargs: Any) -> str:
             group_name = "global" if group_id == 0 else "local"
-            content = f"There are {cls.total_item_count} tags in the {group_name} group, belonging to {user.name}"
+            content = f"There are {self.total_item_count} tags in the {group_name} group, belonging to {user.name}"
             return content
 
     @view.command(name="user")
@@ -779,37 +778,33 @@ class Tags(GroupCog, group_name="t"):
         message = await respond(interaction)
         if group_id is None:
             raise errors.CustomCheck(f"There are no tags in that group")
-        scroller = Scroller(message, interaction.user, page_callback=Tags.ViewUserBuilder(group_id=group_id, user=user))
+        scroller = Scroller(message, interaction.user, page_callback=Tags.ViewUserCallback(group_id=group_id, user=user))
         await scroller.update(interaction)
 
-    class ViewAllBuilder(SimpleCallbackBuilder[Tag]):
-        @classmethod
+    class ViewAllCallback(SimpleCallback[Tag]):
         @override
-        async def get_total_item_count(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, group_id: int=0, **kwargs: Any) -> int:
+        async def get_total_item_count(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, group_id: int, **kwargs: Any) -> int:
             return await Tag.selectCountWhere(db, group_id=group_id, author_id=None)
 
-        @classmethod
         @override
-        async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, group_id: int=0, **kwargs: Any) -> list[Tag]:
-            return await Tag.selectAllWhere(db, guild_id=group_id, author_id=None, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset * cls.PAGE_ITEM_COUNT)
+        async def get_items(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, group_id: int, **kwargs: Any) -> list[Tag]:
+            return await Tag.selectAllWhere(db, guild_id=group_id, author_id=None, limit=self.PAGE_ITEM_COUNT, offset=self.item_offset)
 
-        @classmethod
         @override
-        async def item_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, tag: Tag, *args: Any, **kwargs: Any) -> str:
-            index = cls.get_display_index(index)
+        async def item_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, tag: Tag, *args: Any, **kwargs: Any) -> str:
+            index = self.get_display_index(index)
             author = interaction.client.get_user(tag.author_id)
             name = author.name if author is not None else "Unknown"
             temp = f"{acstr(index, 6)} {acstr(tag.name, 16)} - {acstr(name, 16)} : {acstr(tag.creation_date, 14)}"
             return temp
 
-        @classmethod
         @override
-        async def header_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, group_id: int=0, **kwargs: Any) -> str:
+        async def header_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, group_id: int, **kwargs: Any) -> str:
             group_name = "global" if group_id == 0 else "local"
-            if cls.total_item_count > 1:
-                header = f"There are {cls.total_item_count} tags in the {group_name} group\n"
+            if self.total_item_count > 1:
+                header = f"There are {self.total_item_count} tags in the {group_name} group\n"
             else:
-                header = f"There is {cls.total_item_count} tag in the {group_name} group\n"
+                header = f"There is {self.total_item_count} tag in the {group_name} group\n"
             header += f"{acstr('Index', 6)} {acstr('Tag Name', 16)} - {acstr('Tag Author', 16)} : {acstr('Creation Date', 14)}"
             return header
 
@@ -819,7 +814,7 @@ class Tags(GroupCog, group_name="t"):
         message = await respond(interaction)
         if group_id is None:
             raise errors.CustomCheck("There are no tags in that group")
-        scroller = Scroller(message, interaction.user, page_callback=Tags.ViewAllBuilder(group_id=group_id))
+        scroller = Scroller(message, interaction.user, page_callback=Tags.ViewAllCallback(group_id=group_id))
         await scroller.update(interaction)
 
 class TagModal(discord.ui.Modal, title="Set Tag"):
@@ -846,7 +841,7 @@ class TagModal(discord.ui.Modal, title="Set Tag"):
     embed = discord.ui.TextInput(label="Tag Embed", placeholder="Embed as a json object\n",
                                  style=discord.TextStyle.paragraph, required=False)
 
-    async def on_submit(self, interaction: Interaction[Kagami], /) -> None:
+    async def on_submit(self, interaction: Interaction, /) -> None:
         bot: Kagami = interaction.client
         if len(self.embed.value.strip()) > 0:
             validate_json(self.embed.value)

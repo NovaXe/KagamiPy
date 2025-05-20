@@ -7,6 +7,7 @@ from math import ceil
 
 from urllib.parse import urlparse, parse_qs
 
+import aiosqlite
 import discord
 from discord import NotFound, VoiceClient, VoiceChannel, ui, ButtonStyle, TextStyle
 from wavelink import Player, AutoPlayMode, QueueMode, Playable, Search
@@ -17,7 +18,7 @@ from common.logging import setup_logging
 from common.errors import CustomCheck
 from common.utils import acstr, ms_timestamp
 from common.types import MessageableGuildChannel
-from common.paginator import ScrollerState, Scroller, SimpleCallbackBuilder
+from common.paginator import ScrollerState, Scroller, SimpleCallback 
 
 from .db import TrackListDetails, TrackList, TrackListFlags
 
@@ -191,64 +192,38 @@ class PlayerSession(Player):
 
 class SearchQueryModal(ui.Modal, title="Search Query"):
     query: ui.TextInput["SearchQueryModal"] = ui.TextInput(label="Search Query", required=True, style=TextStyle.short)
-
     async def on_submit(self, interaction: Interaction, /) -> None:
         await respond(interaction)
 
-# class TracklistCallbackBuilder(SimpleCallbackBuilder[Playable]):
-#     W_INDEX = 7
-#     W_TITLE = 60
-#     W_DURATION = 9
-#     @classmethod
-#     @override
-#     async def get_total_item_count(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, tracks: list[Playable] | None=None, **kwargs: Any) -> int:
-#         ...
-# 
-#     @classmethod
-#     @override
-#     async def get_items(cls, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> list[ITEM_TYPE]:
-#         return await super().get_items(db, interaction, state, *args, **kwargs)
-# 
-#         def repr(track: Playable, index: int) -> str:
-#             return f"{acstr(index, cls.W_INDEX, edges=("", ")"))} {acstr(track.title, cls.W_TITLE)} - {acstr(ms_timestamp(track.length), cls.W_DURATION, just="r")}"
-# 
-#         reps: list[str] = []
-#         for slice_index, track in enumerate(tracks[offset*ITEM_COUNT:offset*ITEM_COUNT + ITEM_COUNT]):
-#             index = (slice_index + offset * 10) + 1
-#             rep = repr(track, index)
-#             reps.append(rep)
-#         body = '\n'.join(reps)
-#         formatted_title = f"{title}\n" if title else ''
-#         header = f"{formatted_title}{acstr('Index', W_INDEX)} {acstr('Title', W_TITLE)} - {acstr('Length', W_DURATION, just="r")}"
-#         content = f"```swift\n{header}\n-------\n{body}\n-------\nPage # ({first_page_index} : {offset} : {last_page_index})\n```"
-#         # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
-#         return content, first_page_index, last_page_index
 
-def get_tracklist_callback(tracks: list[wavelink.Playable] | wavelink.Playlist, title: str | None=None) -> Callable[[Interaction, ScrollerState], Awaitable[tuple[str, int, int]]]:
-    async def callback(irxn: Interaction, state: ScrollerState) -> tuple[str, int, int]:
-        ITEM_COUNT = 10
-        first_page_index = 0
-        # last_page_index = len(tracks) // ITEM_COUNT
-        last_page_index = ceil(len(tracks) / ITEM_COUNT) - 1
-        offset = max(min(state.offset, last_page_index), first_page_index)
-        W_INDEX = 7
-        W_TITLE = 60
-        W_DURATION = 9
-        def repr(track: Playable, index: int) -> str:
-            return f"{acstr(index, W_INDEX, edges=("", ")"))} {acstr(track.title, W_TITLE)} - {acstr(ms_timestamp(track.length), W_DURATION, just="r")}"
+class TracklistCallback(SimpleCallback[Playable]):
+    W_INDEX = 7
+    W_TITLE = 60
+    W_DURATION = 9
 
-        reps: list[str] = []
-        for slice_index, track in enumerate(tracks[offset*ITEM_COUNT:offset*ITEM_COUNT + ITEM_COUNT]):
-            index = (slice_index + offset * 10) + 1
-            rep = repr(track, index)
-            reps.append(rep)
-        body = '\n'.join(reps)
+    def __init__(self, tracks: list[Playable] | wavelink.Playlist, title: str | None=None) -> None:
+        super().__init__(tracks=tracks, title=title)
+
+    @override
+    async def get_total_item_count(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, tracks: list[Playable], **kwargs: Any) -> int:
+        return len(tracks)
+
+    @override
+    async def get_items(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, tracks: list[Playable], **kwargs: Any) -> list[Playable]:
+        return tracks
+
+    @override
+    async def item_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, track: Playable, *args: Any, **kwargs: Any) -> str:
+        index = self.get_display_index(index)
+        return f"{acstr(index, self.W_INDEX, edges=("", ")"))} {acstr(track.title, self.W_TITLE)} - {acstr(ms_timestamp(track.length), self.W_DURATION, just="r")}"
+
+    @override
+    async def header_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, title: str, **kwargs: Any) -> str:
         formatted_title = f"{title}\n" if title else ''
-        header = f"{formatted_title}{acstr('Index', W_INDEX)} {acstr('Title', W_TITLE)} - {acstr('Length', W_DURATION, just="r")}"
-        content = f"```swift\n{header}\n-------\n{body}\n-------\nPage # ({first_page_index} : {offset} : {last_page_index})\n```"
+        header = f"{formatted_title}{acstr('Index', self.W_INDEX)} {acstr('Title', self.W_TITLE)} - {acstr('Length', self.W_DURATION, just="r")}"
+        #content = f"```swift\n{header}\n-------\n{body}\n-------\nPage # ({first_page_index} : {offset} : {last_page_index})\n```"
         # is_last = (tag_count - offset * ITEM_COUNT) < ITEM_COUNT
-        return content, first_page_index, last_page_index
-    return callback
+        return header
 
 
 class StatusBar(ui.View):
@@ -539,7 +514,7 @@ class StatusBar(ui.View):
                 session = cast(PlayerSession, guild.voice_client)
                 user = cast(discord.Member, interaction.user)
 
-                scroller = Scroller(message, user, get_tracklist_callback(results))
+                scroller = Scroller(message, user, TracklistCallback(results))
                 if session.current is None:
                     await session.play_next()
                     # track = await session.queue.get_wait() # idfk why this was even here when it did nothing

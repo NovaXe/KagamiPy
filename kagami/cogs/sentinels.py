@@ -9,7 +9,7 @@ import aiosqlite
 import discord
 import discord.ui
 from discord.ext import commands
-from discord import app_commands, Interaction
+from discord import app_commands
 from discord.ext.commands import GroupCog
 from discord.app_commands import Transform, Transformer, Group, Choice
 from common import errors
@@ -18,11 +18,13 @@ from common.logging import setup_logging
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings
-from common.paginator import Scroller, ScrollerState, SimpleCallbackBuilder
+from common.paginator import Scroller, ScrollerState, SimpleCallback
 from common.utils import acstr
 from typing import (
     Literal, List, Callable, Any, override
 )
+
+type Interaction = discord.Interaction[Kagami]
 
 logger = setup_logging(__name__)
 
@@ -1799,40 +1801,38 @@ class Sentinels(GroupCog, name="s"):
             await db.commit()
         await respond(interaction, response)
 
-    class ChannelCallbackBuilder(SimpleCallbackBuilder[SentinelChannelSettings]):
-        @classmethod
+
+    class ViewAllChannelSettingsCallback(SimpleCallback[SentinelChannelSettings]):
         @override
-        async def get_total_item_count(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
+        async def get_total_item_count(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
             return await SentinelChannelSettings.selectCountWhere(db, interaction.guild_id)
 
-        @classmethod
         @override
-        async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> list[SentinelChannelSettings]:
-            return SentinelChannelSettings.selectAllWhere(db, interaction.guild_id, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset * cls.PAGE_ITEM_COUNT)
+        async def get_items(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> list[SentinelChannelSettings]:
+            return await SentinelChannelSettings.selectAllWhere(db, interaction.guild_id, limit=self.PAGE_ITEM_COUNT, offset=self.item_offset)
 
-        @classmethod
         @override
-        async def item_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, item: SentinelChannelSettings, *args: Any, **kwargs: Any) -> str:
-            index = cls.get_display_index(index)
-            channel = self.bot.get_channel(item.channel_id)
+        async def item_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, item: SentinelChannelSettings, *args: Any, **kwargs: Any) -> str:
+            index = self.get_display_index(index)
+            channel = interaction.client.get_channel(item.channel_id)
+            def rep(b):
+                return "Disabled" if b else "Enabled"
             temp = f"{acstr(index, 6)} {acstr(channel.name, 24)} - {acstr(rep(bool(item.global_disabled)), 8)} | {acstr(rep(bool(item.local_disabled)), 8)}"
             return temp
 
-        @classmethod
         @override
-        async def header_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> str:
+        async def header_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> str:
             return f"{acstr('Index', 6)} {acstr('Channel Name', 24)} - {acstr('Globals', 8)} | {acstr('Locals', 8)}"
+
 
     @view_group.command(name="all-channel-settings", description="View all the channels which have disabled sentinels")
     async def view_channels(self, interaction: Interaction):
         message = await respond(interaction, ephemeral=False)
-        def rep(b):
-            return "Disabled" if b else "Enabled"
-        scroller = Scroller(message, interaction.user, Sentinels.ChannelCallbackBuilder())
+        scroller = Scroller(message, interaction.user, Sentinels.ViewAllChannelSettingsCallback())
         await scroller.update(interaction)
 
     @view_group.command(name="channel-settings")
-    async def view_channel(self, interaction: Interaction, channel: discord.TextChannel=None):
+    async def view_channel(self, interaction: Interaction, channel: discord.TextChannel | None=None):
         # this seems to fail on first use sometimes, idk seems fine to me
         # hoping this was fixed by other fixes to id fetching
         # type this at another time
@@ -1848,52 +1848,47 @@ class Sentinels(GroupCog, name="s"):
         await respond(interaction, text, delete_after=6)
 
 
-    class SentinelViewAllBuilder(SimpleCallbackBuilder[SentinelInfo]):
-        @classmethod
+    class SentinelViewAllCallback(SimpleCallback[SentinelInfo]):
+        def __init__(self, guild_id: int) -> None:
+            super().__init__(guild_id=guild_id)
+
         @override
-        async def get_total_item_count(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int=0, **kwargs: Any) -> int:
+        async def get_total_item_count(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, **kwargs: Any) -> int:
             return await Sentinel.selectCountWhere(db, guild_id=guild_id)
 
-        @classmethod
         @override
-        async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int=0, **kwargs: Any) -> list[SentinelInfo]:
-            return await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset * cls.PAGE_ITEM_COUNT)
+        async def get_items(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, **kwargs: Any) -> list[SentinelInfo]:
+            return await SentinelInfo.selectAllWhere(db, guild_id=guild_id, limit=self.PAGE_ITEM_COUNT, offset=self.item_offset)
 
-        @classmethod
         @override
-        async def item_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, item: SentinelInfo, *args: Any, **kwargs: Any) -> str:
-            index = cls.get_display_index(index)
+        async def item_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, item: SentinelInfo, *args: Any, **kwargs: Any) -> str:
+            index = self.get_display_index(index)
             return f"{acstr(index, 6)} {acstr(item.name, 16)} - {acstr(item.suit_count, 5)} / ({acstr(item.trigger_count, 8 , 'm')}, {acstr(item.response_count, 9, 'm')}) : {acstr(item.enabled, 7, 'r')}"
 
-        @classmethod
         @override
-        async def header_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, scope: str="", **kwargs: Any) -> str:
-            header = f"There are {cls.total_item_count} sentinels within the {scope} scope\n"
+        async def header_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, **kwargs: Any) -> str:
+            scope = "Local" if guild_id != 0 else "Global"
+            header = f"There are {self._total_item_count} sentinels within the {scope} scope\n"
             header += f"{acstr('Index', 6)} {acstr('Name', 16)} - {acstr('Suits', 5, 'm')} / ({acstr('Triggers', 8, 'm')}, {acstr('Responses', 9, 'm')}) : {acstr('Enabled', 7, 'r')}"
             return header
 
 
-    @staticmethod 
-    def get_view_all_callback(dbman: DatabaseManager, scope: str, guild_id: int):
-        return Sentinels.SentinelViewAllBuilder(scope=scope, guild_id=guild_id)
-
-
-    class SentinelViewBuilder(SimpleCallbackBuilder[SuitInfo]):
+    class SentinelViewCallback(SimpleCallback[SuitInfo]):
         PAGE_ITEM_COUNT: int=5
-        @classmethod
+        def __init__(self, guild_id: int, sentinel_name: str) -> None:
+            super().__init__(guild_id=guild_id, sentinel_name=sentinel_name)
+
         @override
-        async def get_total_item_count(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, sentinel_name: str, **kwargs: Any) -> int:
+        async def get_total_item_count(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, sentinel_name: str, **kwargs: Any) -> int:
             return await SentinelSuit.selectCountWhere(db, guild_id=guild_id, sentinel_name=sentinel_name)
 
-        @classmethod
         @override
-        async def get_items(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, sentinel_name: str, **kwargs: Any) -> list[SuitInfo]:
-            return await SuitInfo.selectAllWhere(db, guild_id=guild_id, sentinel_name=sentinel_name, limit=cls.PAGE_ITEM_COUNT, offset=cls.offset * cls.PAGE_ITEM_COUNT)
+        async def get_items(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, sentinel_name: str, **kwargs: Any) -> list[SuitInfo]:
+            return await SuitInfo.selectAllWhere(db, guild_id=guild_id, sentinel_name=sentinel_name, limit=self.PAGE_ITEM_COUNT, offset=self.item_offset)
 
-        @classmethod
         @override
-        async def item_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, item: SuitInfo, *args: Any, **kwargs: Any) -> str:
-            index = cls.get_display_index(index)
+        async def item_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, index: int, item: SuitInfo, *args: Any, **kwargs: Any) -> str:
+            index = self.get_display_index(index)
             edges = ("'", "'")
             t_type = SentinelTrigger.TriggerType(item.trigger_type) if item.trigger_type else None
             r_type = SentinelResponse.ResponseType(item.response_type) if item.response_type else None
@@ -1902,28 +1897,22 @@ class Sentinels(GroupCog, name="s"):
             temp += f"\n{acstr('', 6)} > {acstr(str(r_type), 14)} {acstr(item.response_content, 18, edges=edges)} {acstr(item.response_reactions, 20, edges=('(', ')'))}"
             return temp
 
-        @classmethod
         @override
-        async def header_formatter(cls, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, sentinel_name: str="", guild_id: int=0, scope: str="", **kwargs: Any) -> str:
+        async def header_formatter(self, db: aiosqlite.Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, sentinel_name: str, **kwargs: Any) -> str:
             edges = ("'", "'")
-            header = f"There are {cls.total_item_count} suits for the sentinel: {sentinel_name} within the {scope} scope"
+            scope = "Local" if guild_id != 0 else "Global"
+            header = f"There are {self.total_item_count} suits for the sentinel: {sentinel_name} within the {scope} scope"
             header += f"\n{acstr('Index', 6)} {acstr('Suit Name', 12)} - {acstr('Weight', 6, 'r')} : {acstr('Enabled', 9, 'r')}"
             header += f"\n{acstr('', 6)} {acstr('> Trigger Type', 16)} {acstr('Trigger Object', 18, edges=edges)}"
             header += f"\n{acstr('', 6)} {acstr('> Response Type', 16)} {acstr('Response Content', 18, edges=edges)} {acstr('Response Reactions', 20, edges=('(', ')'))}"
             return header
-
-    
-    @staticmethod
-    def get_sentinel_view_callback(dbman: DatabaseManager, scope: str, guild_id: int, sentinel_name: str):
-        return Sentinels.SentinelViewBuilder(scope=scope, guild_id=guild_id, sentinel_name=sentinel_name)
 
     @view_group.command(name="all", description="view all sentinels on a guild")
     async def view_all(self, interaction: Interaction, scope: SentinelScope):
         message = await respond(interaction)
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         assert guild_id is not None
-        scope_str = "local" if scope != 0 else "global"
-        callback = self.get_view_all_callback(self.bot.dbman, scope_str, guild_id)
+        callback = Sentinels.SentinelViewAllCallback(guild_id=guild_id)
         scroller = Scroller(message, interaction.user, page_callback=callback)
         await scroller.update(interaction)
         
@@ -1934,8 +1923,8 @@ class Sentinels(GroupCog, name="s"):
             raise SentinelDoesNotExist
         guild_id = interaction.guild_id if scope == SentinelScope.LOCAL else 0
         assert guild_id is not None
-        scope_str = "local" if scope != 0 else "global"
-        callback = self.get_sentinel_view_callback(self.bot.dbman, scope_str, guild_id, sentinel.name)
+        callback = Sentinels.SentinelViewCallback(guild_id=guild_id, sentinel_name=sentinel.name)
+        # logger.debug(f"view_sentinel: {callback.bound_arguments=}")
         scroller = Scroller(message, interaction.user, callback)
         await scroller.update(interaction)
 
