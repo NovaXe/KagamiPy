@@ -24,8 +24,10 @@ from bot import Kagami, config
 from common.interactions import respond
 from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, BotEmoji, User, PersistentSettings
+from common.paginator import Scroller, SimpleCallback, ScrollerState
 
 from common.logging import setup_logging
+from common.utils import acstr
 logger = setup_logging(__name__)
 
 type Interaction = discord.Interaction[Kagami]
@@ -471,9 +473,25 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
             res = await cur.fetchone()
         return res
 
+    async def selectUserCount(self, db: Connection) -> int:
+        """
+        Return the total number of users with existing wallets
+        """
+        query = f"""
+        SELECT COUNT(*) as count
+        FROM {SwedishFishWallet}
+        WHERE (:guild_id = 0 OR guild_id = :guild_id)
+        AND (:fish_name IS NULL OR fish_name = :fish_name)
+        GROUP BY user_id
+        """
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+            return res["count"]
+
     async def netValue(self, db: Connection, limit: int=10, offset: int=0) -> list[aiosqlite.Row]:
         """
-        Gives the net worth of each user as specific by the pseudo row
+        Gives the net worth of each user as specified by the pseudo row
         Follows similar selection rules from selectAll
         """
         query = f"""
@@ -552,7 +570,7 @@ class Transformer_UserFish(Transformer):
             fish = await pseudo.select(db)
         return fish
 
-class Transformer_UserFishCount(Transformer[Kagami]):
+class Transformer_UserFishCount[Kagami](Transformer):
     """
     Requires a previous command field called fish
     Other names may potentially be added
@@ -884,39 +902,74 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
         content += f"\n`{c2}`\n`Net Worth: {total}`"
         await respond(interaction, content)
 
+
+    class TopBalanceCallback(SimpleCallback[aiosqlite.Row]):
+        def __init__(self, guild_id: int) -> None:
+            super().__init__(guild_id=guild_id)
+
+        @override
+        async def get_total_item_count(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
+            return await SwedishFishWallet(guild_id=0, fish_name=None, user_id=0).selectUserCount(db)
+
+        @override
+        async def get_items(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, **kwargs: Any) -> list[aiosqlite.Row]:
+            assert interaction.guild_id is not None
+            return await SwedishFishWallet(0, guild_id, None).netValue(db, self.PAGE_ITEM_COUNT, self.item_offset)
+
+        ROW_FORMAT = "{} - {} {}"
+        @override
+        async def item_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, index: int, row: aiosqlite.Row, *args: Any, guild_id: int, **kwargs: Any) -> str:
+            user_id, net_rarity = row["user_id"], row["total"]
+            user = interaction.client.get_user(user_id)
+            name = user.name if user else "Unknown"
+            fields = acstr(self.get_display_index(index), 8), acstr(name, 16), acstr(net_rarity, 10)
+            return self.ROW_FORMAT.format(*fields)
+
+        @override
+        async def header_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, **kwargs: Any) -> str:
+            fields = acstr("Position", 8), acstr("User", 16), acstr("Net Rarity", 10)
+            if guild_id != 0:
+                info = f"These are the top {self.total_item_count} fishiest fiends on {interaction.client.get_guild(guild_id).name}"
+            else:
+                info = f"These are the top {self.total_item_count} fishiest fiends globally"
+            return info + "\n" + self.ROW_FORMAT.format(*fields)
     
     @app_commands.command(name="top", description="Shows the most valuable users")
     @app_commands.describe(all_servers="Shows the most valuable users across all servers")
     @app_commands.rename(all_servers="global")
     async def top(self, interaction: Interaction, all_servers: bool=False, show_others: bool=False) -> None:
-        await respond(interaction, ephemeral=not show_others)
+        message = await respond(interaction, ephemeral=not show_others)
         assert interaction.guild is not None
         assert interaction.channel is not None
-        async with self.dbman.conn() as db:
-            guild_id = 0 if all_servers else interaction.guild.id
-            # wallet = await FishWallet(0, guild_id, None).list(db)
-            top = await SwedishFishWallet(0, guild_id, None).netValue(db)
-            total = await SwedishFishWallet(0, guild_id, None).totalValue(db)
-            # total = await FishWallet(interaction.user.id, interaction.guild.id, None).totalValue(db)
-        uname = interaction.user.name
-        pname = f"{uname}'s" if not uname.lower().endswith(("s", "z", "x")) else f"{uname}'"
-        ws = f"{interaction.guild.name}" if not all_servers else "Globally"
-        c1 = f"Fishiest Fiends ({ws})"
-        c2 = len(c1) * "-"
-        content = f"`{c1}`\n`{c2}`"
-        content += f"\n`user - net worth`"
-        page_total = 0
-        for row in top:
-            # rep = f"{discord.PartialEmoji.from_str(f"<:{row["emoji_name"]}:{row["emoji_id"]}>")} - `{row["name"]} : {row["value"]} * {row["count"]} = {row["total"]}`"
-            try:
-                user = await self.bot.fetch_user(row["user_id"])
-            except discord.NotFound:
-                continue
-            rep = f"`{user.name} - {row["total"]}`"
-            content += f"\n{rep}"
-            page_total += row["total"]
-        content += f"\n`{c2}`\n`Page Wealth / Global Wealth: {page_total} / {total}`"
-        await respond(interaction, content)
+        guild_id = 0 if all_servers else interaction.guild.id
+        scroller = Scroller(message, interaction.user, Cog_SwedishUser.TopBalanceCallback(guild_id))
+        await scroller.update(interaction)
+        
+        # async with self.dbman.conn() as db:
+        #     guild_id = 0 if all_servers else interaction.guild.id
+        #     # wallet = await FishWallet(0, guild_id, None).list(db)
+        #     top = await SwedishFishWallet(0, guild_id, None).netValue(db)
+        #     total = await SwedishFishWallet(0, guild_id, None).totalValue(db)
+        #     # total = await FishWallet(interaction.user.id, interaction.guild.id, None).totalValue(db)
+        # uname = interaction.user.name
+        # pname = f"{uname}'s" if not uname.lower().endswith(("s", "z", "x")) else f"{uname}'"
+        # ws = f"{interaction.guild.name}" if not all_servers else "Globally"
+        # c1 = f"Fishiest Fiends ({ws})"
+        # c2 = len(c1) * "-"
+        # content = f"`{c1}`\n`{c2}`"
+        # content += f"\n`user - net worth`"
+        # page_total = 0
+        # for row in top:
+        #     # rep = f"{discord.PartialEmoji.from_str(f"<:{row["emoji_name"]}:{row["emoji_id"]}>")} - `{row["name"]} : {row["value"]} * {row["count"]} = {row["total"]}`"
+        #     try:
+        #         user = await self.bot.fetch_user(row["user_id"])
+        #     except discord.NotFound:
+        #         continue
+        #     rep = f"`{user.name} - {row["total"]}`"
+        #     content += f"\n{rep}"
+        #     page_total += row["total"]
+        # content += f"\n`{c2}`\n`Page Wealth / Global Wealth: {page_total} / {total}`"
+        # await respond(interaction, content)
 
 
 
