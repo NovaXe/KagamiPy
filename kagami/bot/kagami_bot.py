@@ -37,7 +37,7 @@ class Kagami(commands.Bot):
     def __init__(self):
         # config: Configuration = config
         # print(config)
-        super().__init__(command_prefix=config.token,
+        super().__init__(command_prefix=config.prefix,
                          intents=intents,
                          owner_id=config.owner_id)
         self.activity = discord.CustomActivity("Testing new things")
