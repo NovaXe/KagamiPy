@@ -378,7 +378,7 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
             res = await cur.fetchall()
         return res
     
-    async def list(self, db: Connection) -> list[aiosqlite.Row]:
+    async def list(self, db: Connection, limit: int=-1, offset: int=0) -> list[aiosqlite.Row]:
         """
         Returns data from the querying the pseudo row instance,
         name, emoji_name, emoji_id, value, count, total
@@ -399,12 +399,15 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         WHERE (:guild_id = 0 OR guild_id = :guild_id)
         AND (:user_id = 0 OR user_id = :user_id)
         ORDER BY sf.value
+        LIMIT :limit OFFSET :offset
         """
         db.row_factory = aiosqlite.Row
-        logger.debug(f"FishWalle.list(self): {self=}")
-        async with db.execute(query, self.asdict()) as cur:
+        # logger.debug(f"FishWalle.list(self): {self=}")
+        params = self.asdict()
+        params.update({"limit": limit, "offset": offset})
+        async with db.execute(query, params) as cur:
             rows = await cur.fetchall()
-        logger.debug(f"FishWallet.list(self): {len(list(rows))=}")
+        # logger.debug(f"FishWallet.list(self): {len(list(rows))=}")
         return list(rows)
 
     async def take(self, db: Connection) -> SwedishFishWallet | None:
@@ -483,6 +486,21 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         WHERE (:guild_id = 0 OR guild_id = :guild_id)
         AND (:fish_name IS NULL OR fish_name = :fish_name)
         GROUP BY user_id
+        """
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+            return res["count"]
+
+    async def selectUniqueFishCount(self, db: Connection) -> int:
+        """
+        Return the total number of unique fish from the pseudo query
+        """
+        query = f"""
+        SELECT COUNT(*) as count
+        FROM {SwedishFishWallet}
+        WHERE (:guild_id = 0 OR guild_id = :guild_id)
+        AND (:user_id = 0 OR user_id = :user_id)
         """
         db.row_factory = aiosqlite.Row
         async with db.execute(query, self.asdict()) as cur:
@@ -874,33 +892,63 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
             await db.commit()
         await respond(interaction, f"Gave {given.count} {given.fish_name} fish to {user.name}", ephemeral=True, delete_after=3)
 
+    class WalletCallback(SimpleCallback[aiosqlite.Row]):
+        def __init__(self, user_id: int, guild_id: int) -> None:
+            super().__init__(user_id=user_id, guild_id=guild_id)
+
+        @override
+        async def get_total_item_count(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, user_id: int, guild_id: int, **kwargs: Any) -> int:
+            return await SwedishFishWallet(user_id, guild_id, None).selectUniqueFishCount(db)
+
+        @override
+        async def get_items(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, user_id: int, guild_id: int, **kwargs: Any) -> list[aiosqlite.Row]:
+            return await SwedishFishWallet(user_id, guild_id, None).list(db, self.PAGE_ITEM_COUNT, self.item_offset)
+
+        @override
+        async def item_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, index: int, row: aiosqlite.Row, *args: Any, **kwargs: Any) -> str:
+            fields = acstr(row["name"], 16), acstr(row["value"], 6, "m"), acstr(row["count"], 8, "m"), acstr(row["total"], 12, "m")
+            return "{} - {} * {} = {}".format(*fields)
+
+        @override
+        async def header_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, user_id: int, guild_id: int, **kwargs: Any) -> str:
+            fields = acstr("Fish Name", 16), acstr("Rarity", 6, "m"), acstr("Count", 8, "m"), acstr("Total", 12, "m")
+            user = interaction.client.get_user(user_id)
+            guild = interaction.client.get_guild(guild_id)
+            uname = user.name if user is not None else "Unknown User"
+            pname = f"{uname}'s" if not uname.lower().endswith(("s", "z")) else f"{uname}'"
+            scope = f"on {guild.name}" if guild_id != 0 and guild is not None else "Globally"
+            return f"{pname} Wallet {scope}\n" + "{} - {} * {} = {}".format(*fields)
+
 
     @app_commands.command(name="wallet", description="Shows your fish wallet")
     @app_commands.rename(all_servers="global")
     @app_commands.describe(all_servers="If true, displays your wallet across all servers the bot is on")
-    async def wallet(self, interaction: Interaction, all_servers: bool=False, show_others: bool=False) -> None:
-        await respond(interaction, ephemeral=not show_others)
+    async def wallet(self, interaction: Interaction, user: discord.Member | None=None, all_servers: bool=False, show_others: bool=False) -> None:
+        message = await respond(interaction, ephemeral=not show_others)
         assert interaction.guild is not None
         assert interaction.channel is not None
         guild_id = 0 if all_servers else interaction.guild.id
-        async with self.dbman.conn() as db:
-            wallet = await SwedishFishWallet(interaction.user.id, guild_id, None).list(db)
-            # total = await FishWallet(interaction.user.id, interaction.guild.id, None).totalValue(db)
+        user_id = user.id if user is not None else interaction.user.id
+        scroller = Scroller(message, interaction.user, Cog_SwedishUser.WalletCallback(user_id, guild_id))
+        await scroller.update(interaction)
+        # async with self.dbman.conn() as db:
+        #     wallet = await SwedishFishWallet(interaction.user.id, guild_id, None).list(db)
+        #     # total = await FishWallet(interaction.user.id, interaction.guild.id, None).totalValue(db)
 
-        uname = interaction.user.name
-        pname = f"{uname}'s" if not uname.lower().endswith(("s", "z", "x")) else f"{uname}'"
-        ws = f"{interaction.guild.name}" if not all_servers else "Globally"
-        c1 = f"{pname} Wallet ({ws})"
-        c2 = len(c1) * "-"
-        content = f"`{c1}`\n`{c2}`"
-        content += f"\n`emoji - name : value * count = total`"
-        total = 0
-        for row in wallet:
-            rep = f"{discord.PartialEmoji.from_str(f"<:{row["emoji_name"]}:{row["emoji_id"]}>")} - `{row["name"]} : {row["value"]} * {row["count"]} = {row["total"]}`"
-            content += f"\n{rep}"
-            total += row["total"]
-        content += f"\n`{c2}`\n`Net Worth: {total}`"
-        await respond(interaction, content)
+        # uname = interaction.user.name
+        # pname = f"{uname}'s" if not uname.lower().endswith(("s", "z", "x")) else f"{uname}'"
+        # ws = f"{interaction.guild.name}" if not all_servers else "Globally"
+        # c1 = f"{pname} Wallet ({ws})"
+        # c2 = len(c1) * "-"
+        # content = f"`{c1}`\n`{c2}`"
+        # content += f"\n`emoji - name : value * count = total`"
+        # total = 0
+        # for row in wallet:
+        #     rep = f"{discord.PartialEmoji.from_str(f"<:{row["emoji_name"]}:{row["emoji_id"]}>")} - `{row["name"]} : {row["value"]} * {row["count"]} = {row["total"]}`"
+        #     content += f"\n{rep}"
+        #     total += row["total"]
+        # content += f"\n`{c2}`\n`Net Worth: {total}`"
+        # await respond(interaction, content)
 
 
     class TopBalanceCallback(SimpleCallback[aiosqlite.Row]):
