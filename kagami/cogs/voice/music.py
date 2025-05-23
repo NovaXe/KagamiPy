@@ -44,7 +44,7 @@ from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
 from common.types import MessageableGuildChannel
-from .voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, get_tracklist_callback
+from .voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, TracklistCallback
 from .db import TrackList, TrackListDetails, TrackListFlags
 from common.utils import acstr, ms_timestamp, secondsToTime, milliseconds_divmod
 
@@ -347,7 +347,7 @@ class MusicCog(GroupCog, group_name="m"):
             session = cast(PlayerSession, guild.voice_client)
             user = cast(Member, interaction.user)
             title = f"Queued {len(results)} tracks" if not position else f"Queued {len(results)} tracks at position {position}"
-            scroller = Scroller(message, user, get_tracklist_callback(results, title=title), timeout=30)
+            scroller = Scroller(message, user, TracklistCallback(results, title=title), timeout=30)
             await scroller.update(interaction)
             if session.current is None or position == 0:
                 await session.play_next()
