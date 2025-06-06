@@ -6,6 +6,7 @@ from typing import Any, Callable
 from collections.abc import Awaitable, Generator
 from abc import ABC, abstractmethod
 import sys
+import io
 
 import discord
 from discord import ButtonStyle, Interaction
@@ -214,6 +215,8 @@ class SimpleCallback[T](ABC):
         self._total_item_count: int = 0  # total number of items returned by get_total_item_count
         self._items: list[T] = []        # items returned by call to get_items
         self._offset: int = 0            # ScrollerState offset clamped by the total item count
+        self._first_index: int = -sys.maxsize
+        self._last_index: int = sys.maxsize
 
     @abstractmethod
     async def get_total_item_count(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
@@ -246,6 +249,34 @@ class SimpleCallback[T](ABC):
         return ""
 
     #@abstractmethod
+    async def footer_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> str:
+        """
+        Creates the footer of the message containing a progress / position indicator 
+        """
+        # Page # (0 : 0 : 0)
+        first, last = self.first_index, self.last_index
+        total_pages = last - first + 1
+        current_page = min(self._offset - first + 1, total_pages)
+        footer = f"Page {current_page} / {total_pages}"
+        
+        # if ...:
+        #     footer = f"Pg# {first} : {self._offset} : {last})"
+        total = self.total_item_count
+        if total_pages > 1:
+            ss = io.StringIO()
+            for i in range(first, last+1):
+                temp = ""
+                if i == self._offset:
+                    temp = f"( {i} ) "
+                elif i == first or i == last:
+                    temp = f"[ {i} ] "
+                else:
+                    temp = "• "
+                ss.write(temp)
+            footer += f"\n{ss.getvalue()}"
+        return footer
+
+    #@abstractmethod
     async def no_results(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> str:
         DEFAULT = "No Results"
         f"""
@@ -254,6 +285,9 @@ class SimpleCallback[T](ABC):
         """
         # By default displays \"No <ItemTypeName>\"
         return DEFAULT
+
+    async def get_first_last(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> tuple[int, int]:
+        return 0, (self._total_item_count - 1) // self.PAGE_ITEM_COUNT
 
     @property 
     def bound_arguments(self) -> tuple[tuple[Any], dict[str, Any]]:
@@ -271,12 +305,21 @@ class SimpleCallback[T](ABC):
     def item_offset(self) -> int:
         return self._offset * self.PAGE_ITEM_COUNT
 
-    def _clamp_offset(self):
+    @property 
+    def first_index(self) -> int:
+        return self._first_index
+
+    @property 
+    def last_index(self) -> int:
+        return self._last_index
+
+    def _clamp_offset(self) -> int:
         """
         Clamps the offset from the state 
         """
-        if self._offset * self.PAGE_ITEM_COUNT > self._total_item_count:
-            self._offset = self._total_item_count // self.PAGE_ITEM_COUNT
+        return min(max(self.first_index, self._offset), self.last_index)
+        # if self._offset * self.PAGE_ITEM_COUNT > self._total_item_count:
+        #     self._offset = self._total_item_count // self.PAGE_ITEM_COUNT
 
     def get_display_index(self, index: int) -> int:
         return self._offset * self.PAGE_ITEM_COUNT + index + self.INDEX_DISPLAY_OFFSET
@@ -286,7 +329,8 @@ class SimpleCallback[T](ABC):
         args, kwargs = self.bound_arguments
         async with interaction.client.dbman.conn() as db:
             self._total_item_count = await self.get_total_item_count(db, interaction, state, *args, **kwargs)
-            self._clamp_offset()
+            self._first_index, self._last_index = await self.get_first_last(db, interaction, state, *args, **kwargs)
+            self._offset = self._clamp_offset()
             self._items = await self.get_items(db, interaction, state, *args, **kwargs)
 
             reps: list[str] = []
@@ -298,6 +342,7 @@ class SimpleCallback[T](ABC):
                 reps.append(await self.no_results(db, interaction, state, *args, **kwargs))
 
             header = await self.header_formatter(db, interaction, state, *args, **kwargs)
+            footer = await self.footer_formatter(db, interaction, state, *args, **kwargs)
 
         body = "\n".join(reps)
         content = f"```{self.CODEBLOCK_LANGUAGE}\n" + \
@@ -305,8 +350,9 @@ class SimpleCallback[T](ABC):
                   f"{self.CONTENT_SEPERATOR}\n" + \
                   f"{body}\n" + \
                   f"{self.CONTENT_SEPERATOR}\n" + \
+                  f"{footer}\n" + \
                   f"```"
-        return content, 0, (self._total_item_count - 1) // 10
+        return content, self.first_index, self.last_index
 
 # class OldSimpleCallbackBuilder[ITEM_TYPE]:
 #     """
