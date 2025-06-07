@@ -113,34 +113,34 @@ class SwedishFishSettings(Table, schema_version=1, trigger_version=1):
             settings = guild_settings
         return settings
 
-def prob_exp(value: float) -> float:
+def prob_exp(rarity: float) -> float:
     CF = 0.99
     R = random.random() * 0.10 + 0.95
-    return min(math.pow(2, 1-value)* R, 1) * CF
+    return min(math.pow(2, 1-rarity)* R, 1) * CF
 
-def prob_quad(value: float) -> float:
+def prob_quad(rarity: float) -> float:
     CF = 0.99
     R = random.random() * 0.10 + 0.95
-    return min(math.pow(value, -2)* R, 1) * CF
+    return min(math.pow(rarity, -2)* R, 1) * CF
 
-def prob_threehalfs(value: float) -> float:
+def prob_threehalfs(rarity: float) -> float:
     CF = 0.99
     R = random.random() * 0.10 + 0.95
-    return min(math.pow(value, -1.5)* R, 1) * CF
+    return min(math.pow(rarity, -1.5)* R, 1) * CF
 
-def prob_fourfifths(value: float) -> float:
+def prob_fourfifths(rarity: float) -> float:
     CF = 0.99
     R = random.random() * 0.10 + 0.95
-    return min(math.pow(value, -1.25)* R, 1) * CF
+    return min(math.pow(rarity, -1.25)* R, 1) * CF
 
 @dataclass
-class SwedishFish(Table, schema_version=2, trigger_version=1):
+class SwedishFish(Table, schema_version=3, trigger_version=1):
     name: str
     emoji_id: int
-    value: int=0
+    rarity: int=0
 
     def probability(self) -> float:
-        return prob_threehalfs(self.value)
+        return prob_threehalfs(self.rarity)
 
     def roll(self) -> bool:
         r = random.random()
@@ -155,12 +155,21 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
         return emoji
 
     @classmethod
+    async def insert_from_temp(cls, db: aiosqlite.Connection):
+        """Updating from schema version 2 -> 3 to change value -> rarity """
+        query = f"""
+        INSERT INTO {cls.__tablename__}(name, emoji_id, rarity)
+        SELECT name, emoji_id, value FROM temp_{cls.__tablename__}
+        """
+        await db.execute(query)
+
+    @classmethod
     async def create_table(cls, db: Connection):
         query = f"""
         CREATE TABLE IF NOT EXISTS {SwedishFish} (
             name TEXT NOT NULL,
             emoji_id INTEGER NOT NULL,
-            value INTEGER NOT NULL DEFAULT 0,
+            rarity INTEGER NOT NULL DEFAULT 0,
             UNIQUE (name),
             FOREIGN KEY (emoji_id) REFERENCES {BotEmoji}(id)
         )
@@ -200,7 +209,7 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
     async def selectAll(cls, db: Connection) -> list[SwedishFish]:
         query = f"""
         SELECT * FROM {SwedishFish}
-        ORDER BY value
+        ORDER BY rarity
         """
         db.row_factory = SwedishFish.row_factory
         res = await db.execute_fetchall(query)
@@ -230,10 +239,10 @@ class SwedishFish(Table, schema_version=2, trigger_version=1):
 
     async def upsert(self, db: Connection) -> None:
         query = f"""
-            INSERT INTO {SwedishFish} (name, emoji_id, value)
-            VALUES (:name, :emoji_id, :value)
+            INSERT INTO {SwedishFish} (name, emoji_id, rarity)
+            VALUES (:name, :emoji_id, :rarity)
             ON CONFLICT (name)
-            DO UPDATE SET emoji_id = :emoji_id, value = :value
+            DO UPDATE SET emoji_id = :emoji_id, rarity = :rarity
         """
         await db.execute(query, self.asdict())
 
@@ -345,7 +354,7 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         WHERE   (:guild_id = 0 OR guild_id = :guild_id)
         AND     (:user_id = 0 OR user_id = :user_id) 
         AND     (fish_name LIKE :fish_name)
-        ORDER BY sf.value ASC
+        ORDER BY sf.rarity ASC
         LIMIT :limit OFFSET :offset
         """
         params = self.asdict()
@@ -367,7 +376,7 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         WHERE   (:guild_id = 0 OR guild_id = :guild_id)
         AND     (:user_id = 0 OR user_id = :user_id) 
         AND     (fish_name LIKE :fish_name)
-        ORDER BY sf.value ASC
+        ORDER BY sf.rarity ASC
         LIMIT :limit OFFSET :offset
         """
         db.row_factory = SwedishFishWallet.row_factory
@@ -381,16 +390,16 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
     async def list(self, db: Connection, limit: int=-1, offset: int=0) -> list[aiosqlite.Row]:
         """
         Returns data from the querying the pseudo row instance,
-        name, emoji_name, emoji_id, value, count, total
+        name, emoji_name, emoji_id, rarity, count, total
         """
         query = f"""
         SELECT 
             sf.name as name, 
             be.name as emoji_name,
             be.id as emoji_id,
-            sf.value as value,
+            sf.rarity as rarity,
             fw.count as count,
-            sf.value * fw.count as total
+            sf.rarity * fw.count as total
         FROM {SwedishFishWallet} AS fw
         INNER JOIN {SwedishFish} AS sf
             ON sf.name = fw.fish_name
@@ -398,7 +407,7 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
             ON sf.emoji_id = be.id
         WHERE (:guild_id = 0 OR guild_id = :guild_id)
         AND (:user_id = 0 OR user_id = :user_id)
-        ORDER BY sf.value
+        ORDER BY sf.rarity
         LIMIT :limit OFFSET :offset
         """
         db.row_factory = aiosqlite.Row
@@ -513,7 +522,7 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         Follows similar selection rules from selectAll
         """
         query = f"""
-        SELECT user_id, Sum(fw.count * sf.value) as total
+        SELECT user_id, Sum(fw.count * sf.rarity) as total
         FROM {SwedishFishWallet} as fw
         INNER JOIN {SwedishFish} as sf
             ON fw.fish_name = sf.name
@@ -537,7 +546,7 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         Follows similar selection rules from selectAll
         """
         query = f"""
-        SELECT Sum(fw.count * sf.value) as total
+        SELECT Sum(fw.count * sf.rarity) as total
         FROM {SwedishFishWallet} as fw
         INNER JOIN {SwedishFish} as sf
             ON fw.fish_name = sf.name
@@ -662,7 +671,7 @@ class Cog_SwedishDev(GroupCog, group_name="sf"):
         pass
 
     @app_commands.command(name="add", description="adds a new fish")
-    async def add(self, interaction: Interaction, name: Transform[SwedishFish | None, Transformer_Fish], image: discord.Attachment, value: int):
+    async def add(self, interaction: Interaction, name: Transform[SwedishFish | None, Transformer_Fish], image: discord.Attachment, rarity: int):
         await respond(interaction)
         logger.debug(f"add_new: {image.content_type=}")
         if image.content_type is None:
@@ -692,7 +701,7 @@ class Cog_SwedishDev(GroupCog, group_name="sf"):
             await respond(interaction, f"`{e.text}`")
             return
             
-        new_fish = SwedishFish(name=new_fish_name, emoji_id=emoji.id, value=value)
+        new_fish = SwedishFish(name=new_fish_name, emoji_id=emoji.id, rarity=rarity)
         
         async with self.dbman.conn() as db:
             await BotEmoji.insertFromDiscord(db, emoji)
@@ -701,7 +710,7 @@ class Cog_SwedishDev(GroupCog, group_name="sf"):
         await respond(interaction, f"Added Swedish Fish: {new_fish_name}")
 
     @app_commands.command(name="edit", description="edits an existing fish")
-    async def edit(self, interaction: Interaction, fish: Transform[SwedishFish | None, Transformer_Fish], image: discord.Attachment | None=None, value: int | None=None) -> None:
+    async def edit(self, interaction: Interaction, fish: Transform[SwedishFish | None, Transformer_Fish], image: discord.Attachment | None=None, rarity: int | None=None) -> None:
         await respond(interaction)
         if fish is None:
             await respond(interaction, "There is no fish with that name")
@@ -715,7 +724,7 @@ class Cog_SwedishDev(GroupCog, group_name="sf"):
                 emoji = await self.bot.create_application_emoji(name=f"{FISH_PREFIX}_{fish.name}", image=image_data)
                 await BotEmoji.insertFromDiscord(db, emoji)
                 fish.emoji_id = emoji.id
-            fish.value = value if value else fish.value
+            fish.rarity = rarity if rarity else fish.rarity
             await fish.upsert(db)
             await db.commit()
 
@@ -745,7 +754,7 @@ class Cog_SwedishDev(GroupCog, group_name="sf"):
         out: list[str] = []
         for fish in all_fish:
             emoji = await (await fish.get_emoji(db)).fetch_discord(self.bot)
-            out.append(f"{emoji} - {fish.name} - {fish.value}")
+            out.append(f"{emoji} - {fish.name} - {fish.rarity}")
         await respond(interaction, "\n".join(out))
 
 @app_commands.default_permissions(manage_expressions=True)
@@ -906,7 +915,7 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
 
         @override
         async def item_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, index: int, row: aiosqlite.Row, *args: Any, **kwargs: Any) -> str:
-            fields = acstr(row["name"], 16), acstr(row["value"], 6, "m"), acstr(row["count"], 8, "m"), acstr(row["total"], 12, "m")
+            fields = acstr(row["name"], 16), acstr(row["rarity"], 6, "m"), acstr(row["count"], 8, "m"), acstr(row["total"], 12, "m")
             return "{} - {} * {} = {}".format(*fields)
 
         @override
