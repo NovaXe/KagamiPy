@@ -974,17 +974,18 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
             return await SwedishFishWallet(0, guild_id, None).netValue(db, self.PAGE_ITEM_COUNT, self.item_offset)
 
         ROW_FORMAT = "{} - {} {}"
+        NAME_LENGTH = 32
         @override
         async def item_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, index: int, row: aiosqlite.Row, *args: Any, guild_id: int, **kwargs: Any) -> str:
-            user_id, net_rarity = row["user_id"], row["total"]
+            user_id, score = row["user_id"], row["total"]
             user = interaction.client.get_user(user_id)
             name = user.name if user else "Unknown"
-            fields = acstr(self.get_display_index(index), 8), acstr(name, 16), acstr(net_rarity, 10)
+            fields = acstr(self.get_display_index(index), 8), acstr(name, self.NAME_LENGTH), acstr(score, 10)
             return self.ROW_FORMAT.format(*fields)
 
         @override
         async def header_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, **kwargs: Any) -> str:
-            fields = acstr("Position", 8), acstr("User", 16), acstr("Net Rarity", 10)
+            fields = acstr("Position", 8), acstr("User", self.NAME_LENGTH), acstr("Score", 10)
             if guild_id != 0:
                 info = f"These are the top {self.total_item_count} fishiest fiends on {interaction.client.get_guild(guild_id).name}"
             else:
