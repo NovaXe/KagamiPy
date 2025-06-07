@@ -52,6 +52,7 @@ env = os.environ
 token = get("BOT_TOKEN", str)
 prefix = get("COMMAND_PREFIX", str, default="->")
 owner_id = get("OWNER_ID", int)
+admin_guild_id = get("ADMIN_GUILD_ID", int)
 log_level=l if (l:=get("LOG_LEVEL", str, "INFO")) in ["INFO", "DEBUG"] else "INFO",
 
 data_path = get("DATA_PATH", str)

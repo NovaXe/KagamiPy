@@ -1,8 +1,13 @@
+from __future__ import annotations
+from typing import cast, override
 import discord
+from discord.ext import commands
 
 from common.database import Table, ManagerMeta
 from dataclasses import dataclass
 import aiosqlite
+from aiosqlite import Connection
+from io import BytesIO
 
 
 @dataclass
@@ -176,7 +181,7 @@ class User(Table, schema_version=1, trigger_version=1):
 @dataclass
 class PersistentSettings(Table, schema_version=1, trigger_version=1):
     key: str
-    value: str | int | float
+    value: str | int | float | bool
     
     @classmethod
     async def create_table(cls, db: aiosqlite.Connection):
@@ -207,3 +212,123 @@ class PersistentSettings(Table, schema_version=1, trigger_version=1):
         async with db.execute(query, (key,)) as cur:
             res = await cur.fetchone()
         return res[0] if res else default_value
+
+    async def select(self, db: aiosqlite.Connection) -> PersistentSettings | None:
+        query = f"""
+        SELECT * FROM {PersistentSettings}
+        WHERE key = :key
+        """
+        db.row_factory = PersistentSettings.row_factory
+        async with db.execute(query, self.asdict()) as cur:
+            res = await cur.fetchone()
+        return res
+
+
+@dataclass
+class BotEmoji(Table, schema_version=1, trigger_version=1):
+    id: int
+    name: str
+    # prefix: str
+    image_data: bytes
+
+    # def get_image(self) -> ImageFile.ImageFile:
+    #     image: ImageFile.ImageFile | None = None 
+    #     if self.image_data is not None:
+    #         image = Image.open(BytesIO(self.image_data))
+    #     return image
+
+    def get_image_file(self) -> discord.File | None:
+        if self.image_data is not None:
+            with BytesIO(self.image_data) as f:
+                file = discord.File(fp=f)
+            return file
+        else:
+            return None
+
+    async def fetch_discord(self, bot: commands.Bot) -> discord.Emoji:
+        emoji = await bot.fetch_application_emoji(self.id)
+        return emoji
+
+    async def to_discord(self, bot: commands.Bot) -> discord.Emoji:
+        emoji = await bot.create_application_emoji(name=self.name, image=self.image_data)
+        return emoji
+
+    async def delete_discord(self, bot: commands.Bot) -> None:
+        emoji = await self.fetch_discord(bot)
+        await emoji.delete() if emoji else ...
+
+    # def get_name(self) -> str:
+    #     return f"{self.prefix}_{self.name}"
+
+    @classmethod
+    async def from_discord(cls, emoji: discord.Emoji) -> BotEmoji:
+        data = await emoji.read()
+        return BotEmoji(id=emoji.id, name=emoji.name, image_data=data)
+
+    @classmethod
+    async def create_table(cls, db: Connection):
+        # query = f"""
+        #     CREATE TABLE IF NOT EXISTS {BotEmoji}(
+        #     id INTEGER NOT NULL,
+        #     name TEXT NOT NULL,
+        #     group TEXT NOT NULL DEFAULT '',
+        #     image_data BLOB,
+        #     PRIMARY KEY (id)
+        # )
+        # """
+        query = f"""
+            CREATE TABLE IF NOT EXISTS {BotEmoji} (
+            id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            image_data BLOB,
+            PRIMARY KEY (id),
+            UNIQUE (name)
+        )
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def selectFromID(cls, db: Connection, id: int) -> BotEmoji | None:
+        query = f"""
+        SELECT * FROM {BotEmoji}
+        WHERE id = ?
+        """
+        db.row_factory = BotEmoji.row_factory # pyright: ignore[reportAttributeAccessIssue]
+        async with db.execute(query, (id,)) as cur:
+            res = await cur.fetchone()
+        return res # pyright: ignore[reportReturnType]
+
+    @override
+    async def insert(self, db: Connection):
+        query = f"""
+            INSERT OR IGNORE INTO {BotEmoji} (id, name, image_data)
+            VALUES (:id, :name, :image_data)
+        """
+        await db.execute(query, self.asdict())
+
+    @override
+    async def delete(self, db: Connection):
+        query = f"""
+        DELETE FROM {BotEmoji}
+        WHERE id = ?
+        """
+        await db.execute(query, (self.id,))
+
+
+    @classmethod
+    async def deleteFromID(cls, db: Connection, id: int):
+        query = f"""
+            DELETE FROM {BotEmoji}
+            WHERE id = ?
+        """
+        await db.execute(query, (id,))
+
+    @classmethod
+    async def insertFromDiscord(cls, db: Connection, emoji: discord.Emoji) -> BotEmoji:
+        converted = await BotEmoji.from_discord(emoji)
+        await converted.insert(db)
+        return converted
+
+    
+
+
