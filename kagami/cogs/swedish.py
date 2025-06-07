@@ -490,11 +490,10 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         Return the total number of users with existing wallets
         """
         query = f"""
-        SELECT COUNT(*) as count
+        SELECT COUNT(DISTINCT user_id) as count
         FROM {SwedishFishWallet}
         WHERE (:guild_id = 0 OR guild_id = :guild_id)
         AND (:fish_name IS NULL OR fish_name = :fish_name)
-        GROUP BY user_id
         """
         db.row_factory = aiosqlite.Row
         async with db.execute(query, self.asdict()) as cur:
@@ -506,7 +505,7 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
         Return the total number of unique fish from the pseudo query
         """
         query = f"""
-        SELECT COUNT(*) as count
+        SELECT COUNT(DISTINCT fish_name) as count
         FROM {SwedishFishWallet}
         WHERE (:guild_id = 0 OR guild_id = :guild_id)
         AND (:user_id = 0 OR user_id = :user_id)
@@ -965,8 +964,8 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
             super().__init__(guild_id=guild_id)
 
         @override
-        async def get_total_item_count(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, **kwargs: Any) -> int:
-            return await SwedishFishWallet(guild_id=0, fish_name=None, user_id=0).selectUserCount(db)
+        async def get_total_item_count(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, **kwargs: Any) -> int:
+            return await SwedishFishWallet(guild_id=guild_id, fish_name=None, user_id=0).selectUserCount(db)
 
         @override
         async def get_items(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, guild_id: int, **kwargs: Any) -> list[aiosqlite.Row]:
