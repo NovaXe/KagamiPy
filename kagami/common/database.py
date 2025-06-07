@@ -367,6 +367,9 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
 
     @classmethod
     async def create_temp_copy(cls, db: aiosqlite.Connection):
+        """
+        Create a temporary copy the current table so that its schema can be modified
+        """
         query = f"""
         CREATE TABLE temp_{cls.__tablename__}
         AS SELECT * FROM {cls.__tablename__}
@@ -376,7 +379,7 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
         """
-        Depending on what has changed in the schema this may need an override
+        Override this method to change how data is migrated from the temp table to the new table
         """
         query = f"""
         INSERT INTO {cls.__tablename__}
@@ -390,6 +393,10 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
 
     @classmethod
     async def rename_from_old(cls, db: aiosqlite.Connection):
+        """
+        Probably shouldn't be used and isn't currently used
+        Not even sure if this works anymore, but keeping it just in case
+        """
         old_exists = await cls._exists(db, check_old_name=True)
         new_exists = await cls._exists(db)
         if old_exists and not new_exists:
@@ -401,7 +408,8 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
     @classmethod
     async def update_schema(cls, db: aiosqlite.Connection):
         """
-        Override if a custom set of steps is needed
+        Executes a sequence of steps to update the schema of a table
+        Only override this if a custom order is needed
         """
         try:
             await cls.drop_temp(db)
