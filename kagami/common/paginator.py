@@ -267,9 +267,9 @@ class SimpleCallback[T](ABC):
             for i in range(first, last+1):
                 temp = ""
                 if i == self._offset:
-                    temp = f"( {i} ) "
+                    temp = f"({i}) "
                 elif i == first or i == last:
-                    temp = f"[ {i} ] "
+                    temp = f"{i} "
                 else:
                     temp = "• "
                 ss.write(temp)
