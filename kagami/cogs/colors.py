@@ -13,7 +13,7 @@ from discord import app_commands, Interaction
 from discord.ext.commands import GroupCog
 from discord.app_commands import Transform, Transformer, Group, Choice, Range
 
-from bot import Kagami
+from bot import Kagami, config
 from common import errors
 from common.logging import setup_logging
 from common.interactions import respond
@@ -357,7 +357,6 @@ class NoColor(errors.CustomCheck):
 class ColorCogAdmin(GroupCog, name="admin-color"):
     def __init__(self, bot: Kagami):
         self.bot = bot
-        self.config = bot.config
         self.dbman = bot.dbman
     
     @app_commands.command(name="add-group", description="Registeres a color group with the bot")
@@ -429,16 +428,11 @@ class ColorCogAdmin(GroupCog, name="admin-color"):
 class ColorCog(GroupCog, name="color"):
     def __init__(self, bot: Kagami):
         self.bot = bot
-        self.config = bot.config
         self.dbman = bot.dbman
     
     
     async def cog_load(self):
-        await self.bot.dbman.setup(table_group=__name__,
-                                   drop_tables=self.bot.config.drop_tables,
-                                   drop_triggers=self.bot.config.drop_triggers,
-                                   ignore_schema_updates=self.bot.config.ignore_schema_updates,
-                                   ignore_trigger_updates=self.bot.config.ignore_trigger_updates)
+        await self.bot.dbman.setup(table_group=__name__)
 
         pass
     

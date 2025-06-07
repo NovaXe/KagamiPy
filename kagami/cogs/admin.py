@@ -6,7 +6,7 @@ import traceback
 import discord.utils
 from discord.ext import commands
 from discord import app_commands
-from bot import Kagami
+from bot import Kagami, config
 from common.interactions import respond
 from common.database import TableMetadata
 
@@ -16,7 +16,7 @@ type Context = commands.Context[Kagami]
 class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot: Kagami = bot
-        self.config = bot.config
+        self.last_cog: str | None=None
 
 
     # @commands.is_owner()
@@ -47,6 +47,21 @@ class Admin(commands.Cog):
         await self.bot.tree.sync()
         await ctx.send("Command Tree Synced", ephemeral=True)
 
+    @commands.command(name="sync-admin", description="syncs the command tree")
+    @commands.is_owner()
+    async def sync_admin_guild(self, ctx):
+        guild = discord.Object(config.admin_guild_id)
+        await self.bot.tree.sync(guild=guild)
+        await ctx.send("Synced Admin Guild Commands", ephemeral=True)
+
+    @commands.command(name="clear-admin", description="syncs the command tree")
+    @commands.is_owner()
+    async def clear_admin_guild(self, ctx):
+        guild = discord.Object(config.admin_guild_id)
+        self.bot.tree.clear_commands(guild=guild)
+        await self.bot.tree.sync(guild=guild)
+        await ctx.send("Cleared Admin Guild Commands", ephemeral=True)
+
     @commands.command(name="ping", description="checks the latency")
     @commands.is_owner()
     async def ping(self, ctx):
@@ -66,9 +81,17 @@ class Admin(commands.Cog):
     async def list_ext(self, ctx):
         await ctx.send(" ".join(self.bot.extensions))
 
-    @commands.command(name="reload", description="reloads a  cog")
+    @commands.command(name="reload", description="reloads a cog")
     @commands.is_owner()
-    async def reload_cog(self, ctx, cog_name):
+    async def reload_cog(self, ctx, cog_name=None):
+        if cog_name is not None:
+            self.last_cog = cog_name
+        elif self.last_cog is not None:
+            cog_name = self.last_cog
+        else:
+            await ctx.send(f"Specify a cog to reload")
+            return
+
         name = f"cogs.{cog_name}"
         if name in self.bot.extensions:
             await self.bot.reload_extension(name)

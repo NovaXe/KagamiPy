@@ -17,11 +17,9 @@ from discord import app_commands
 
 from common.interactions import respond
 
-
 class Fun(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.config = bot.config
         self.ctx_menus = [
             app_commands.ContextMenu(
                 name="Reply",
@@ -68,14 +66,14 @@ class Fun(commands.Cog):
         await self.bot.change_presence(activity=new_activity)
         await respond(interaction, f"Changed status to: `{new_activity}`", ephemeral=True, delete_after=3)
 
-    @app_commands.command(name="fish", description="fish reacts all")
-    async def fish_all(self, interaction: discord.Interaction):
-        await respond(interaction)
-        assert ("enabled" in self.fish_all.__dict__)
-        new_state = not self.fish_all.enabled.get(interaction.guild_id, False)
-        self.fish_all.enabled[interaction.guild_id] = new_state
-        await respond(interaction, f"Fish Mode: {'On' if new_state else 'Off'}")
-    fish_all.enabled = {}
+    # @app_commands.command(name="fish", description="fish reacts all")
+    # async def fish_all(self, interaction: discord.Interaction):
+    #     await respond(interaction)
+    #     assert ("enabled" in self.fish_all.__dict__)
+    #     new_state = not self.fish_all.enabled.get(interaction.guild_id, False)
+    #     self.fish_all.enabled[interaction.guild_id] = new_state
+    #     await respond(interaction, f"Fish Mode: {'On' if new_state else 'Off'}")
+    # fish_all.enabled = {}
 
     @app_commands.command(name='timeout', description='sever mutes someone in vc')
     async def timeout_user(self, interaction: discord.Interaction, member: discord.Member):
@@ -119,13 +117,6 @@ class Fun(commands.Cog):
             for a,g in alphabet_swap.items():
                 text = text.replace(a,g)
             await respond(interaction, text)
-
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        d: dict
-        if d := self.fish_all.__dict__.get("enabled", False):
-            if d.get(message.guild.id, False):
-                await message.add_reaction("🐟")
 
     # context menu commands
     async def msg_reply(self, interaction: discord.Interaction, message: discord.Message):

@@ -12,6 +12,8 @@ from asyncio import Queue
 import aiosqlite, sqlite3
 from dataclasses import dataclass, asdict, astuple, fields
 
+from bot import config
+
 from common.logging import setup_logging
 from collections.abc import Generator, Iterable
 from typing import Any, Annotated, Callable, ClassVar, Protocol, Generic, cast, overload, override
@@ -293,30 +295,33 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
     #     logger.debug(f"{self.__class__.__name__} {repr(self)} - {message}")
 
 
-    @staticmethod
-    def group(name: str) -> Callable[[type], type]:
-        """
-        Decorator for specifying a group a table belongs to
-        table_group can also be set in the class initializer
-        """
-        def decorator(cls: type[Table]):
-            cls.__table_group__ = name
-            return cls
-        return decorator
+    # @staticmethod
+    # def group(name: str) -> Callable[[type], type]:
+    #     """
+    #     Decorator for specifying a group a table belongs to
+    #     table_group can also be set in the class initializer
+    #     """
+    #     def decorator(cls: type[Table]):
+    #         cls.__table_group__ = name
+    #         return cls
+    #     return decorator
 
     # def __init__(self, *args, **kwargs): pass
     @classmethod
-    def row_factory(cls, cur: aiosqlite.Cursor, row: tuple[Any, ...]):
+    def _row_factory(cls, cur: aiosqlite.Cursor, row: tuple[Any, ...]):
         """Instantiates the dataclass from a row in the SQL table"""
         # field_names = {col[0] for col in cur.description}
         # got this stuff from chatgpt because the row factory thing always confused me, I know why it works so it's fine
-        valid_fields = {field.name for field in fields(cls)}
+        valid_fields = {field.name for field in fields(cls)} 
         # gets rid of fields that don't exist in the dataclass
         filtered_data = {col[0]: row[idx] for idx, col in enumerate(cur.description) if col[0] in valid_fields}
         default_data = {field: ... for field in valid_fields if field not in filtered_data}
         return cls(**{**default_data, **filtered_data})
         # return cls(**{col[0]: row[idx] for idx, col in enumerate(cur.description)})
     # row_factory = _row_factory # just an alias so that when you type it out it doesn't place () at the end in pycharm
+
+    row_factory: ClassVar[type] = cast(type, _row_factory) # pyright: ignore [reportInvalidCast]
+    
 
     @classmethod
     async def _validate_query(cls, db: aiosqlite.Connection, query: str):
@@ -362,6 +367,9 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
 
     @classmethod
     async def create_temp_copy(cls, db: aiosqlite.Connection):
+        """
+        Create a temporary copy the current table so that its schema can be modified
+        """
         query = f"""
         CREATE TABLE temp_{cls.__tablename__}
         AS SELECT * FROM {cls.__tablename__}
@@ -371,7 +379,7 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
         """
-        Depending on what has changed in the schema this may need an override
+        Override this method to change how data is migrated from the temp table to the new table
         """
         query = f"""
         INSERT INTO {cls.__tablename__}
@@ -385,6 +393,10 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
 
     @classmethod
     async def rename_from_old(cls, db: aiosqlite.Connection):
+        """
+        Probably shouldn't be used and isn't currently used
+        Not even sure if this works anymore, but keeping it just in case
+        """
         old_exists = await cls._exists(db, check_old_name=True)
         new_exists = await cls._exists(db)
         if old_exists and not new_exists:
@@ -396,7 +408,8 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
     @classmethod
     async def update_schema(cls, db: aiosqlite.Connection):
         """
-        Override if a custom set of steps is needed
+        Executes a sequence of steps to update the schema of a table
+        Only override this if a custom order is needed
         """
         try:
             await cls.drop_temp(db)
@@ -740,8 +753,10 @@ class DatabaseManager(ManagerBase, metaclass=ManagerMeta, table_registry=TableRe
         self._debug_log(f"Initialized resources")
 
     async def setup(self, table_group: str | None=None,
-                    ignore_schema_updates: bool=False, ignore_trigger_updates: bool=False,
-                    drop_tables: bool=False, drop_triggers: bool=False):
+                    ignore_schema_updates: bool=config.ignore_schema_updates, 
+                    ignore_trigger_updates: bool=config.ignore_trigger_updates,
+                    drop_tables: bool=config.drop_tables, 
+                    drop_triggers: bool=config.drop_triggers):
         if not DatabaseManager.registry:
             return
         async with self.conn() as db:

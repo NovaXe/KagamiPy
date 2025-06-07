@@ -36,7 +36,7 @@ from discord import ButtonStyle
 import wavelink
 from wavelink import Playable, Search, TrackEndEventPayload, TrackStartEventPayload, WebsocketClosedEventPayload
 
-from bot import Kagami
+from bot import Kagami, config
 from common import errors
 from common.logging import setup_logging
 from common.interactions import respond
@@ -44,7 +44,7 @@ from common.database import Table, DatabaseManager, ConnectionContext
 from common.tables import Guild, GuildSettings, PersistentSettings
 from common.paginator import Scroller, ScrollerState
 from common.types import MessageableGuildChannel
-from .voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, get_tracklist_callback
+from .voice import PlayerSession, StatusBar, NotInChannel, NotInSession, NoSession, TracklistCallback
 from .db import TrackList, TrackListDetails, TrackListFlags
 from common.utils import acstr, ms_timestamp, secondsToTime, milliseconds_divmod
 
@@ -158,18 +158,15 @@ class MusicCog(GroupCog, group_name="m"):
     """
     def __init__(self, bot: Kagami):
         self.bot = bot
-        self.config = bot.config
         self.dbman = bot.dbman
 
     @override
     async def cog_load(self):
-        await self.bot.dbman.setup(table_group=__package__,
-                                   drop_tables=self.bot.config.drop_tables,
-                                   drop_triggers=self.bot.config.drop_triggers,
-                                   ignore_schema_updates=self.bot.config.ignore_schema_updates,
-                                   ignore_trigger_updates=self.bot.config.ignore_trigger_updates)
+        await self.bot.dbman.setup(table_group=__package__)
         
-        node = wavelink.Node(**self.bot.config.lavalink, client=self.bot) # pyright:ignore
+        node = wavelink.Node(uri=config.lavalink_uri, 
+                             password=config.lavalink_password, 
+                             client=self.bot)
         await wavelink.Pool.connect(nodes=[node])
 
     @override
@@ -350,7 +347,7 @@ class MusicCog(GroupCog, group_name="m"):
             session = cast(PlayerSession, guild.voice_client)
             user = cast(Member, interaction.user)
             title = f"Queued {len(results)} tracks" if not position else f"Queued {len(results)} tracks at position {position}"
-            scroller = Scroller(message, user, get_tracklist_callback(results, title=title), timeout=30)
+            scroller = Scroller(message, user, TracklistCallback(results, title=title), timeout=30)
             await scroller.update(interaction)
             if session.current is None or position == 0:
                 await session.play_next()

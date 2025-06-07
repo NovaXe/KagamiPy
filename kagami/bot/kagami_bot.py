@@ -17,10 +17,9 @@ from typing import (
     Any,
     override, )
 
+from bot import config
 from common import errors
 from common.interactions import respond
-
-from .config import Configuration, config
 
 from common import errors
 from common.depr_context_vars import CVar
@@ -36,11 +35,11 @@ my_logger = setup_logging(__name__)
 
 class Kagami(commands.Bot):
     def __init__(self):
-        self.config: Configuration = config
-        # print(self.config)
-        super().__init__(command_prefix=self.config.prefix,
+        # config: Configuration = config
+        # print(config)
+        super().__init__(command_prefix=config.prefix,
                          intents=intents,
-                         owner_id=self.config.owner_id)
+                         owner_id=config.owner_id)
         self.activity = discord.CustomActivity("Testing new things")
         self.raw_data = {}
         self.database = None
@@ -51,7 +50,7 @@ class Kagami(commands.Bot):
 
 
     def init_data(self):
-        self.dbman = DatabaseManager(self.config.data_path + self.config.db_name, pool_size=self.config.connection_pool_size)
+        self.dbman = DatabaseManager(config.data_path + config.db_name, pool_size=config.connection_pool_size)
 
     def changeCmdError(self):
         tree = self.tree
@@ -62,10 +61,10 @@ class Kagami(commands.Bot):
         # await self.dbman.setup(table_group="common.database")
         # This the common database group is instead setup by the DatabaseManager instance as part of its initializer
         await self.dbman.setup(table_group="common.tables",
-                               drop_tables=self.config.drop_tables,
-                               drop_triggers=self.config.drop_triggers,
-                               ignore_schema_updates=self.config.ignore_schema_updates,
-                               ignore_trigger_updates=self.config.ignore_trigger_updates)
+                               drop_tables=config.drop_tables,
+                               drop_triggers=config.drop_triggers,
+                               ignore_schema_updates=config.ignore_schema_updates,
+                               ignore_trigger_updates=config.ignore_trigger_updates)
 
         await self.load_all_extensions()
 
@@ -79,7 +78,7 @@ class Kagami(commands.Bot):
                 name = filename[:-3]
             else:
                 name = filename
-            if name in self.config.excluded_cogs:
+            if name in config.excluded_cogs:
                 return
             path = f"cogs.{name}"
             await self.load_extension(path)
@@ -91,7 +90,7 @@ class Kagami(commands.Bot):
     def run_bot(self):
         logger = logging.getLogger("discord")
         logger.propagate = True
-        self.run(token=self.config.token, log_handler=discord_log_handler, log_level=logging.INFO) # Set to info so it isn't nonsense webhook spam
+        self.run(token=config.token, log_handler=discord_log_handler, log_level=logging.INFO) # Set to info so it isn't nonsense webhook spam
 
     async def close(self):
         for cog in self.cogs:
