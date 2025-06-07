@@ -118,13 +118,6 @@ class Fun(commands.Cog):
                 text = text.replace(a,g)
             await respond(interaction, text)
 
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        d: dict
-        if d := self.fish_all.__dict__.get("enabled", False):
-            if d.get(message.guild.id, False):
-                await message.add_reaction("🐟")
-
     # context menu commands
     async def msg_reply(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.send_modal(MessageReply(message))
