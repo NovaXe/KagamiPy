@@ -93,9 +93,9 @@ class SimpleReactionModes(GroupCog, group_name="chat"):
         async with self.dbman.conn() as db:
             states = {mode: await ChatMode(mode, message.guild.id).select(db) for mode in CHAT_MODES}
             logger.debug(f"on_message: states: {states}")
-            if states["fish"].enabled:
+            if (f:=states["fish"]) and f.enabled:
                 await message.add_reaction("🐟")
-            if states["reddit"].enabled:
+            if (r:=states["reddit"]) and r.enabled:
                 await message.add_reaction("👍")
                 await message.add_reaction("👎")
         
