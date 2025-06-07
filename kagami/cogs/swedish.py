@@ -154,14 +154,14 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
             raise ValueError(f"Swedish Fish `{self.name}` is missing an emoji, {self.emoji_id} does not exist in {BotEmoji}")
         return emoji
 
-    @classmethod
-    async def insert_from_temp(cls, db: aiosqlite.Connection):
-        """Updating from schema version 2 -> 3 to change value -> rarity """
-        query = f"""
-        INSERT INTO {cls.__tablename__}(name, emoji_id, rarity)
-        SELECT name, emoji_id, value FROM temp_{cls.__tablename__}
-        """
-        await db.execute(query)
+    # @classmethod
+    # async def insert_from_temp(cls, db: aiosqlite.Connection):
+    #     """Updating from schema version 2 -> 3 to change value -> rarity """
+    #     query = f"""
+    #     INSERT INTO {cls.__tablename__}(name, emoji_id, rarity)
+    #     SELECT name, emoji_id, value FROM temp_{cls.__tablename__}
+    #     """
+    #     await db.execute(query)
 
     @classmethod
     async def create_table(cls, db: Connection):
