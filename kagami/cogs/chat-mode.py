@@ -76,7 +76,7 @@ class ChatMode(Table, schema_version=2, trigger_version=1):
         await db.execute(query, self.asdict())
 
 # CHAT_MODES = ("fish", "reddit")
-CHAT_MODES = ("fish",)
+CHAT_MODES = ("fish", "reddit")
 
 class SimpleReactionModes(GroupCog, group_name="chat"): 
     def __init__(self, bot: Kagami):
@@ -96,7 +96,8 @@ class SimpleReactionModes(GroupCog, group_name="chat"):
             if states["fish"].enabled:
                 await message.add_reaction("🐟")
             if states["reddit"].enabled:
-                pass
+                await message.add_reaction("👍")
+                await message.add_reaction("👎")
         
 
     # async def chat_modes_autocomplete(self, interaction: Interaction, value: str) -> list[Choice[str]]:
