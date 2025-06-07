@@ -12,7 +12,8 @@ from io import BytesIO
 from PIL import Image, ImageFile
 
 import discord
-from discord import app_commands, Message, Guild, channel
+from discord import CategoryChannel, ForumChannel, app_commands, Message, Guild, channel
+from discord.abc import PrivateChannel
 from discord.app_commands import Choice, Transformer, Transform
 
 from discord.app_commands.models import app_command_option_factory
@@ -140,7 +141,7 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
     rarity: int=0
 
     def probability(self) -> float:
-        return prob_threehalfs(self.rarity)
+        return prob_quad(self.rarity)
 
     def roll(self) -> bool:
         r = random.random()
@@ -192,6 +193,17 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
         async with db.execute(query, (name,)) as cur:
             res = await cur.fetchone()
         return res 
+
+    @classmethod
+    async def selectFromID(cls, db: Connection, id: int) -> SwedishFish:
+        query = f"""
+        SELECT * FROM {SwedishFish}
+        WHERE emoji_id = ?
+        """
+        db.row_factory = SwedishFish.row_factory
+        async with db.execute(query, (id,)) as cur:
+            res = await cur.fetchone()
+        return res
 
     @classmethod
     async def selectLikeNames(cls, db: Connection, name: str, limit: int=-1, offset: int=0) -> list[str]:
@@ -259,7 +271,6 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
     guild_id: int
     fish_name: str | None
     count: int=0
-
 
     @classmethod
     def from_member(cls, member: discord.Member, fish_name: str|None=None, count: int=0) -> SwedishFishWallet:
@@ -446,8 +457,7 @@ class SwedishFishWallet(Table, schema_version=5, trigger_version=6):
 
     async def give(self, db: Connection) -> SwedishFishWallet | None:
         """
-        Take a certain number of fish from a wallet
-        this subtracts the fish from the wallet itself and if not returned are gone
+        Gives a user fish and adds it to their wallet
         """
         query = f"""
         INSERT INTO {SwedishFishWallet}(guild_id, user_id, fish_name, count)
@@ -875,7 +885,62 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
                     except discord.HTTPException as e:
                         logger.error(f"Discord emoji for swedish fish {s.name} with id {s.emoji_id} could not be retrieved") 
             await db.commit()
+
         
+    @GroupCog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        assert self.bot.user is not None
+        assert payload.guild_id is not None
+
+        channel_id = payload.channel_id
+        user_id = payload.user_id
+
+        channel = self.bot.get_channel(channel_id)
+        if channel is None: return
+        elif isinstance(channel, PrivateChannel) or isinstance(channel, CategoryChannel) or isinstance(channel, ForumChannel): return
+
+        message = await channel.fetch_message(payload.message_id)
+        if user_id == message.author.id or user_id == self.bot.user.id:
+            return
+
+        emoji = payload.emoji
+        if emoji.id is None: return
+        async with self.dbman.conn() as db:
+            settings = await SwedishFishSettings.selectCurrent(db, payload.guild_id, payload.channel_id)
+            # successes = await SwedishFish.gamble(db)
+            if settings.wallet_enabled:
+                fish = await SwedishFish.selectFromID(db, emoji.id)
+                fish = SwedishFishWallet(message.author.id, payload.guild_id, fish.name, 1)
+                await fish.give(db)
+                await db.commit()
+
+
+    @GroupCog.listener()
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
+        assert self.bot.user is not None
+        assert payload.guild_id is not None
+
+        channel_id = payload.channel_id
+        user_id = payload.user_id
+
+        channel = self.bot.get_channel(channel_id)
+        if channel is None: return
+        elif isinstance(channel, PrivateChannel) or isinstance(channel, CategoryChannel) or isinstance(channel, ForumChannel): return
+
+        message = await channel.fetch_message(payload.message_id)
+        if user_id == message.author.id or user_id == self.bot.user.id:
+            return
+
+        emoji = payload.emoji
+        if emoji.id is None: return
+        async with self.dbman.conn() as db:
+            settings = await SwedishFishSettings.selectCurrent(db, payload.guild_id, payload.channel_id)
+            # successes = await SwedishFish.gamble(db)
+            if settings.wallet_enabled:
+                fish = await SwedishFish.selectFromID(db, emoji.id)
+                fish = SwedishFishWallet(message.author.id, payload.guild_id, fish.name, 1)
+                await fish.take(db)
+                await db.commit()
 
     @app_commands.command(name="give", description="Give fish to another user")
     async def give(self, interaction: Interaction, user: discord.Member, fish: Transform[SwedishFishWallet | None, Transformer_UserFish], quantity: Transform[int, Transformer_UserFishCount]) -> None:
