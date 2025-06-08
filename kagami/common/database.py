@@ -134,6 +134,26 @@ class TableRegistry:
                 cls._debug_log(f"All triggers already exist for Table: {tablename}")
 
     @classmethod
+    async def create_indexes(cls, db: aiosqlite.Connection, group_name: str | None) -> None:
+        cls._debug_log(f"Creating indexes for group: {group_name}")
+        total_changes = 0
+        for tablename, tableclass in cls.tableiter(group_name):
+            try:
+                await tableclass.create_indexes(db)
+                changes = db.total_changes - total_changes
+                total_changes = db.total_changes
+            except aiosqlite.OperationalError as e:
+                logger.error(f"Issue creating indexes for table: {tablename} - {e}", exc_info=True)
+                await db.rollback()
+                raise
+            if changes > 1:
+                cls._debug_log(f"Created ({changes}) indexes for Table: {tablename}")
+            elif changes > 0:
+                cls._debug_log(f"Created ({changes}) index for Table: {tablename}")
+            else:
+                cls._debug_log(f"All indexes already exist for Table: {tablename}")
+
+    @classmethod
     async def drop_tables(cls, db: aiosqlite.Connection, group_name: str | None=None):
         cls._debug_log(f"Dropping tables in group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
@@ -146,6 +166,13 @@ class TableRegistry:
         for tablename, tableclass in cls.tableiter(group_name):
             await tableclass.drop_triggers(db)
             cls._debug_log(f"Dropped triggers for Table: {tablename}")
+
+    @classmethod
+    async def drop_indexes(cls, db: aiosqlite.Connection, group_name: str | None=None):
+        cls._debug_log(f"Dropping indexes in group: {group_name}")
+        for tablename, tableclass in cls.tableiter(group_name):
+            await tableclass.drop_indexes(db)
+            cls._debug_log(f"Dropped indexes for Table: {tablename}")
     
     @classmethod
     async def update_schemas(cls, db: aiosqlite.Connection, group_name: str | None=None):
@@ -182,7 +209,7 @@ class TableRegistry:
                 metadata = TableMetadata(tablename)
             
             if metadata.trigger_version < tableclass.__trigger_version__:
-                cls._debug_log(f"Updating out od data triggers on Table: {tablename}")
+                cls._debug_log(f"Updating out of data triggers on Table: {tablename}")
                 await tableclass.drop_triggers(db)
                 await tableclass.create_triggers(db)
                 cls._debug_log(f"Updated triggers for Table: {tablename}")
@@ -191,6 +218,28 @@ class TableRegistry:
                 cls._debug_log(f"Updated trigger version for Table: {tablename}")
             else:
                 cls._debug_log(f"Triggers for Table: {tablename} are up to date")
+
+    @classmethod
+    async def update_indexes(cls, db: aiosqlite.Connection, group_name: str | None=None):
+        cls._debug_log(f"Updating indexes for group: {group_name}")
+        for tablename, tableclass in cls.tableiter(group_name):
+            if not await tableclass._exists(db):
+                cls._debug_log(f"Skipping index update for missing table: {tablename}")
+                continue
+            metadata = await TableMetadata.selectData(db, table_name=tablename)
+            if not metadata:
+                metadata = TableMetadata(tablename)
+            
+            if metadata.index_version < tableclass.__index_version__:
+                cls._debug_log(f"Updating out of data indexes on Table: {tablename}")
+                await tableclass.drop_indexes(db)
+                await tableclass.create_indexes(db)
+                cls._debug_log(f"Updated indexes for Table: {tablename}")
+                metadata.index_version = tableclass.__index_version__
+                await metadata.upsert(db)
+                cls._debug_log(f"Updated index version for Table: {tablename}")
+            else:
+                cls._debug_log(f"Indexes for Table: {tablename} are up to date")
 
     # @classmethod
     # async def alter_tables(cls, db: aiosqlite.Connection, group_name: str | None=None):
@@ -227,6 +276,7 @@ class TableBase:
     __tablename__: ClassVar[str]
     __schema_version__: ClassVar[int]
     __trigger_version__: ClassVar[int]
+    __index_version__: ClassVar[int]
     __table_group__: ClassVar[str]
     __old_tablename__: ClassVar[str | None]
     
@@ -236,6 +286,7 @@ class TableMeta(type):
                 table_registry: type["TableRegistry"] | None=TableRegistry,
                 schema_version: int,
                 trigger_version: int,
+                index_version: int,
                 table_group: str | EllipsisType | None=..., **kwargs: dict[str, Any]) -> type[Table]:
         cls = super().__new__(mcs, name, bases, class_dict)
         cls = cast(type["Table"], cls) 
@@ -243,6 +294,7 @@ class TableMeta(type):
         cls.__tablename__ = name 
         cls.__schema_version__ = schema_version 
         cls.__trigger_version__ = trigger_version 
+        cls.__index_version__ = index_version 
         if table_group is ...:
             cls.__table_group__ = cls.__module__ 
         elif table_group is None:
@@ -275,7 +327,7 @@ class TableMeta(type):
 
 
 @dataclass
-class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0, table_registry=None):
+class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0, index_version=0, table_registry=None):
     """
     _columns: String formatting utility - (column_a, column_b, ...)
     """
@@ -424,8 +476,6 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
             raise
         logger.debug(f"The schema for table: {cls} was updated and data migrated")
 
-
-
     @classmethod
     async def create_triggers(cls, db: aiosqlite.Connection):
         """
@@ -449,6 +499,30 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
         for name in trigger_names:
             name = name[0]
             await db.execute(f"DROP TRIGGER IF EXISTS {name}")
+
+    @classmethod
+    async def create_indexes(cls, db: aiosqlite.Connection):
+        """
+        Called under the assumption of creating all indexes for a specific table.
+        By default, this method does nothing and instead should be replaced when needed.
+        Example implementation,
+        indexes: list[str] = ["CREATE INDEX ...", "CREATE INDEX ..."]
+        for indexes in indexes:
+            await db.execute(index)
+        """
+        pass
+
+    @classmethod
+    async def drop_indexes(cls, db: aiosqlite.Connection):
+        query = f"""
+        SELECT name FROM sqlite_master
+        WHERE type = 'index' AND tbl_name = '{cls.__tablename__}'
+        """
+        db.row_factory = None
+        index_names = await db.execute_fetchall(query)
+        for name in index_names:
+            name = name[0]
+            await db.execute(f"DROP INDEX IF EXISTS {name}")
 
     def asdict(self): return asdict(self)
 
