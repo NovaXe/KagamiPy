@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 from typing import override, cast, final, Any
 from dataclasses import dataclass
 import random
@@ -36,11 +37,13 @@ type Interaction = discord.Interaction[Kagami]
 FISH_PREFIX = "sf"
 
 @dataclass
-class SwedishFishSettings(Table, schema_version=1, trigger_version=1):
+class SwedishFishSettings(Table, schema_version=2, trigger_version=1):
     guild_id: int
     channel_id: int
     wallet_enabled: bool=True
     reactions_enabled: bool=False
+    fade_reactions: bool=True
+    reaction_boosting: bool=True
 
     @classmethod
     async def create_table(cls, db: Connection):
@@ -50,6 +53,8 @@ class SwedishFishSettings(Table, schema_version=1, trigger_version=1):
             channel_id INTEGER NOT NULL,
             wallet_enabled INTEGER NOT NULL DEFAULT 1,
             reactions_enabled INTEGER NOT NULL DEFAULT 0,
+            fade_reactions INTEGER NOT NULL DEFAULT 1,
+            reaction_boosting INTERGER NOT NULL DEFAULT 1,
             PRIMARY KEY (guild_id, channel_id),
             FOREIGN KEY (guild_id) REFERENCES {Guild}(id)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
@@ -77,12 +82,14 @@ class SwedishFishSettings(Table, schema_version=1, trigger_version=1):
     
     async def upsert(self, db: Connection) -> None:
         query = f"""
-        INSERT INTO {SwedishFishSettings} (guild_id, channel_id, wallet_enabled, reactions_enabled)
-        VALUES (:guild_id, :channel_id, :wallet_enabled, :reactions_enabled)
+        INSERT INTO {SwedishFishSettings} (guild_id, channel_id, wallet_enabled, reactions_enabled, fade_reactions, reaction_boosting)
+        VALUES (:guild_id, :channel_id, :wallet_enabled, :reactions_enabled, :fade_reactions, :reaction_boosting)
         ON CONFLICT (guild_id, channel_id)
         DO UPDATE SET 
             wallet_enabled = :wallet_enabled, 
             reactions_enabled = :reactions_enabled
+            fade_reactions = :fade_reactions
+            reaction_boosting = :reaction_boosting
         """
         await db.execute(query, self.asdict())
 
@@ -145,7 +152,7 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
 
     def roll(self) -> bool:
         r = random.random()
-        logger.debug(f"roll prob: ({r}, {self.probability()})")
+        #logger.debug(f"roll prob: ({r}, {self.probability()})")
         return r <= self.probability()
 
     async def get_emoji(self, db: Connection) -> BotEmoji:
@@ -195,7 +202,7 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
         return res 
 
     @classmethod
-    async def selectFromID(cls, db: Connection, id: int) -> SwedishFish:
+    async def selectFromID(cls, db: Connection, id: int) -> SwedishFish | None:
         query = f"""
         SELECT * FROM {SwedishFish}
         WHERE emoji_id = ?
@@ -613,30 +620,30 @@ class Transformer_UserFishCount[Kagami](Transformer):
     """
     @override
     async def autocomplete(self, interaction: Interaction, value: str | int | float) -> list[Choice[str]]: 
-        logger.debug(f"UserFishCount - autocomplete: enter")
+        # logger.debug(f"UserFishCount - autocomplete: enter")
         assert interaction.guild is not None
-        logger.debug(f"UserFishCount - autocomplete: passed assert")
+        # logger.debug(f"UserFishCount - autocomplete: passed assert")
         try:
             value = int(value)
         except ValueError:
             value = 0
         fish_name = interaction.namespace["fish"]
-        logger.debug(f"UserFishCount - autocomplete: {fish_name=}")
+        # logger.debug(f"UserFishCount - autocomplete: {fish_name=}")
         pseudo = SwedishFishWallet(interaction.user.id, 
                                    interaction.guild.id, 
                                    fish_name)
         async with interaction.client.dbman.conn() as db:
             fish = await pseudo.select(db)
-        logger.debug(f"UserFishCount - autocomplete: {fish=}")
+        # logger.debug(f"UserFishCount - autocomplete: {fish=}")
         
         if fish is None:
-            logger.debug(f"UserFishCount - autocomplete: Fish is none")
+            # logger.debug(f"UserFishCount - autocomplete: Fish is none")
             return [Choice(name=f"Invalid Fish", value="0")]
         max_choice = Choice(name=f"Max: {fish.count}", value=f"{fish.count}")
-        logger.debug(f"UserFishCount - autocomplete: {max_choice=}")
+        # logger.debug(f"UserFishCount - autocomplete: {max_choice=}")
         # value = int(value) if isinstance(value, str) and value.isdigit() else 0
-        logger.debug(f"UserFishCount - {value=}")
-        logger.debug(f"UserFishCount - {value<fish.count=}")
+        # logger.debug(f"UserFishCount - {value=}")
+        # logger.debug(f"UserFishCount - {value<fish.count=}")
 
         if value < fish.count:
             v = f"{value}"
@@ -654,13 +661,13 @@ class Transformer_UserFishCount[Kagami](Transformer):
         except ValueError:
             value = 0
         fish_name = interaction.namespace["fish"]
-        logger.debug(f"UserFishCount - transform: {fish_name=}")
+        # logger.debug(f"UserFishCount - transform: {fish_name=}")
         pseudo = SwedishFishWallet(interaction.user.id, 
                                    interaction.guild.id, 
                                    fish_name)
         async with interaction.client.dbman.conn() as db:
             fish = await pseudo.select(db)
-        logger.debug(f"UserFishCount - transform: {fish=}")
+        # logger.debug(f"UserFishCount - transform: {fish=}")
         # value = int(value) if isinstance(value, str) and value.isdigit() else 0
         if fish is not None:
             return min(max(value, 0), fish.count)
@@ -682,7 +689,7 @@ class Cog_SwedishDev(GroupCog, group_name="sf"):
     @app_commands.command(name="add", description="adds a new fish")
     async def add(self, interaction: Interaction, name: Transform[SwedishFish | None, Transformer_Fish], image: discord.Attachment, rarity: int):
         await respond(interaction)
-        logger.debug(f"add_new: {image.content_type=}")
+        # logger.debug(f"add_new: {image.content_type=}")
         if image.content_type is None:
             await respond(interaction, "Missing or unknown content type")
             return
@@ -766,6 +773,7 @@ class Cog_SwedishDev(GroupCog, group_name="sf"):
             out.append(f"{emoji} - {fish.name} - {fish.rarity}")
         await respond(interaction, "\n".join(out))
 
+REACTION_FADE_DELAY: int = 15
 @app_commands.default_permissions(manage_expressions=True)
 class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
     def __init__(self, bot: Kagami):
@@ -775,49 +783,74 @@ class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
     @app_commands.command(name="toggle-reactions", description="toggles the visible reactions, users can still collect fish")
     async def toggle_reactions(self, interaction: Interaction, channel_only: bool=False) -> None:
         await respond(interaction, ephemeral=True)
-        logger.debug(f"toggle_reactions: enter")
         assert interaction.guild is not None
         assert interaction.channel is not None
         channel_id = interaction.channel.id if channel_only else 0
-        default = SwedishFishSettings(interaction.guild.id, channel_id)
-        logger.debug(f"toggle_reactions: default: {default}")
+        # default = SwedishFishSettings(interaction.guild.id, channel_id)
         async with self.dbman.conn() as db:
-            state = await default.select(db)
-            logger.debug(f"toggle_reactions: old_state: {state}")
-            if state is None:
-                state = default
-                logger.debug(f"toggle_reactions: state was none, now default, state: {state}")
-            state.reactions_enabled = not state.reactions_enabled
-            logger.debug(f"toggle_reactions: new_state: {state}")
-            await state.upsert(db)
-            logger.debug(f"toggle_reactions: upserted")
+            current = await SwedishFishSettings.selectCurrent(db, interaction.guild.id, interaction.channel.id)
+            current.reactions_enabled = not current.reactions_enabled
+            await current.upsert(db)
             await db.commit()
-
-        r = "enabled, you can now see the fish" if state.reactions_enabled else "disabled, you can no longer see the fish"
-        await respond(interaction, f"The reactions have been {r}", ephemeral=True, delete_after=5)
+        if current.reactions_enabled:
+            r = "Reactions have been enabled, you can now see the fish"
+        else:
+            r = "Reactions have been disabled, you can no longer see the fish"
+        await respond(interaction, r, ephemeral=True, delete_after=5)
 
     @app_commands.command(name="toggle-wallet", description="this toggles the wallet that allows users to collect fish, but reactions can still show up")
     async def toggle_wallet(self, interaction: Interaction, channel_only: bool=False) -> None:
         await respond(interaction, ephemeral=True)
-        logger.debug(f"toggle_wallet: enter")
         assert interaction.guild is not None
         assert interaction.channel is not None
         channel_id = interaction.channel.id if channel_only else 0
-        default = SwedishFishSettings(interaction.guild.id, channel_id)
-        logger.debug(f"toggle_wallet: default: {default}")
+        # default = SwedishFishSettings(interaction.guild.id, channel_id)
         async with self.dbman.conn() as db:
-            state = await default.select(db)
-            logger.debug(f"toggle_wallet: old_state: {state}")
-            if state is None:
-                state = default
-                logger.debug(f"toggle_wallet: state was none, now default, state: {state}")
-            state.wallet_enabled = not state.wallet_enabled
-            logger.debug(f"toggle_wallet: new_state: {state}")
-            await state.upsert(db)
-            logger.debug(f"toggle_wallet: upserted")
+            current = await SwedishFishSettings.selectCurrent(db, interaction.guild.id, interaction.channel.id)
+            current.wallet_enabled = not current.wallet_enabled
+            await current.upsert(db)
             await db.commit()
-        r = "enabled, you can collect fish again" if state.wallet_enabled else "disabled, no more collecting fish"
-        await respond(interaction, f"The wallet has been {r}", ephemeral=True, delete_after=5)
+        if current.wallet_enabled:
+            r = "The wallet has been enabled, you can collect fish again"
+        else:
+            r = "The wallet has been disabled, no more collecting fish"
+        await respond(interaction, r, ephemeral=True, delete_after=5)
+
+    @app_commands.command(name="toggle-fadeaway", description="toggles reactions disapearing after some time")
+    async def toggle_fadeaway(self, interaction: Interaction, channel_only: bool=False) -> None:
+        await respond(interaction, ephemeral=True)
+        assert interaction.guild is not None
+        assert interaction.channel is not None
+        channel_id = interaction.channel.id if channel_only else 0
+        # default = SwedishFishSettings(interaction.guild.id, channel_id)
+        async with self.dbman.conn() as db:
+            current = await SwedishFishSettings.selectCurrent(db, interaction.guild.id, interaction.channel.id)
+            current.fade_reactions = not current.fade_reactions
+            await current.upsert(db)
+            await db.commit()
+        if current.fade_reactions:
+            r = f"Reactions will fade away after `{REACTION_FADE_DELAY}` seconds"
+        else:
+            r = "Reaction no longer fade away and will persist unless manually removed"
+        await respond(interaction, r, ephemeral=True, delete_after=5)
+
+    @app_commands.command(name="toggle-boosting", description="toggles boosting the fish another user gains by reacting to their fish")
+    async def toggle_fadeaway(self, interaction: Interaction, channel_only: bool=False) -> None:
+        await respond(interaction, ephemeral=True)
+        assert interaction.guild is not None
+        assert interaction.channel is not None
+        channel_id = interaction.channel.id if channel_only else 0
+        # default = SwedishFishSettings(interaction.guild.id, channel_id)
+        async with self.dbman.conn() as db:
+            current = await SwedishFishSettings.selectCurrent(db, interaction.guild.id, interaction.channel.id)
+            current.reaction_boosting = not current.reaction_boosting
+            await current.upsert(db)
+            await db.commit()
+        if current.reaction_boosting:
+            r = f"Boosting is enabled, click on fish to help others reel in more"
+        else:
+            r = "Boosting is disabled, you're on your own"
+        await respond(interaction, r, ephemeral=True, delete_after=5)
 
     @app_commands.command(name="clear-channel-settings", description="Clear the settings for this channel")
     async def clear_settings(self, interaction: Interaction) -> None:
@@ -843,8 +876,14 @@ class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
             settings = await SwedishFishSettings.selectCurrent(db, interaction.guild.id, interaction.channel.id)
         csw = channel_settings.wallet_enabled if channel_settings else ""
         csr = channel_settings.reactions_enabled if channel_settings else ""
-        content = f"Current Settings => wallet: {settings.wallet_enabled}, reactions: {settings.reactions_enabled}" + \
-                  f"\nDetails (channel, guild) => wallet: ({csw}, {guild_settings.wallet_enabled}), reactions: ({csr}, {guild_settings.reactions_enabled})"
+        csf = channel_settings.fade_reactions if channel_settings else ""
+        csb = channel_settings.reaction_boosting if channel_settings else ""
+        content = f"Current Settings => wallet: {settings.wallet_enabled}, reactions: {settings.reactions_enabled}, fade-away: {settings.fade_reactions}" + \
+                  f"\nDetails (channel, guild) => " + \
+                  f"\nwallet: ({csw}, {guild_settings.wallet_enabled}), " + \
+                  f"\nreactions: ({csr}, {guild_settings.reactions_enabled}), " + \
+                  f"\nfade-away: ({csr}, {guild_settings.reactions_enabled}), " + \
+                  f"\nboosting:  ({csr}, {guild_settings.reactions_enabled})"
         await respond(interaction, content, delete_after=5)
 
 class Cog_SwedishUser(GroupCog, group_name="fish"): 
@@ -857,36 +896,38 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
         if message.webhook_id is not None:
             return
         assert message.guild is not None
-        logger.debug("on_message: enter")
+        # logger.debug("on_message: enter")
         async with self.dbman.conn() as db:
             settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
-            logger.debug(f"on_message: settings: {settings}")
+            # logger.debug(f"on_message: settings: {settings}")
             #  or default_settings
             successes = await SwedishFish.gamble(db)
-            logger.debug(f"on_message: success_count: {len(successes)}")
+            # logger.debug(f"on_message: success_count: {len(successes)}")
             if settings.wallet_enabled:    
-                logger.debug(f"on_message: wallet enabled")
+                # logger.debug(f"on_message: wallet enabled")
                 # successes = await SwedishFish.gamble(db)
                 for s in successes:
                     default = SwedishFishWallet(message.author.id, message.guild.id, s.name)
                     old = await default.select(db) or default
-                    logger.debug(f"on_message: old: {old}")
+                    # logger.debug(f"on_message: old: {old}")
                     old.count += 1 
                     await old.upsert(db)
-                    logger.debug("on_message: upserted increment")
+                    # logger.debug("on_message: upserted increment")
+                await db.commit()
             if settings.reactions_enabled and message.author != self.bot.user:
-                logger.debug(f"on_message: reactions_enabled")
+                # logger.debug(f"on_message: reactions_enabled")
                 for s in successes:
                     bot_emoji = await s.get_emoji(db)
                     try:
                         emoji = await bot_emoji.fetch_discord(self.bot)
                         await message.add_reaction(emoji)
-                        logger.debug(f"on_message: added reaction: {emoji.name}")
+                        # logger.debug(f"on_message: added reaction: {emoji.name}")
                     except discord.HTTPException as e:
                         logger.error(f"Discord emoji for swedish fish {s.name} with id {s.emoji_id} could not be retrieved") 
-            await db.commit()
+                if settings.fade_reactions:
+                    await asyncio.sleep(self.REACTION_FADE_DELAY)
+                    await message.clear_reactions()
 
-        
     @GroupCog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         assert self.bot.user is not None
