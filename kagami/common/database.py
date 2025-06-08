@@ -284,9 +284,9 @@ class TableBase:
 class TableMeta(type):
     def __new__(mcs, name: str, bases: tuple[type, ...], class_dict: dict[str, Any], *args: tuple[Any, ...], 
                 table_registry: type["TableRegistry"] | None=TableRegistry,
-                schema_version: int,
-                trigger_version: int,
-                index_version: int,
+                schema_version: int=0,
+                trigger_version: int=0,
+                index_version: int=0,
                 table_group: str | EllipsisType | None=..., **kwargs: dict[str, Any]) -> type[Table]:
         cls = super().__new__(mcs, name, bases, class_dict)
         cls = cast(type["Table"], cls) 
@@ -829,6 +829,7 @@ class DatabaseManager(ManagerBase, metaclass=ManagerMeta, table_registry=TableRe
     async def setup(self, table_group: str | None=None,
                     ignore_schema_updates: bool=config.ignore_schema_updates, 
                     ignore_trigger_updates: bool=config.ignore_trigger_updates,
+                    ignore_index_updates: bool=config.ignore_index_updates,
                     drop_tables: bool=config.drop_tables, 
                     drop_triggers: bool=config.drop_triggers,
                     drop_indexes: bool=config.drop_indexes):
@@ -861,7 +862,19 @@ class DatabaseManager(ManagerBase, metaclass=ManagerMeta, table_registry=TableRe
                     message = f"Trigger Update error on group: {table_group}"
                     logger.error(message, exc_info=True)
                     await db.rollback()
-                    raise
+                    raise e
+
+            if drop_indexes:
+                await DatabaseManager.registry.drop_indexes(db, group_name=table_group)
+            elif not ignore_index_updates:
+                try:
+                    await DatabaseManager.registry.update_indexes(db, table_group)
+                except aiosqlite.Error as e: # pyright: ignore [reportUnusedVariable]
+                    message = f"Index Update error on group: {table_group}"
+                    logger.error(message, exc_info=True)
+                    await db.rollback()
+                    raise e
+
             await DatabaseManager.registry.create_tables(db, table_group)
             await DatabaseManager.registry.create_triggers(db, table_group)
             await db.commit()
