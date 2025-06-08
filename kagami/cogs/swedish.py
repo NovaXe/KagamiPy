@@ -925,63 +925,93 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
                     except discord.HTTPException as e:
                         logger.error(f"Discord emoji for swedish fish {s.name} with id {s.emoji_id} could not be retrieved") 
                 if settings.fade_reactions:
-                    await asyncio.sleep(self.REACTION_FADE_DELAY)
+                    await asyncio.sleep(REACTION_FADE_DELAY)
                     await message.clear_reactions()
 
     @GroupCog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
-        assert self.bot.user is not None
-        assert payload.guild_id is not None
+    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.Member | discord.User) -> None:
+        message = reaction.message
+        if user == message.author or user == self.bot.user or message.guild is None: return # Valid message check
+        if isinstance(reaction.emoji, str) or reaction.emoji.id is None: return # valid emoji check
 
-        channel_id = payload.channel_id
-        user_id = payload.user_id
-
-        channel = self.bot.get_channel(channel_id)
-        if channel is None: return
-        elif isinstance(channel, PrivateChannel) or isinstance(channel, CategoryChannel) or isinstance(channel, ForumChannel): return
-
-        message = await channel.fetch_message(payload.message_id)
-        if user_id == message.author.id or user_id == self.bot.user.id:
-            return
-
-        emoji = payload.emoji
-        if emoji.id is None: return
         async with self.dbman.conn() as db:
-            settings = await SwedishFishSettings.selectCurrent(db, payload.guild_id, payload.channel_id)
-            # successes = await SwedishFish.gamble(db)
+            settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
             if settings.wallet_enabled:
-                fish = await SwedishFish.selectFromID(db, emoji.id)
-                fish = SwedishFishWallet(message.author.id, payload.guild_id, fish.name, 1)
-                await fish.give(db)
+                fish = await SwedishFish.selectFromID(db, reaction.emoji.id)
+                if fish is None: return
+                new_fish = SwedishFishWallet(message.author.id, message.guild.id, fish.name, 1)
+                await new_fish.give(db)
                 await db.commit()
-
 
     @GroupCog.listener()
-    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
-        assert self.bot.user is not None
-        assert payload.guild_id is not None
+    async def on_reaction_remove(self, reaction: discord.Reaction, user: discord.Member | discord.User) -> None:
+        message = reaction.message
+        if user == message.author or user == self.bot.user or message.guild is None: return # Valid message check
+        if isinstance(reaction.emoji, str) or reaction.emoji.id is None: return # valid emoji check
 
-        channel_id = payload.channel_id
-        user_id = payload.user_id
-
-        channel = self.bot.get_channel(channel_id)
-        if channel is None: return
-        elif isinstance(channel, PrivateChannel) or isinstance(channel, CategoryChannel) or isinstance(channel, ForumChannel): return
-
-        message = await channel.fetch_message(payload.message_id)
-        if user_id == message.author.id or user_id == self.bot.user.id:
-            return
-
-        emoji = payload.emoji
-        if emoji.id is None: return
         async with self.dbman.conn() as db:
-            settings = await SwedishFishSettings.selectCurrent(db, payload.guild_id, payload.channel_id)
-            # successes = await SwedishFish.gamble(db)
+            settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
             if settings.wallet_enabled:
-                fish = await SwedishFish.selectFromID(db, emoji.id)
-                fish = SwedishFishWallet(message.author.id, payload.guild_id, fish.name, 1)
-                await fish.take(db)
+                fish = await SwedishFish.selectFromID(db, reaction.emoji.id)
+                if fish is None: return
+                new_fish = SwedishFishWallet(message.author.id, message.guild.id, fish.name, 1)
+                await new_fish.take(db)
                 await db.commit()
+
+    # @GroupCog.listener()
+    # async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+    #     assert self.bot.user is not None
+    #     assert payload.guild_id is not None
+
+    #     channel_id = payload.channel_id
+    #     user_id = payload.user_id
+
+    #     channel = self.bot.get_channel(channel_id)
+    #     if channel is None: return
+    #     elif isinstance(channel, PrivateChannel) or isinstance(channel, CategoryChannel) or isinstance(channel, ForumChannel): return
+
+    #     message = await channel.fetch_message(payload.message_id)
+    #     if user_id == message.author.id or user_id == self.bot.user.id:
+    #         return
+
+    #     emoji = payload.emoji
+    #     if emoji.id is None: return
+    #     async with self.dbman.conn() as db:
+    #         settings = await SwedishFishSettings.selectCurrent(db, payload.guild_id, payload.channel_id)
+    #         # successes = await SwedishFish.gamble(db)
+    #         if settings.wallet_enabled:
+    #             fish = await SwedishFish.selectFromID(db, emoji.id)
+    #             fish = SwedishFishWallet(message.author.id, payload.guild_id, fish.name, 1)
+    #             await fish.give(db)
+    #             await db.commit()
+
+
+    # @GroupCog.listener()
+    # async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
+    #     assert self.bot.user is not None
+    #     assert payload.guild_id is not None
+
+    #     channel_id = payload.channel_id
+    #     user_id = payload.user_id
+
+    #     channel = self.bot.get_channel(channel_id)
+    #     if channel is None: return
+    #     elif isinstance(channel, PrivateChannel) or isinstance(channel, CategoryChannel) or isinstance(channel, ForumChannel): return
+
+    #     message = await channel.fetch_message(payload.message_id)
+    #     if user_id == message.author.id or user_id == self.bot.user.id:
+    #         return
+
+    #     emoji = payload.emoji
+    #     if emoji.id is None: return
+    #     async with self.dbman.conn() as db:
+    #         settings = await SwedishFishSettings.selectCurrent(db, payload.guild_id, payload.channel_id)
+    #         # successes = await SwedishFish.gamble(db)
+    #         if settings.wallet_enabled:
+    #             fish = await SwedishFish.selectFromID(db, emoji.id)
+    #             fish = SwedishFishWallet(message.author.id, payload.guild_id, fish.name, 1)
+    #             await fish.take(db)
+    #             await db.commit()
 
     @app_commands.command(name="give", description="Give fish to another user")
     async def give(self, interaction: Interaction, user: discord.Member, fish: Transform[SwedishFishWallet | None, Transformer_UserFish], quantity: Transform[int, Transformer_UserFishCount]) -> None:
