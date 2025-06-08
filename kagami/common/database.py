@@ -520,9 +520,10 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
         # """
         pragma_indexes = f"PRAGMA index_list('{cls.__tablename__}')"
         db.row_factory = None
-        index_names = await db.execute_fetchall(pragma_indexes)
-        for index in index_names:
-            name, _, origin, _ = index[:4]
+        indexes = await db.execute_fetchall(pragma_indexes)
+        cls._debug_log(f"drop_indexes: {indexes=}")
+        for index in indexes:
+            _, name, _, origin = index[:4]
             if origin == "c":
                 await db.execute(f"DROP INDEX IF EXISTS {name}")
 
