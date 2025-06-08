@@ -37,7 +37,7 @@ type Interaction = discord.Interaction[Kagami]
 FISH_PREFIX = "sf"
 
 @dataclass
-class SwedishFishSettings(Table, schema_version=2, trigger_version=1):
+class SwedishFishSettings(Table, schema_version=2, trigger_version=1, index_version=1):
     guild_id: int
     channel_id: int
     wallet_enabled: bool=True
@@ -59,6 +59,27 @@ class SwedishFishSettings(Table, schema_version=2, trigger_version=1):
             FOREIGN KEY (guild_id) REFERENCES {Guild}(id)
                 ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
         )
+        """
+        await db.execute(query)
+
+    @classmethod
+    async def insert_from_temp(cls, db: aiosqlite.Connection):
+        # Needed for adding the new fields
+        if cls.__schema_version__ < 2:
+            query = f"""
+            INSERT INTO {SwedishFishSettings} (guild_id, channel_id, wallet_enabled, reactions_enabled)
+            SELECT guild_id, channel_id, wallet_enabled, reactions_enabled
+            FROM temp_{SwedishFishSettings}
+            """
+            await db.execute(query)
+
+    @classmethod
+    @override 
+    async def create_indexes(cls, db: Connection) -> None:
+        query = f"""
+        CREATE UNIQUE INDEX IF NOT EXISTS unique_guild_id
+        ON {SwedishFishSettings}(guild_id)
+        WHERE channel_id = 0
         """
         await db.execute(query)
 
