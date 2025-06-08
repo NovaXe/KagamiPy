@@ -69,6 +69,5 @@ ignore_index_updates = get("IGNORE_INDEX_UPDATES", bool, False)
 drop_tables = get("DROP_TABLES", bool, False)
 drop_triggers = get("DROP_TRIGGERS", bool, False)
 drop_indexes = get("DROP_INDEXES", bool, False)
-excluded_cogs = get("EXCLUDED_COGS", list, list())
-
+excluded_cogs = get("EXCLUDED_COGS", list, list()) # ['<cog_name>', '<cog_name>']
 
