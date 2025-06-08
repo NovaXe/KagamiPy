@@ -830,7 +830,8 @@ class DatabaseManager(ManagerBase, metaclass=ManagerMeta, table_registry=TableRe
                     ignore_schema_updates: bool=config.ignore_schema_updates, 
                     ignore_trigger_updates: bool=config.ignore_trigger_updates,
                     drop_tables: bool=config.drop_tables, 
-                    drop_triggers: bool=config.drop_triggers):
+                    drop_triggers: bool=config.drop_triggers,
+                    drop_indexes: bool=config.drop_indexes):
         if not DatabaseManager.registry:
             return
         async with self.conn() as db:

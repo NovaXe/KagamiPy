@@ -67,6 +67,7 @@ ignore_trigger_updates = get("IGNORE_TRIGGER_UPDATES", bool, False)
 
 drop_tables = get("DROP_TABLES", bool, False)
 drop_triggers = get("DROP_TRIGGERS", bool, False)
+drop_indexes = get("DROP_INDEXES", bool, False)
 excluded_cogs = get("EXCLUDED_COGS", list, list())
 
 
