@@ -514,15 +514,17 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
 
     @classmethod
     async def drop_indexes(cls, db: aiosqlite.Connection):
-        query = f"""
-        SELECT name FROM sqlite_master
-        WHERE type = 'index' AND tbl_name = '{cls.__tablename__}'
-        """
+        # query = f"""
+        # SELECT name FROM sqlite_master
+        # WHERE type = 'index' AND tbl_name = '{cls.__tablename__}'
+        # """
+        pragma_indexes = f"PRAGMA index_list('{cls.__tablename__}')"
         db.row_factory = None
-        index_names = await db.execute_fetchall(query)
-        for name in index_names:
-            name = name[0]
-            await db.execute(f"DROP INDEX IF EXISTS {name}")
+        index_names = await db.execute_fetchall(pragma_indexes)
+        for index in index_names:
+            name, _, origin, _ = index[:4]
+            if origin == "c":
+                await db.execute(f"DROP INDEX IF EXISTS {name}")
 
     def asdict(self): return asdict(self)
 
@@ -588,18 +590,28 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
 
 
 @dataclass
-class TableMetadata(Table, schema_version=1, trigger_version=1):
+class TableMetadata(Table, schema_version=2, trigger_version=1):
     table_name: str
     schema_version: int=-1
     trigger_version: int=-1
+    index_version: int=-1
     
     @classmethod
     def from_table(cls, table: type["Table"]) -> "TableMetadata":
         return cls(
             table_name=table.__tablename__, 
             schema_version=table.__schema_version__, 
-            trigger_version=table.__schema_version__
+            trigger_version=table.__schema_version__,
+            index_version=table.__index_version__
             )
+
+    @classmethod
+    async def insert_from_temp(cls, db: aiosqlite.Connection):
+        query = f"""
+        INSERT INTO {TableMetadata} (table_name, schema_version, trigger_version)
+        SELECT table_name, schema_version, trigger_version FROM temp_{TableMetadata}
+        """
+        await db.execute(query)
 
     @classmethod
     @override
@@ -609,6 +621,7 @@ class TableMetadata(Table, schema_version=1, trigger_version=1):
             table_name TEXT,
             schema_version INTEGER,
             trigger_version INTEGER,
+            index_version INTEGER,
             PRIMARY KEY (table_name)
         )
         """
@@ -617,16 +630,16 @@ class TableMetadata(Table, schema_version=1, trigger_version=1):
     @override
     async def insert(self, db: aiosqlite.Connection):
         query = f"""
-        INSERT INTO {TableMetadata}(table_name, schema_version, trigger_version)
-        VALUES (:table_name, :schema_version, :trigger_version)
+        INSERT OR INGORE INTO {TableMetadata}(table_name, schema_version, trigger_version, index_version)
+        VALUES (:table_name, :schema_version, :trigger_version, :index_version)
         """
         await db.execute(query, self.asdict())
 
     @override
     async def upsert(self, db: aiosqlite.Connection) -> TableMetadata | None:
         query = f"""
-        INSERT INTO {TableMetadata}(table_name, schema_version, trigger_version)
-        VALUES(:table_name, :schema_version, :trigger_version)
+        INSERT INTO {TableMetadata}(table_name, schema_version, trigger_version, index_version)
+        VALUES (:table_name, :schema_version, :trigger_version, :index_version)
         ON CONFLICT(table_name) 
         DO UPDATE SET schema_version = :schema_version, trigger_version = :trigger_version
         returning *
@@ -649,6 +662,7 @@ class TableMetadata(Table, schema_version=1, trigger_version=1):
 
     @classmethod
     async def selectSchemaVersion(cls, db: aiosqlite.Connection, table_name: str) -> int:
+        """Currently unused and likely to be deprecated in favor of fetching all the data at once"""
         query = f"""
         SELECT schema_version FROM {TableMetadata}
         WHERE table_name = ?
