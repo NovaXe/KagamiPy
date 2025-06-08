@@ -64,9 +64,10 @@ lavalink_password = get("LAVALINK_PASSWORD", str)
 
 ignore_schema_updates = get("IGNORE_SCHEMA_UPDATES", bool, False)
 ignore_trigger_updates = get("IGNORE_TRIGGER_UPDATES", bool, False)
+ignore_index_updates = get("IGNORE_INDEX_UPDATES", bool, False)
 
 drop_tables = get("DROP_TABLES", bool, False)
 drop_triggers = get("DROP_TRIGGERS", bool, False)
-excluded_cogs = get("EXCLUDED_COGS", list, list())
-
+drop_indexes = get("DROP_INDEXES", bool, False)
+excluded_cogs = get("EXCLUDED_COGS", list, list()) # ['<cog_name>', '<cog_name>']
 
