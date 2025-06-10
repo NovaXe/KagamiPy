@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import random
 import math
 import sys
+from datetime import datetime, timedelta
 
 import aiosqlite
 from aiosqlite import Connection
@@ -33,8 +34,6 @@ from common.utils import acstr
 logger = setup_logging(__name__)
 
 type Interaction = discord.Interaction[Kagami]
-
-FISH_PREFIX = "sf"
 
 @dataclass
 class SwedishFishSettings(Table, schema_version=2, trigger_version=1, index_version=1):
@@ -256,7 +255,7 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
         return res
 
     @classmethod
-    async def gamble(cls, db: Connection) -> list[SwedishFish]:
+    async def gamble(cls, db: Connection, rarity_weight: int=0) -> list[SwedishFish]:
         query = f"""
         SELECT * FROM {SwedishFish}
         """
@@ -265,6 +264,7 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
         out: list[SwedishFish] = []
         async with db.execute(query) as cur:
             async for fish in cur:
+                fish.rarity += rarity_weight
                 out.append(fish) if fish.roll() else ...
         return out
 
@@ -697,7 +697,7 @@ class Transformer_UserFishCount[Kagami](Transformer):
 
 
 VALID_FILE_TYPES = ("png", "jpg", "jpeg", "webp")
-
+FISH_PREFIX = "sf"
 @app_commands.guilds(discord.Object(config.admin_guild_id))
 class Cog_SwedishDev(GroupCog, group_name="sf"):
     def __init__(self, bot: Kagami):
@@ -794,7 +794,7 @@ class Cog_SwedishDev(GroupCog, group_name="sf"):
             out.append(f"{emoji} - {fish.name} - {fish.rarity}")
         await respond(interaction, "\n".join(out))
 
-REACTION_FADE_DELAY: int = 15
+REACTION_FADE_DELAY: int = 15 # seconds until the reactions fade away
 @app_commands.default_permissions(manage_expressions=True)
 class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
     def __init__(self, bot: Kagami):
@@ -907,10 +907,82 @@ class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
                   f"\nboosting:  ({csr}, {guild_settings.reactions_enabled})"
         await respond(interaction, content, delete_after=5)
 
+class RecentOnly[T]:
+    def __init__(self, window: timedelta) -> None:
+        self._entries: list[tuple[datetime, T]]
+        self._window: timedelta = window
+
+    @property
+    def entries(self) -> list[tuple[datetime, T]]:
+        _ = self.pop_old()
+        return self._entries
+
+    @property
+    def items(self) -> list[T]:
+        _ = self.pop_old()
+        return [item for _, item in self._entries]
+
+    @property
+    def count(self) -> int:
+        _ = self.pop_old()
+        return len(self._entries)
+
+    def append(self, item: T) -> None:
+        _ = self.pop_old()
+        now = datetime.now()
+        temp = (now, item)
+        self._entries.append(temp)
+
+    def pop_old(self) -> list[tuple[datetime, T]]:
+        """Item and time"""
+        now = datetime.now()
+        total = len(self._entries)
+        for i in range(1, total+1):
+            time, _ = self._entries[total-i]
+            if now - time > self._window:
+                old = self._entries[:total-i+1]
+                self._entries = self._entries[total-i+1:]
+                return old
+        return []
+
+    # def pop_old_items(self) -> list[T]:
+    #     """Item only, no time"""
+    #     now = datetime.now()
+    #     total = len(self._entries)
+    #     for i in range(1, total+1):
+    #         time, _ = self._entries[total-i]
+    #         if now - time > self._window:
+    #             old = self._entries[:total-i+1]
+    #             self._entries = self._entries[total-i+1:]
+    #             return [item for _, item in old]
+    #     return []
+
+recent_messages: dict[int, RecentOnly[discord.Message]] = {}
+def add_recent_message(message: discord.Message) -> RecentOnly[discord.Message]:
+    recents = recent_messages.get(message.author.id, None)
+    if recents is None:
+        recents = RecentOnly[discord.Message](timedelta(seconds=REACTION_FADE_DELAY))
+    recents.append(message)
+    return recents
+
+def recent_message_count(author: discord.User | discord.Member) -> int:
+    recents = recent_messages.get(author.id, None)
+    if recents is None:
+        recents = RecentOnly[discord.Message](timedelta(seconds=REACTION_FADE_DELAY))
+    # _ = recents.pop_old()
+    return recents.count
+
+
+RECENT_MESSAGE_THRESHOLD = 4
 class Cog_SwedishUser(GroupCog, group_name="fish"): 
     def __init__(self, bot: Kagami):
         self.bot = bot
         self.dbman = bot.dbman
+
+    # def count_recent_messages(self, message: discord.Message) -> int:
+    #     now = datetime.now()
+    #     oldest = now - timedelta(seconds=REACTION_FADE_DELAY)
+    #     messages = discord.utils.get(self.bot.cached_messages, author=message.author, )
 
     @GroupCog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -922,7 +994,13 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
             settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
             # logger.debug(f"on_message: settings: {settings}")
             #  or default_settings
-            successes = await SwedishFish.gamble(db)
+            recents = add_recent_message(message)
+            if recents.count > RECENT_MESSAGE_THRESHOLD:
+                weight = recents.count - RECENT_MESSAGE_THRESHOLD
+            else:
+                weight = 0
+            successes = await SwedishFish.gamble(db, weight)
+            
             # logger.debug(f"on_message: success_count: {len(successes)}")
             if settings.wallet_enabled:    
                 # logger.debug(f"on_message: wallet enabled")
