@@ -34,9 +34,9 @@ from common.utils import acstr
 logger = setup_logging(__name__)
 
 type Interaction = discord.Interaction[Kagami]
-FISHING_WINDOW_DEFAULT = 15
+FISHING_WINDOW_DEFAULT = 30
 RECENT_MESSAGE_THRESHOLD_DEFAULT = 1
-REACTION_FADE_DELAY_DEFAULT = 60
+REACTION_FADE_DELAY_DEFAULT = 30
 
 # Module Constant importing
 FISHING_WINDOW: int = config.get("SWEDISH_FISHING_WINDOW_SECONDS", int, FISHING_WINDOW_DEFAULT)
@@ -1013,17 +1013,6 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
             successes = await SwedishFish.gamble(db, weight)
             
             # logger.debug(f"on_message: success_count: {len(successes)}")
-            if settings.wallet_enabled:    
-                # logger.debug(f"on_message: wallet enabled")
-                # successes = await SwedishFish.gamble(db)
-                for s in successes:
-                    default = SwedishFishWallet(message.author.id, message.guild.id, s.name)
-                    old = await default.select(db) or default
-                    # logger.debug(f"on_message: old: {old}")
-                    old.count += 1 
-                    await old.upsert(db)
-                    # logger.debug("on_message: upserted increment")
-                await db.commit()
             if settings.reactions_enabled and message.author != self.bot.user:
                 # logger.debug(f"on_message: reactions_enabled")
                 for s in successes:
@@ -1037,36 +1026,58 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
                 if settings.fade_reactions:
                     await asyncio.sleep(REACTION_FADE_DELAY)
                     await message.clear_reactions()
+                    if (delta:= FISHING_WINDOW - REACTION_FADE_DELAY) > 0:
+                        await asyncio.sleep(delta)
 
-    @GroupCog.listener()
-    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.Member | discord.User) -> None:
-        message = reaction.message
-        if user == message.author or user == self.bot.user or message.guild is None: return # Valid message check
-        if isinstance(reaction.emoji, str) or reaction.emoji.id is None: return # valid emoji check
-
-        async with self.dbman.conn() as db:
-            settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
-            if settings.wallet_enabled:
-                fish = await SwedishFish.selectFromID(db, reaction.emoji.id)
-                if fish is None: return
-                new_fish = SwedishFishWallet(message.author.id, message.guild.id, fish.name, 1)
-                await new_fish.give(db)
+            if settings.wallet_enabled: # Wallet tallied after the window has elapsed
+                # logger.debug(f"on_message: wallet enabled")
+                for s in successes:
+                    default = SwedishFishWallet(message.author.id, message.guild.id, s.name)
+                    old = await default.select(db) or default
+                    # logger.debug(f"on_message: old: {old}")
+                    old.count += 1 
+                    if settings.reactions_enabled and settings.reaction_boosting:
+                        # reaction = discord.utils.find(lambda r: not isinstance(r.emoji, str) and r.emoji.id == s.emoji_id, message.reactions)
+                        reaction = next((reaction for reaction in message.reactions if not isinstance(reaction.emoji, str) and reaction.emoji.id == s.emoji_id), None)
+                        if reaction:
+                            async for user in reaction.users():
+                                if user != message.author:
+                                    old.count += 1
+                    await old.upsert(db)
+                    # logger.debug("on_message: upserted increment")
                 await db.commit()
 
-    @GroupCog.listener()
-    async def on_reaction_remove(self, reaction: discord.Reaction, user: discord.Member | discord.User) -> None:
-        message = reaction.message
-        if user == message.author or user == self.bot.user or message.guild is None: return # Valid message check
-        if isinstance(reaction.emoji, str) or reaction.emoji.id is None: return # valid emoji check
 
-        async with self.dbman.conn() as db:
-            settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
-            if settings.wallet_enabled:
-                fish = await SwedishFish.selectFromID(db, reaction.emoji.id)
-                if fish is None: return
-                new_fish = SwedishFishWallet(message.author.id, message.guild.id, fish.name, 1)
-                await new_fish.take(db)
-                await db.commit()
+
+    # @GroupCog.listener()
+    # async def on_reaction_add(self, reaction: discord.Reaction, user: discord.Member | discord.User) -> None:
+    #     message = reaction.message
+    #     if user == message.author or user == self.bot.user or message.guild is None: return # Valid message check
+    #     if isinstance(reaction.emoji, str) or reaction.emoji.id is None: return # valid emoji check
+
+    #     async with self.dbman.conn() as db:
+    #         settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
+    #         if settings.wallet_enabled:
+    #             fish = await SwedishFish.selectFromID(db, reaction.emoji.id)
+    #             if fish is None: return
+    #             new_fish = SwedishFishWallet(message.author.id, message.guild.id, fish.name, 1)
+    #             await new_fish.give(db)
+    #             await db.commit()
+
+    # @GroupCog.listener()
+    # async def on_reaction_remove(self, reaction: discord.Reaction, user: discord.Member | discord.User) -> None:
+    #     message = reaction.message
+    #     if user == message.author or user == self.bot.user or message.guild is None: return # Valid message check
+    #     if isinstance(reaction.emoji, str) or reaction.emoji.id is None: return # valid emoji check
+
+    #     async with self.dbman.conn() as db:
+    #         settings = await SwedishFishSettings.selectCurrent(db, message.guild.id, message.channel.id)
+    #         if settings.wallet_enabled:
+    #             fish = await SwedishFish.selectFromID(db, reaction.emoji.id)
+    #             if fish is None: return
+    #             new_fish = SwedishFishWallet(message.author.id, message.guild.id, fish.name, 1)
+    #             await new_fish.take(db)
+    #             await db.commit()
 
     # @GroupCog.listener()
     # async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
