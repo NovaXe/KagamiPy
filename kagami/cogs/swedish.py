@@ -34,6 +34,20 @@ from common.utils import acstr
 logger = setup_logging(__name__)
 
 type Interaction = discord.Interaction[Kagami]
+FISHING_WINDOW_DEFAULT = 15
+RECENT_MESSAGE_THRESHOLD_DEFAULT = 1
+REACTION_FADE_DELAY_DEFAULT = 60
+
+# Module Constant importing
+FISHING_WINDOW: int = config.get("SWEDISH_FISHING_WINDOW_SECONDS", int, FISHING_WINDOW_DEFAULT)
+RECENT_MESSAGE_THRESHOLD: int = config.get("SWEDISH_FISHING_WINDOW_MESSAGE_THRESHOLD", int, RECENT_MESSAGE_THRESHOLD_DEFAULT)
+REACTION_FADE_DELAY: int = config.get("SWEDISH_REACTION_FADE_SECONDS", int, REACTION_FADE_DELAY_DEFAULT) # seconds until the reactions fade away
+f"""
+Environment Variables:
+    SWEDISH_FISHING_WINDOW_SECONDS (default={FISHING_WINDOW_DEFAULT}) - The interval that your most recent messages are considered for reduced odds when fishing
+    SWEDISH_FISHING_WINDOW_MESSAGE_THRESHOLD (default={RECENT_MESSAGE_THRESHOLD_DEFAULT}) - The maximum number of messages you can send within the window before reduced odds take affect
+    SWEDISH_REACTION_FADE_SECONDS (default={REACTION_FADE_DELAY_DEFAULT}) - The number of seconds until fish reactions disapear from messages
+"""
 
 @dataclass
 class SwedishFishSettings(Table, schema_version=2, trigger_version=1, index_version=1):
@@ -794,7 +808,6 @@ class Cog_SwedishDev(GroupCog, group_name="sf"):
             out.append(f"{emoji} - {fish.name} - {fish.rarity}")
         await respond(interaction, "\n".join(out))
 
-REACTION_FADE_DELAY: int = 15 # seconds until the reactions fade away
 @app_commands.default_permissions(manage_expressions=True)
 class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
     def __init__(self, bot: Kagami):
@@ -956,24 +969,22 @@ class RecentOnly[T]:
     #             self._entries = self._entries[total-i+1:]
     #             return [item for _, item in old]
     #     return []
-
 recent_messages: dict[int, RecentOnly[discord.Message]] = {}
 def add_recent_message(message: discord.Message) -> RecentOnly[discord.Message]:
     recents = recent_messages.get(message.author.id, None)
     if recents is None:
-        recents = RecentOnly[discord.Message](timedelta(seconds=REACTION_FADE_DELAY))
+        recents = RecentOnly[discord.Message](timedelta(seconds=FISHING_WINDOW))
     recents.append(message)
     return recents
 
 def recent_message_count(author: discord.User | discord.Member) -> int:
     recents = recent_messages.get(author.id, None)
     if recents is None:
-        recents = RecentOnly[discord.Message](timedelta(seconds=REACTION_FADE_DELAY))
+        recents = RecentOnly[discord.Message](timedelta(seconds=FISHING_WINDOW))
     # _ = recents.pop_old()
     return recents.count
 
 
-RECENT_MESSAGE_THRESHOLD = 4
 class Cog_SwedishUser(GroupCog, group_name="fish"): 
     def __init__(self, bot: Kagami):
         self.bot = bot
