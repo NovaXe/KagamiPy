@@ -279,6 +279,7 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
         async with db.execute(query) as cur:
             async for fish in cur:
                 fish.rarity += rarity_weight
+                logger.debug(f"gamble: {fish.name=}, {fish.rarity=}")
                 out.append(fish) if fish.roll() else ...
         return out
 
@@ -922,7 +923,7 @@ class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
 
 class RecentOnly[T]:
     def __init__(self, window: timedelta) -> None:
-        self._entries: list[tuple[datetime, T]]
+        self._entries: list[tuple[datetime, T]] = []
         self._window: timedelta = window
 
     @property
@@ -953,6 +954,7 @@ class RecentOnly[T]:
         for i in range(1, total+1):
             time, _ = self._entries[total-i]
             if now - time > self._window:
+                logger.debug(f"pop_old: found old, age={now-time}")
                 old = self._entries[:total-i+1]
                 self._entries = self._entries[total-i+1:]
                 return old
@@ -971,10 +973,16 @@ class RecentOnly[T]:
     #     return []
 recent_messages: dict[int, RecentOnly[discord.Message]] = {}
 def add_recent_message(message: discord.Message) -> RecentOnly[discord.Message]:
+    logger.debug(f"add_recent_message: {message.author.name=}")
     recents = recent_messages.get(message.author.id, None)
     if recents is None:
+        logger.debug(f"add_recent_message: recents was None")
         recents = RecentOnly[discord.Message](timedelta(seconds=FISHING_WINDOW))
+        logger.debug(f"add_recent_message: created new instance")
+        recent_messages[message.author.id] = recents
+        logger.debug(f"add_recent_message: updated reference")
     recents.append(message)
+    logger.debug(f"add_recent_message: appended message")
     return recents
 
 def recent_message_count(author: discord.User | discord.Member) -> int:
@@ -1008,6 +1016,7 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
             recents = add_recent_message(message)
             if recents.count > RECENT_MESSAGE_THRESHOLD:
                 weight = recents.count - RECENT_MESSAGE_THRESHOLD
+                logger.debug(f"on_message: over threshold, {weight=}")
             else:
                 weight = 0
             successes = await SwedishFish.gamble(db, weight)
@@ -1046,7 +1055,6 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
                     await old.upsert(db)
                     # logger.debug("on_message: upserted increment")
                 await db.commit()
-
 
 
     # @GroupCog.listener()
