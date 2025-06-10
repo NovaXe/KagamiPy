@@ -78,7 +78,7 @@ class SwedishFishSettings(Table, schema_version=2, trigger_version=1, index_vers
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
         # Needed for adding the new fields
-        if cls.__schema_version__ < 2:
+        if cls.__schema_version__ == 2:
             query = f"""
             INSERT INTO {SwedishFishSettings} (guild_id, channel_id, wallet_enabled, reactions_enabled)
             SELECT guild_id, channel_id, wallet_enabled, reactions_enabled
