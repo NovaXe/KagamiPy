@@ -21,7 +21,7 @@ from typing import Any, Annotated, Callable, ClassVar, Protocol, Generic, cast, 
 logger = setup_logging(__name__)
 sqlite3.enable_callback_tracebacks(True)
 
-log_sql_statements = True
+log_sql_statements = config.get("LOG_SQL_STATEMENTS", int, False)
 
 """
 Gives some classes and methods for interfacing with an sqlite database in a standard way across cogs
