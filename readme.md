@@ -2,7 +2,7 @@
 A discord bot made for use on small personal servers \
 Probably has a lot of bugs that make it undesirable for large servers but has some fun features
 ## Hosting
-Current Version: 0.8.0
+Current Version: 0.8.1
 ### Local Hosting
 - Lavalink Version [4.1.1](https://github.com/lavalink-devs/Lavalink/releases/tag/4.1.1)
   - The included [application config](./lavalink/application.yml) should suffice
