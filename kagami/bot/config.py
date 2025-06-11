@@ -5,12 +5,14 @@ import json
 
 from common.logging import setup_logging
 logger = setup_logging(__name__)
+env = os.environ
 
 def get[T: (bool, int, float, str, list[Any], dict[Any, Any])](var_name: str, var_type: type[T]=str, default: T | None=None) -> T:
     """
     Type generic way of accessing a specific environment variable
     Still requires variables be hardcoded but accounts for them possibly being missing
     """
+    load_dotenv()
     var: str | None = env.get(var_name, None)
     if var is None:
         if default is None:
@@ -46,8 +48,6 @@ def get[T: (bool, int, float, str, list[Any], dict[Any, Any])](var_name: str, va
     # assert isinstance(val, var_type)
     return val # Not sure how to make my generics work to get this val to not be an error in the typechecker
 
-load_dotenv()
-env = os.environ
 
 token = get("BOT_TOKEN", str)
 prefix = get("COMMAND_PREFIX", str, default="->")
