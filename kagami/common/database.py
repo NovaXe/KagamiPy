@@ -21,7 +21,7 @@ from typing import Any, Annotated, Callable, ClassVar, Protocol, Generic, cast, 
 logger = setup_logging(__name__)
 sqlite3.enable_callback_tracebacks(True)
 
-log_sql_statements = True
+log_sql_statements = config.get("LOG_SQL_STATEMENTS", int, False)
 
 """
 Gives some classes and methods for interfacing with an sqlite database in a standard way across cogs
@@ -178,10 +178,12 @@ class TableRegistry:
     async def update_schemas(cls, db: aiosqlite.Connection, group_name: str | None=None):
         cls._debug_log(f"Updating schemas for group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
+            cls._debug_log(f"update_schemas: Table: {tablename}")
             if not await tableclass._exists(db):
                 cls._debug_log(f"Skipping schema update for missing table: {tablename}")
                 continue
             metadata = await TableMetadata.selectData(db, table_name=tablename)
+            cls._debug_log(f"update_schemas: {metadata=}")
             if not metadata:
                 metadata = TableMetadata(tablename)
             # current_version = await TableMetadata.selectVersion(db, tablename)
@@ -191,6 +193,8 @@ class TableRegistry:
                 await tableclass.update_schema(db)
                 cls._debug_log(f"Updated schema for Table: {tablename}")
                 metadata.schema_version = tableclass.__schema_version__
+                if tablename == TableMetadata.__tablename__:
+                    metadata = await TableMetadata.selectData(db, table_name=tablename) or TableMetadata(tablename)
                 await metadata.upsert(db)
                 cls._debug_log(f"Updated schema version for Table: {tablename}")
             else:
@@ -201,10 +205,12 @@ class TableRegistry:
     async def update_triggers(cls, db: aiosqlite.Connection, group_name: str | None=None):
         cls._debug_log(f"Updating triggers for group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
+            cls._debug_log(f"update_triggers: Table: {tablename}")
             if not await tableclass._exists(db):
                 cls._debug_log(f"Skipping trigger update for missing table: {tablename}")
                 continue
             metadata = await TableMetadata.selectData(db, table_name=tablename)
+            cls._debug_log(f"update_triggers: {metadata=}")
             if not metadata:
                 metadata = TableMetadata(tablename)
             
@@ -223,10 +229,12 @@ class TableRegistry:
     async def update_indexes(cls, db: aiosqlite.Connection, group_name: str | None=None):
         cls._debug_log(f"Updating indexes for group: {group_name}")
         for tablename, tableclass in cls.tableiter(group_name):
+            cls._debug_log(f"update_indexes: Table: {tablename}")
             if not await tableclass._exists(db):
                 cls._debug_log(f"Skipping index update for missing table: {tablename}")
                 continue
             metadata = await TableMetadata.selectData(db, table_name=tablename)
+            cls._debug_log(f"update_indexes: {metadata=}")
             if not metadata:
                 metadata = TableMetadata(tablename)
             
@@ -520,9 +528,10 @@ class Table(TableBase, metaclass=TableMeta, schema_version=0, trigger_version=0,
         # """
         pragma_indexes = f"PRAGMA index_list('{cls.__tablename__}')"
         db.row_factory = None
-        index_names = await db.execute_fetchall(pragma_indexes)
-        for index in index_names:
-            name, _, origin, _ = index[:4]
+        indexes = await db.execute_fetchall(pragma_indexes)
+        cls._debug_log(f"drop_indexes: {indexes=}")
+        for index in indexes:
+            _, name, _, origin = index[:4]
             if origin == "c":
                 await db.execute(f"DROP INDEX IF EXISTS {name}")
 
@@ -608,8 +617,8 @@ class TableMetadata(Table, schema_version=2, trigger_version=1):
     @classmethod
     async def insert_from_temp(cls, db: aiosqlite.Connection):
         query = f"""
-        INSERT INTO {TableMetadata} (table_name, schema_version, trigger_version)
-        SELECT table_name, schema_version, trigger_version FROM temp_{TableMetadata}
+        INSERT INTO {TableMetadata} (table_name, schema_version, trigger_version, index_version)
+        SELECT table_name, schema_version, trigger_version, -1 FROM temp_{TableMetadata}
         """
         await db.execute(query)
 
@@ -641,7 +650,7 @@ class TableMetadata(Table, schema_version=2, trigger_version=1):
         INSERT INTO {TableMetadata}(table_name, schema_version, trigger_version, index_version)
         VALUES (:table_name, :schema_version, :trigger_version, :index_version)
         ON CONFLICT(table_name) 
-        DO UPDATE SET schema_version = :schema_version, trigger_version = :trigger_version
+        DO UPDATE SET schema_version = :schema_version, trigger_version = :trigger_version, index_version = :index_version
         returning *
         """
         db.row_factory = TableMetadata.row_factory # pyright: ignore [reportAttributeAccessIssue]
@@ -865,7 +874,7 @@ class DatabaseManager(ManagerBase, metaclass=ManagerMeta, table_registry=TableRe
                 except aiosqlite.Error as e: # pyright: ignore [reportUnusedVariable]
                     logger.error(f"Table Update error on group {table_group}", exc_info=True)
                     await db.rollback()
-                    raise
+                    raise e
 
             if drop_triggers:
                 await DatabaseManager.registry.drop_triggers(db, group_name=table_group)
