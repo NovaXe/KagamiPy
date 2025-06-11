@@ -1041,7 +1041,6 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
                         for s in successes:
                             partial_emoji = s.to_partial_emoji()
                             await message.clear_reaction(partial_emoji)
-                        await message.clear_reactions()
                     except discord.Forbidden as e:
                         pass
                     if (delta:= FISHING_WINDOW - REACTION_FADE_DELAY) > 0:
