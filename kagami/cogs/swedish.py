@@ -922,7 +922,7 @@ class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
                   f"\nreactions: ({csr}, {guild_settings.reactions_enabled}), " + \
                   f"\nfade-away: ({csr}, {guild_settings.reactions_enabled}), " + \
                   f"\nboosting:  ({csr}, {guild_settings.reactions_enabled})"
-        await respond(interaction, content, delete_after=5)
+        await respond(interaction, content, delete_after=10)
 
 class RecentOnly[T]:
     def __init__(self, window: timedelta) -> None:
