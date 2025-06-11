@@ -121,8 +121,8 @@ class SwedishFishSettings(Table, schema_version=2, trigger_version=1, index_vers
         ON CONFLICT (guild_id, channel_id)
         DO UPDATE SET 
             wallet_enabled = :wallet_enabled, 
-            reactions_enabled = :reactions_enabled
-            fade_reactions = :fade_reactions
+            reactions_enabled = :reactions_enabled,
+            fade_reactions = :fade_reactions,
             reaction_boosting = :reaction_boosting
         """
         await db.execute(query, self.asdict())
@@ -180,6 +180,9 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
     name: str
     emoji_id: int
     rarity: int=0
+
+    def to_partial_emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji.from_str(f"{FISH_PREFIX}_{self.name}:{self.emoji_id}")
 
     def probability(self) -> float:
         return prob_quad(self.rarity)
@@ -279,7 +282,7 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
         async with db.execute(query) as cur:
             async for fish in cur:
                 fish.rarity += rarity_weight
-                logger.debug(f"gamble: {fish.name=}, {fish.rarity=}")
+                # logger.debug(f"gamble: {fish.name=}, {fish.rarity=}")
                 out.append(fish) if fish.roll() else ...
         return out
 
@@ -870,7 +873,7 @@ class Cog_SwedishGuildAdmin(GroupCog, group_name="fish-admin"):
         await respond(interaction, r, ephemeral=True, delete_after=5)
 
     @app_commands.command(name="toggle-boosting", description="toggles boosting the fish another user gains by reacting to their fish")
-    async def toggle_fadeaway(self, interaction: Interaction, channel_only: bool=False) -> None:
+    async def toggle_boosting(self, interaction: Interaction, channel_only: bool=False) -> None:
         await respond(interaction, ephemeral=True)
         assert interaction.guild is not None
         assert interaction.channel is not None
@@ -954,7 +957,7 @@ class RecentOnly[T]:
         for i in range(1, total+1):
             time, _ = self._entries[total-i]
             if now - time > self._window:
-                logger.debug(f"pop_old: found old, age={now-time}")
+                # logger.debug(f"pop_old: found old, age={now-time}")
                 old = self._entries[:total-i+1]
                 self._entries = self._entries[total-i+1:]
                 return old
@@ -973,16 +976,16 @@ class RecentOnly[T]:
     #     return []
 recent_messages: dict[int, RecentOnly[discord.Message]] = {}
 def add_recent_message(message: discord.Message) -> RecentOnly[discord.Message]:
-    logger.debug(f"add_recent_message: {message.author.name=}")
+    # logger.debug(f"add_recent_message: {message.author.name=}")
     recents = recent_messages.get(message.author.id, None)
     if recents is None:
-        logger.debug(f"add_recent_message: recents was None")
+        # logger.debug(f"add_recent_message: recents was None")
         recents = RecentOnly[discord.Message](timedelta(seconds=FISHING_WINDOW))
-        logger.debug(f"add_recent_message: created new instance")
+        # logger.debug(f"add_recent_message: created new instance")
         recent_messages[message.author.id] = recents
-        logger.debug(f"add_recent_message: updated reference")
+        # logger.debug(f"add_recent_message: updated reference")
     recents.append(message)
-    logger.debug(f"add_recent_message: appended message")
+    # logger.debug(f"add_recent_message: appended message")
     return recents
 
 def recent_message_count(author: discord.User | discord.Member) -> int:
@@ -1016,7 +1019,7 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
             recents = add_recent_message(message)
             if recents.count > RECENT_MESSAGE_THRESHOLD:
                 weight = recents.count - RECENT_MESSAGE_THRESHOLD
-                logger.debug(f"on_message: over threshold, {weight=}")
+                # logger.debug(f"on_message: over threshold, {weight=}")
             else:
                 weight = 0
             successes = await SwedishFish.gamble(db, weight)
@@ -1034,7 +1037,13 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
                         logger.error(f"Discord emoji for swedish fish {s.name} with id {s.emoji_id} could not be retrieved") 
                 if settings.fade_reactions:
                     await asyncio.sleep(REACTION_FADE_DELAY)
-                    await message.clear_reactions()
+                    try:
+                        for s in successes:
+                            partial_emoji = s.to_partial_emoji()
+                            await message.clear_reaction(partial_emoji)
+                        await message.clear_reactions()
+                    except discord.Forbidden as e:
+                        pass
                     if (delta:= FISHING_WINDOW - REACTION_FADE_DELAY) > 0:
                         await asyncio.sleep(delta)
 
