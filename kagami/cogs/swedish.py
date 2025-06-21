@@ -185,7 +185,7 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
         return discord.PartialEmoji.from_str(f"{FISH_PREFIX}_{self.name}:{self.emoji_id}")
 
     def probability(self) -> float:
-        return prob_quad(self.rarity)
+        return prob_threehalfs(self.rarity)
 
     def roll(self) -> bool:
         r = random.random()
