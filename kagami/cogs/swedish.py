@@ -185,7 +185,7 @@ class SwedishFish(Table, schema_version=3, trigger_version=1):
         return discord.PartialEmoji.from_str(f"{FISH_PREFIX}_{self.name}:{self.emoji_id}")
 
     def probability(self) -> float:
-        return prob_quad(self.rarity)
+        return prob_threehalfs(self.rarity)
 
     def roll(self) -> bool:
         r = random.random()
@@ -1193,7 +1193,8 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
         @override
         async def header_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, *args: Any, user_id: int, guild_id: int, **kwargs: Any) -> str:
             fields = acstr("Fish Name", 16), acstr("Rarity", 6, "m"), acstr("Count", 8, "m"), acstr("Total", 12, "m")
-            user = interaction.client.get_user(user_id)
+            user = await interaction.client.fetch_user(user_id)
+            #user = interaction.client.get_user(user_id)
             guild = interaction.client.get_guild(guild_id)
             uname = user.name if user is not None else "Unknown User"
             pname = f"{uname}'s" if not uname.lower().endswith(("s", "z")) else f"{uname}'"
@@ -1250,7 +1251,8 @@ class Cog_SwedishUser(GroupCog, group_name="fish"):
         @override
         async def item_formatter(self, db: Connection, interaction: Interaction, state: ScrollerState, index: int, row: aiosqlite.Row, *args: Any, guild_id: int, **kwargs: Any) -> str:
             user_id, score = row["user_id"], row["total"]
-            user = interaction.client.get_user(user_id)
+            # user = interaction.client.get_user(user_id)
+            user = await interaction.client.fetch_user(user_id)
             name = user.name if user else "Unknown"
             fields = acstr(self.get_display_index(index), 8), acstr(name, self.NAME_LENGTH), acstr(score, 10)
             return self.ROW_FORMAT.format(*fields)
